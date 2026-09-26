@@ -1,0 +1,112 @@
+---
+/**
+ * OpenType features on this site's body font (Instrument Sans): high-level font-variant-*
+ * properties, what the font file actually contains, and what the browser fakes when it doesn't.
+ */
+import Demo from '../Demo.astro';
+
+const features = [
+  ['tnum', 'Tabular figures', true],
+  ['liga-off', 'Turn off ligatures', false],
+  ['smcp', 'Small caps', false],
+  ['nosynth', 'font-synthesis: none', false],
+] as const;
+---
+
+<Demo title="OpenType features: tabular numbers, and what your font really contains">
+  <div class="stack" data-ot-lab>
+    <fieldset class="ot-toggles">
+      <legend>Toggle</legend>
+      {features.map(([value, label, checked]) => (
+        <label>
+          <input type="checkbox" value={value} checked={checked} />
+          {label}
+        </label>
+      ))}
+    </fieldset>
+    <div class="ot-sample" data-ot-sample>
+      <p>Official offer · Small Caps Heading · fi fl ff</p>
+      <table>
+        <caption class="visually-hidden">Invoice totals</caption>
+        <tbody>
+          <tr>
+            <th scope="row">Design</th>
+            <td>₹11,111.00</td>
+          </tr>
+          <tr>
+            <th scope="row">Build</th>
+            <td>₹8,080.50</td>
+          </tr>
+          <tr>
+            <th scope="row">Total</th>
+            <td>₹19,191.50</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="result-line" data-ot-code></p>
+  </div>
+  <p slot="note">
+    This font file's features, read with fontTools: <code>ccmp liga locl pnum tnum</code>. No
+    <code>smcp</code>, so "small caps" are <em>synthesised</em> (scaled capitals, too thin), and
+    <code>font-synthesis: none</code> refuses to fake them. Web subsets often strip features: check
+    the file you ship, not the specimen page.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '../../client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-ot-lab]').forEach((root) => {
+    const sample = need<HTMLElement>(root, '[data-ot-sample]');
+    const code = need<HTMLElement>(root, '[data-ot-code]');
+    const render = (): void => {
+      const on = new Set(
+        [...root.querySelectorAll<HTMLInputElement>('input:checked')].map((i) => i.value),
+      );
+      const decl: [string, string][] = [
+        ['font-variant-numeric', on.has('tnum') ? 'tabular-nums' : 'normal'],
+        ['font-variant-ligatures', on.has('liga-off') ? 'no-common-ligatures' : 'normal'],
+        ['font-variant-caps', on.has('smcp') ? 'small-caps' : 'normal'],
+        ['font-synthesis', on.has('nosynth') ? 'none' : 'initial'],
+      ];
+      decl.forEach(([prop, value]) => sample.style.setProperty(prop, value));
+      code.textContent =
+        decl
+          .filter(([, v]) => v !== 'normal' && v !== 'initial')
+          .map(([p, v]) => `${p}: ${v};`)
+          .join(' ') || 'All features at their defaults (proportional figures).';
+    };
+    root.addEventListener('change', render);
+    render();
+  });
+</script>
+
+<style>
+  .ot-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-m);
+    border: 0;
+    padding: 0;
+  }
+  .ot-toggles legend {
+    font-weight: 600;
+    margin-block-end: var(--space-3xs);
+  }
+  .ot-toggles label {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .ot-sample {
+    font-family: var(--font-sans);
+    font-size: var(--step-1);
+  }
+  .ot-sample table {
+    inline-size: auto;
+  }
+  .ot-sample td {
+    text-align: end;
+  }
+</style>

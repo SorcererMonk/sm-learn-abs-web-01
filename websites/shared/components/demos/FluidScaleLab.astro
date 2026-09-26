@@ -1,0 +1,173 @@
+---
+/**
+ * Utopia-style fluid type scale generator (lib/fluid.ts): two viewports, two base sizes,
+ * two ratios → clamp() for every step, previewed at any viewport and at 200% text size,
+ * next to a pure-vw scale that ignores the user's font-size setting.
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+
+const ratios = [
+  ['1.125', 'Major second'],
+  ['1.2', 'Minor third'],
+  ['1.25', 'Major third'],
+  ['1.333', 'Perfect fourth'],
+  ['1.5', 'Perfect fifth'],
+];
+const steps = [5, 4, 3, 2, 1, 0, -1];
+---
+
+<Demo title="Fluid type scale generator">
+  <div class="stack" data-fluid-lab>
+    <div class="controls">
+      <Control
+        id="fl-minvw"
+        label="Small viewport"
+        min={320}
+        max={600}
+        step={10}
+        value={360}
+        unit="px"
+      />
+      <Control
+        id="fl-maxvw"
+        label="Large viewport"
+        min={1000}
+        max={1920}
+        step={10}
+        value={1440}
+        unit="px"
+      />
+      <Control id="fl-minbase" label="Body size, small" min={14} max={20} value={16} unit="px" />
+      <Control id="fl-maxbase" label="Body size, large" min={16} max={24} value={19} unit="px" />
+      <label class="control" for="fl-minratio">
+        <span>Ratio, small</span>
+        <select id="fl-minratio">
+          {ratios.map(([v, n]) => (
+            <option value={v} selected={v === '1.2'}>
+              {v} {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label class="control" for="fl-maxratio">
+        <span>Ratio, large</span>
+        <select id="fl-maxratio">
+          {ratios.map(([v, n]) => (
+            <option value={v} selected={v === '1.25'}>
+              {v} {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Control
+        id="fl-vw"
+        label="Preview at viewport"
+        min={320}
+        max={1920}
+        step={10}
+        value={768}
+        unit="px"
+      />
+      <label class="control check" for="fl-zoom">
+        <input type="checkbox" id="fl-zoom" />
+        <span>User font size 200% (32px)</span>
+      </label>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Generated scale" tabindex="0">
+      <table class="fl-table">
+        <thead>
+          <tr>
+            <th scope="col">Step</th>
+            <th scope="col">Preview</th>
+            <th scope="col">rem + vi (px)</th>
+            <th scope="col">pure vw (px)</th>
+            <th scope="col">
+              <code>clamp()</code>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map((s) => (
+            <tr data-step={s}>
+              <th scope="row">{s}</th>
+              <td>
+                <span class="fl-sample" data-sample>
+                  Aa
+                </span>
+              </td>
+              <td data-px />
+              <td data-vw />
+              <td>
+                <code data-clamp />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p slot="note">
+    Tick 200%: the rem + vi column roughly doubles (it respects the user's setting), the pure-vw
+    column doesn't move at all. That's the WCAG 1.4.4 failure.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+  import { typeStep, type FluidConfig } from '../../lib/fluid.ts';
+
+  /** Evaluates `clamp(Arem, Brem + Cvi, Drem)` for a viewport and a root font size. */
+  const evaluate = (clamp: string, viewport: number, rootPx: number): number => {
+    const n = [...clamp.matchAll(/(-?[\d.]+)(rem|vi)/g)].map((m) => Number(m[1]));
+    if (n.length < 4) return (n[0] ?? 0) * rootPx;
+    const [lo = 0, b = 0, c = 0, hi = 0] = n;
+    return Math.min(Math.max(b * rootPx + (c / 100) * viewport, lo * rootPx), hi * rootPx);
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-fluid-lab]').forEach((root) => {
+    bindControls(root, () => {
+      const config: FluidConfig = {
+        minViewport: num(root, '#fl-minvw'),
+        maxViewport: num(root, '#fl-maxvw'),
+        minBase: num(root, '#fl-minbase'),
+        maxBase: num(root, '#fl-maxbase'),
+        minRatio: num(root, '#fl-minratio'),
+        maxRatio: num(root, '#fl-maxratio'),
+      };
+      const viewport = num(root, '#fl-vw');
+      const rootPx = need<HTMLInputElement>(root, '#fl-zoom').checked ? 32 : 16;
+      root.querySelectorAll<HTMLTableRowElement>('tr[data-step]').forEach((row) => {
+        const step = Number(row.dataset.step);
+        const clamp = typeStep(config, step);
+        const px = evaluate(clamp, viewport, rootPx);
+        // the same sizes expressed only in vw: identical at 16px root, blind to the user's setting
+        const vwOnly = evaluate(clamp, viewport, 16);
+        need<HTMLElement>(row, '[data-clamp]').textContent = clamp;
+        need<HTMLElement>(row, '[data-px]').textContent = px.toFixed(1);
+        need<HTMLElement>(row, '[data-vw]').textContent = vwOnly.toFixed(1);
+        need<HTMLElement>(row, '[data-sample]').style.fontSize = `${Math.min(px, 96)}px`;
+      });
+    });
+  });
+</script>
+
+<style>
+  .fl-table td,
+  .fl-table th {
+    vertical-align: middle;
+  }
+  .fl-table code {
+    white-space: nowrap;
+    font-size: var(--step-n2);
+  }
+  .fl-sample {
+    font-family: var(--font-display);
+    line-height: 1;
+  }
+  .check {
+    display: flex;
+    gap: var(--space-2xs);
+    align-items: center;
+  }
+</style>

@@ -1,0 +1,134 @@
+---
+/**
+ * Type setter: size, line height, measure, tracking, weight and wrapping on real text,
+ * with the measured average characters per line (target 45–75).
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+
+const text =
+  'Good typography is invisible. Readers never notice the measure, the leading or the size; they notice that reading is easy, that their eyes find the start of the next line without effort, and that an hour has passed. Change one setting and the others need re-tuning: a wider measure wants more line height, and bigger text wants less.';
+---
+
+<Demo title="Type setter: size, leading and measure as one system">
+  <div class="stack" data-type-setter>
+    <div class="controls">
+      <label class="control" for="ts-family">
+        <span>Family</span>
+        <select id="ts-family">
+          <option value="var(--font-sans)">Instrument Sans (this site)</option>
+          <option value="var(--font-display)">Fraunces (this site)</option>
+          <option value="Georgia, serif">Georgia / system serif</option>
+          <option value="system-ui, sans-serif">system-ui</option>
+          <option value="var(--font-mono)">Monospace</option>
+        </select>
+      </label>
+      <Control id="ts-size" label="Font size" min={12} max={28} value={18} unit="px" />
+      <Control id="ts-lh" label="Line height" min={1} max={2.2} step={0.05} value={1.55} />
+      <Control
+        id="ts-measure"
+        label="Measure (max-inline-size)"
+        min={20}
+        max={120}
+        value={55}
+        unit="ch"
+      />
+      <Control
+        id="ts-track"
+        label="Letter spacing"
+        min={-0.05}
+        max={0.15}
+        step={0.01}
+        value={0}
+        unit="em"
+      />
+      <Control id="ts-weight" label="Weight" min={400} max={700} step={10} value={400} />
+      <label class="control" for="ts-wrap">
+        <span>
+          <code>text-wrap</code>
+        </span>
+        <select id="ts-wrap">
+          <option>wrap</option>
+          <option selected>pretty</option>
+          <option>balance</option>
+        </select>
+      </label>
+    </div>
+    <p class="result-line" aria-live="polite" data-ts-report></p>
+    <div class="ts-stage">
+      <h3 class="ts-heading" data-ts-heading>
+        Readers notice reading being easy
+      </h3>
+      <p class="ts-sample" data-ts-sample>
+        {text}
+      </p>
+    </div>
+  </div>
+  <p slot="note">
+    Try the extremes: 120ch at line height 1.1 is exhausting; 20ch makes the eye jump every few
+    words. Body text lives around 45–75 characters and 1.4–1.6 leading. Note that <code>1ch</code>
+    is the width of "0", wider than an average letter, so 65ch often holds 80 characters: measure,
+    don't assume.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+
+  /** Average characters per rendered line, measured with a Range over the text node. */
+  function charsPerLine(p: HTMLElement): number {
+    const node = p.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return 0;
+    const length = node.textContent?.length ?? 0;
+    const range = document.createRange();
+    const tops = new Set<number>();
+    for (let i = 0; i < length; i += 1) {
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const rect = range.getClientRects()[0];
+      if (rect && rect.width > 0) tops.add(Math.round(rect.top));
+    }
+    return tops.size ? Math.round(length / tops.size) : 0;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-type-setter]').forEach((root) => {
+    const sample = need<HTMLElement>(root, '[data-ts-sample]');
+    const heading = need<HTMLElement>(root, '[data-ts-heading]');
+    const report = need<HTMLElement>(root, '[data-ts-report]');
+    bindControls(root, () => {
+      const family = need<HTMLSelectElement>(root, '#ts-family').value;
+      const size = num(root, '#ts-size');
+      const wrap = need<HTMLSelectElement>(root, '#ts-wrap').value;
+      for (const el of [sample, heading]) {
+        el.style.fontFamily = family;
+        el.style.maxInlineSize = `${num(root, '#ts-measure')}ch`;
+        el.style.letterSpacing = `${num(root, '#ts-track')}em`;
+        el.style.setProperty('text-wrap', wrap);
+      }
+      sample.style.fontSize = `${size}px`;
+      sample.style.lineHeight = String(num(root, '#ts-lh'));
+      sample.style.fontWeight = String(num(root, '#ts-weight'));
+      heading.style.fontSize = `${size * 1.953}px`;
+      requestAnimationFrame(() => {
+        const cpl = charsPerLine(sample);
+        const verdict =
+          cpl < 45 ? 'short: choppy' : cpl > 75 ? 'long: hard to track' : 'comfortable';
+        report.textContent = `≈ ${cpl} characters per line (${verdict}) · line height ${num(root, '#ts-lh')} × ${size}px = ${(num(root, '#ts-lh') * size).toFixed(1)}px`;
+      });
+    });
+  });
+</script>
+
+<style>
+  .ts-stage {
+    padding: var(--space-s);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+  }
+  .ts-heading {
+    line-height: 1.1;
+    margin-block-end: 0.5em;
+  }
+</style>

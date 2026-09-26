@@ -1,0 +1,11 @@
+---
+/**
+ * @font-face for Fraunces with all its axes (wght, opsz, SOFT, WONK). Only pages with the
+ * type demos include it, and the browser downloads it only when text uses the family.
+ */
+import full from '@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2?url';
+
+const css = `@font-face{font-family:"Fraunces Full";font-style:normal;font-display:swap;font-weight:100 900;src:url(${full}) format("woff2")}`;
+---
+
+<style is:inline set:html={css} />

@@ -1,0 +1,201 @@
+---
+title: Grid, Subgrid & Masonry
+source: L1-coding-html-css.md
+part: 12
+tier: Core → Deep
+summary: The two-dimensional model, track sizing and the 1fr trap, auto-fill vs auto-fit, placement and named areas, overlap, alignment, subgrid, the full-bleed layout, the sizing algorithm, masonry, page vs component grids, the inspector, and order.
+anchors:
+  - "Grid is a spreadsheet you draw on, then drop content into. If you find yourself doing arithmetic on widths, you probably wanted `fr`, `minmax()`, or named lines."
+  - "Subgrid is how components agree on alignment without knowing about each other: the parent owns the tracks, and the children borrow them."
+checks:
+  - q: "Build a classic \"holy grail\" layout with `grid-template-areas` that reflows to a single column on narrow containers, and explain every track size."
+    a: "Mobile first: `grid-template-areas: \"header\" \"nav\" \"main\" \"aside\" \"footer\"` in one `1fr` column. In a container query or media query at ~48rem: `grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr) minmax(10rem, 16rem); grid-template-rows: auto 1fr auto; grid-template-areas: \"header header header\" \"nav main aside\" \"footer footer footer\";` The sidebars have sensible min/max widths, main takes the rest and can shrink (minmax(0,1fr)), header and footer size to content and the middle row takes remaining height (with `min-height: 100dvh` on the grid)."
+  - q: "Explain `auto-fill` vs `auto-fit` with a case where the difference is visible."
+    a: "Both create as many tracks as fit. `auto-fill` keeps empty tracks, so with only two items in a wide container the items stay track-sized and empty columns remain on the right. `auto-fit` collapses empty tracks to zero, so the two items stretch (via 1fr) to fill the row. The difference only shows when there are fewer items than would fill a row."
+  - q: "Explain why a column containing a long code block overflows with `1fr` and not with `minmax(0, 1fr)`."
+    a: "`1fr` means `minmax(auto, 1fr)`: the track's minimum is `auto`, which is the min-content size of its items, the full width of the unbreakable `<pre>` line. So the track can't shrink below it. `minmax(0, 1fr)` sets the minimum to zero, so the track takes its share and the `<pre>` scrolls inside (with `overflow: auto`)."
+  - q: "Build a row of cards whose titles, bodies, and buttons align across cards regardless of content length, using subgrid."
+    a: "Parent: `display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));`. Each card: `display: grid; grid-row: span 3; grid-template-rows: subgrid; gap: 0;` with the title, body and button as its three children. The cards now share the parent's row tracks, so the tallest title sets the title row for every card in that row. See the subgrid playground on this page."
+  - q: "Explain the full-bleed named-line layout and let one image break out to full width."
+    a: "`grid-template-columns: [full-start] minmax(1rem, 1fr) [content-start] minmax(0, 65ch) [content-end] minmax(1rem, 1fr) [full-end];` with every child in `grid-column: content` by default. The outer tracks are gutters that grow on wide screens. A breakout child uses `grid-column: full`, spanning from `full-start` to `full-end`. This site's page grid does exactly this, with an extra `wide` track."
+build: "A layout portfolio: an editorial article with full-bleed breakouts, a magazine cover with overlapping type and imagery, a dashboard with named areas, a pricing section with subgrid-aligned cards, a photo wall (masonry fallback strategy), and a 12-column marketing grid. Each must be resilient to content changes and verified with the grid inspector."
+steps:
+  - "Editorial article on named lines with full, wide and content tracks."
+  - "Magazine cover: type and image overlapping in one cell, no absolute positioning."
+  - "Dashboard with `grid-template-areas` that reflows with a container query."
+  - "Pricing cards aligned with subgrid."
+  - "Photo wall: native masonry where supported, CSS columns as the fallback."
+  - "A 12-column marketing grid with named lines instead of utility classes."
+  - "Inspect each with the grid overlay; test with doubled content."
+taste: "Design the grid first, then place content. Strong layouts, in print and on the web, come from a few consistent tracks used with discipline, not from each component inventing its own spacing."
+quiz:
+  - q: "`1fr` is equivalent to…"
+    options: ["`minmax(0, 1fr)`", "`minmax(auto, 1fr)`", "`auto`"]
+    answer: 1
+    why: "Its minimum is auto (min-content), which is why long content blows out fr columns."
+  - q: "What does `grid-auto-flow: dense` cost?"
+    options: ["Performance", "Reading order: items can be placed visually out of DOM order", "Nothing"]
+    answer: 1
+    why: "Back-filling holes moves later items earlier visually while focus and reading order stay in DOM order."
+  - q: "How do you layer text over an image in grid without `position: absolute`?"
+    options: ["Negative margins", "Place both in the same grid area (e.g. `grid-area: 1 / 1`)", "z-index alone"]
+    answer: 1
+    why: "Grid items can share cells; later items paint on top (or use z-index)."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## The model: tracks first, then placement
+
+Grid is **two-dimensional**. The container defines **tracks** (rows and columns); tracks are separated by numbered **lines**; the intersection of a row and column is a **cell**; a rectangle of cells is an **area**. Items are **placed** onto that structure, automatically (auto-placement fills cells in order) or explicitly.
+
+<Playground
+  id="p12-model"
+  title="Lines, tracks, cells and auto-placement"
+  task="Open DevTools' grid overlay on the preview to see line numbers. Then place item 5 at `grid-column: 1 / -1`."
+  html={`<div class="grid">${[1,2,3,4,5,6,7].map((n) => '<div>' + n + '</div>').join('')}</div>`}
+  css={`.grid { display: grid; grid-template-columns: 100px 1fr 2fr; grid-template-rows: auto 80px; gap: .5rem; }\n.grid > div { background: #fed7aa; padding: .5rem; font-weight: 700; }`}
+/>
+
+## Track sizing and the `1fr` trap
+
+Tracks take fixed lengths, percentages, **`fr`** (a share of the *remaining* space), `auto`, `min-content`, `max-content`, `fit-content()`, **`minmax(min, max)`** and `repeat()`. The trap: **`1fr` means `minmax(auto, 1fr)`**, and `auto` is the content's min-content size, so a long URL or code block blows the column out. The fix is **`minmax(0, 1fr)`**.
+
+<Playground
+  id="p12-fr-trap"
+  title="1fr vs minmax(0, 1fr) with a long code line"
+  task="The left layout overflows because of the code block. Change its columns to `minmax(0, 1fr) 12rem`."
+  html={`<div class="layout a"><main><pre>const url = "https://example.com/an/extremely/long/path/that/never/breaks/and/pushes/the/column/wide";</pre></main><aside>Sidebar</aside></div>\n<div class="layout b"><main><pre>const url = "https://example.com/an/extremely/long/path/that/never/breaks/and/pushes/the/column/wide";</pre></main><aside>Sidebar</aside></div>`}
+  css={`.layout { display: grid; gap: .5rem; max-width: 28rem; margin-bottom: 1rem; outline: 2px dashed #999; }\n.a { grid-template-columns: 1fr 12rem; }\n.b { grid-template-columns: minmax(0, 1fr) 12rem; }\npre { overflow: auto; background: #1d1a19; color: #fde68a; padding: .5rem; margin: 0; }\naside { background: #fed7aa; padding: .5rem; }`}
+/>
+
+## Responsive without media queries: auto-fill vs auto-fit
+
+`repeat(auto-fill, minmax(min(100%, 16rem), 1fr))` creates as many columns as fit, each at least 16rem. **`auto-fill`** keeps empty tracks; **`auto-fit`** collapses them so the items stretch. The **`min(100%, 16rem)`** guard stops a single column overflowing on screens narrower than 16rem.
+
+<Playground
+  id="p12-autofit"
+  title="auto-fill keeps empty tracks; auto-fit collapses them"
+  task="With two items the rows differ. Add four more items to each: now they look identical."
+  html={`<p>auto-fill</p><div class="fill"><div>1</div><div>2</div></div>\n<p>auto-fit</p><div class="fit"><div>1</div><div>2</div></div>`}
+  css={`.fill, .fit { display: grid; gap: .5rem; outline: 2px dashed #999; }\n.fill { grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr)); }\n.fit { grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); }\n.fill > div, .fit > div { background: #fed7aa; padding: .5rem; }`}
+/>
+
+## Placement: lines, spans, names and areas
+
+Place with **line numbers** (negative numbers count from the end, so `1 / -1` spans everything), **`span n`**, **named lines** (`[content-start]`), and **`grid-template-areas`**: ASCII-art layouts that double as documentation, with `grid-area: name` on the items. Items beyond the explicit grid create **implicit tracks** sized by `grid-auto-rows`/`grid-auto-columns`. **`grid-auto-flow`** chooses `row` or `column` filling, and `dense` back-fills holes at the cost of reading order.
+
+<Playground
+  id="p12-areas"
+  title="grid-template-areas as a readable layout"
+  task="Rearrange the ASCII art to move the sidebar to the right, then make the footer span only under main."
+  html={`<div class="page"><header>Header</header><nav>Nav</nav><main>Main</main><aside>Aside</aside><footer>Footer</footer></div>`}
+  css={`.page { display: grid; gap: .5rem; min-height: 16rem;\n  grid-template-columns: 8rem minmax(0, 1fr) 8rem;\n  grid-template-rows: auto 1fr auto;\n  grid-template-areas:\n    "header header header"\n    "nav    main   aside"\n    "footer footer footer"; }\nheader { grid-area: header; } nav { grid-area: nav; } main { grid-area: main; } aside { grid-area: aside; } footer { grid-area: footer; }\n.page > * { background: #fed7aa; padding: .5rem; }`}
+/>
+
+## Overlap and layering
+
+Several items can occupy the **same cell**: hero text over an image without `position: absolute`, so the container still sizes to the taller of the two. `z-index` works on grid items without positioning. The **stack** pattern names one area and puts every layer in it.
+
+<Playground
+  id="p12-overlap"
+  title="A hero with text over an image, all in one cell"
+  task="Move the text to the bottom-left corner with `align-self` and `justify-self`, then add a third layer (a badge) in the same cell."
+  html={`<section class="hero">\n  <div class="img" role="img" aria-label="Orange dusk over the sea"></div>\n  <h2>Evenings on the Konkan coast</h2>\n</section>`}
+  css={`.hero { display: grid; grid-template-areas: "stack"; border-radius: 1rem; overflow: hidden; }\n.hero > * { grid-area: stack; }\n.img { min-height: 14rem; background: linear-gradient(#fdba74, #c2410c 60%, #431407); }\nh2 { place-self: center; color: white; font: 800 1.75rem/1.1 system-ui; text-align: center; padding: 1rem; text-shadow: 0 2px 12px rgb(0 0 0 / .4); }`}
+/>
+
+## Alignment in two dimensions
+
+Per item: `justify-self` (inline axis) and `align-self` (block axis), or both with `place-self`. For all items: `justify-items`, `align-items`, `place-items`. For the whole grid inside a larger container: `justify-content`, `align-content`. Spacing: `gap`.
+
+<Playground
+  id="p12-align"
+  title="Items vs content alignment"
+  task="Set `place-items: center` on the grid, then `justify-content: space-between` and watch the tracks move instead of the items."
+  html={`<div class="g"><div>A</div><div>B</div><div>C</div><div class="self">self</div></div>`}
+  css={`.g { display: grid; grid-template-columns: repeat(2, 6rem); grid-auto-rows: 5rem; gap: .5rem; height: 13rem; border: 2px dashed #999; }\n.g > div { background: #fed7aa; padding: .25rem; }\n.self { justify-self: end; align-self: end; background: #c2410c !important; color: white; }`}
+/>
+
+## Subgrid
+
+`grid-template-columns: subgrid` or `grid-template-rows: subgrid` lets a nested grid **borrow its parent's tracks**, so separate components align with each other: card headers, bodies and footers aligned across a row of cards; form labels and inputs aligned across fieldsets. Line names are inherited, and gaps can be overridden in the subgrid.
+
+<Playground
+  id="p12-subgrid"
+  title="Cards whose titles, bodies and buttons line up across the row"
+  task="Remove `grid-template-rows: subgrid` from `.card` and see the buttons stagger. Lengthen one title: every card's title row grows together."
+  html={`<div class="cards">\n  <article class="card"><h3>Starter</h3><p>For side projects.</p><a href="#">Choose Starter</a></article>\n  <article class="card"><h3>Professional with a long plan name</h3><p>For freelancers who need a lot more: custom domains, analytics and priority support.</p><a href="#">Choose Professional</a></article>\n  <article class="card"><h3>Team</h3><p>For teams.</p><a href="#">Choose Team</a></article>\n</div>`}
+  css={`.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; }\n.card { display: grid; grid-row: span 3; grid-template-rows: subgrid; gap: .5rem; padding: 1rem; border: 1px solid #ccc; border-radius: .75rem; }\n.card h3, .card p { margin: 0; }\n.card a { align-self: end; background: #c2410c; color: white; padding: .4rem .6rem; border-radius: .4rem; text-align: center; text-decoration: none; }`}
+/>
+
+## The full-bleed layout
+
+Named lines turn a page into three nested widths: `[full-start] minmax(1rem, 1fr) [content-start] minmax(0, 65ch) [content-end] minmax(1rem, 1fr) [full-end]`. Every child sits in `content` by default; any child can **break out** with `grid-column: full`. It's the modern layout for articles and marketing pages, and it's how this site's pages are built (with an extra `wide` track).
+
+<Playground
+  id="p12-bleed"
+  title="Article with a full-bleed image and a wide pull quote"
+  task="Add a `wide` track between content and full, and make the pull quote use it."
+  html={`<article class="post">\n  <h2>Named lines</h2>\n  <p>Most children sit in the content column, a comfortable reading measure.</p>\n  <div class="bleed" role="img" aria-label="Wide sunset"></div>\n  <p>This image broke out to the full width of the page with one declaration.</p>\n  <blockquote>A pull quote that could go wide.</blockquote>\n</article>`}
+  css={`.post { display: grid; grid-template-columns: [full-start] minmax(1rem, 1fr) [content-start] minmax(0, 32ch) [content-end] minmax(1rem, 1fr) [full-end]; }\n.post > * { grid-column: content; }\n.post > .bleed { grid-column: full; height: 8rem; background: linear-gradient(90deg, #fdba74, #c2410c); }\nblockquote { font: italic 1.25rem/1.4 Georgia, serif; border-left: 4px solid #c2410c; margin: 0; padding-left: 1rem; }`}
+  solution={{ css: `.post { display: grid; grid-template-columns: [full-start] minmax(1rem, 1fr) [wide-start] minmax(0, 6rem) [content-start] minmax(0, 32ch) [content-end] minmax(0, 6rem) [wide-end] minmax(1rem, 1fr) [full-end]; }\n.post > * { grid-column: content; }\n.post > .bleed { grid-column: full; height: 8rem; background: linear-gradient(90deg, #fdba74, #c2410c); }\n.post > blockquote { grid-column: wide; font: italic 1.25rem/1.4 Georgia, serif; border-left: 4px solid #c2410c; margin: 0; padding-left: 1rem; }` }}
+/>
+
+## The grid sizing algorithm
+
+In order: **resolve intrinsic track sizes** (first for items spanning one track, then for items spanning several, distributing their extra size across the spanned tracks), **maximise** tracks up to their growth limits, **expand flexible (`fr`) tracks** with the leftover space, then **stretch `auto` tracks**. Percentages and intrinsic sizes interact surprisingly: a percentage track in an auto-sized grid resolves against a size that doesn't exist yet, so it behaves as `auto` during sizing and then resolves.
+
+<Playground
+  id="p12-algorithm"
+  title="auto tracks stretch; fr tracks take leftovers; spanning items grow tracks"
+  task="Predict each column's width, then check with the console. Make the spanning item's text longer and see which tracks grow."
+  html={`<div class="g" id="g"><div>auto</div><div>min-content words here</div><div>1fr</div><div class="span">This item spans the first two tracks and has a lot of content in it</div></div>`}
+  css={`.g { display: grid; grid-template-columns: auto min-content 1fr; gap: .5rem; max-width: 28rem; }\n.g > div { background: #fed7aa; padding: .25rem; }\n.span { grid-column: 1 / 3; background: #fde68a !important; }`}
+  js={`console.log('Track sizes: ' + getComputedStyle(document.getElementById('g')).gridTemplateColumns);`}
+/>
+
+## Masonry **[Frontier]**
+
+A masonry layout packs items of different heights into columns without row alignment. The specification debated whether it belongs in grid (`grid-template-rows: masonry`) or needs its own display type, and has resolved toward **grid lanes** (`display: grid-lanes`). Check what has shipped where before relying on it. Fallbacks today: **CSS columns** for simple cases (but items flow top-to-bottom, then across), grid with `dense` for approximations, or JavaScript for true masonry.
+
+<Playground
+  id="p12-masonry"
+  title="Native masonry where supported, CSS columns elsewhere"
+  task="Compare the reading order of the fallback: 1, 2, 3 go down the first column. Would that order matter for your content?"
+  html={`<div class="wall">${[7, 4, 10, 5, 8, 6, 9, 4].map((h, i) => '<div style="height:' + h + 'rem">' + (i + 1) + '</div>').join('')}</div>`}
+  css={`.wall { columns: 3 8rem; column-gap: .5rem; }\n.wall > div { break-inside: avoid; margin-bottom: .5rem; background: #fed7aa; border-radius: .5rem; padding: .5rem; font-weight: 700; }\n@supports (display: grid-lanes) {\n  .wall { display: grid-lanes; grid-template-columns: repeat(3, 1fr); gap: .5rem; columns: auto; }\n  .wall > div { margin: 0; }\n}\n@supports (grid-template-rows: masonry) {\n  .wall { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: masonry; gap: .5rem; columns: auto; }\n  .wall > div { margin: 0; }\n}`}
+/>
+
+## Grid for pages and for components
+
+**Macro layout**: page shells via named areas. **Component internals**: a card's image/title/meta, a form row's label/input/hint, a dashboard tile. **Design grids**: translate a 12-column Figma grid into CSS with named lines (`[col-1-start] … [col-12-end]` or `repeat(12, [col-start] minmax(0, 1fr))`) instead of utility classes, so components say `grid-column: col-start 3 / span 6`.
+
+<Playground
+  id="p12-12col"
+  title="A 12-column design grid with named lines"
+  task="Make the feature block span columns 2–9 on this grid, and the note columns 10–12."
+  html={`<div class="grid12"><div class="hero">Hero · col 1 / span 12</div><div class="feature">Feature</div><div class="note">Note</div>${Array.from({ length: 12 }, (_, i) => '<i>' + (i + 1) + '</i>').join('')}</div>`}
+  css={`.grid12 { display: grid; grid-template-columns: repeat(12, [col-start] minmax(0, 1fr)); gap: .5rem; }\n.hero { grid-column: col-start 1 / span 12; background: #c2410c; color: white; padding: .5rem; }\n.feature { grid-column: col-start 1 / span 8; background: #fed7aa; padding: .5rem; }\n.note { grid-column: col-start 9 / span 4; background: #fde68a; padding: .5rem; }\ni { font-size: .7rem; text-align: center; background: #f4f1ee; font-style: normal; }`}
+/>
+
+## Grid inspection
+
+Firefox and Chrome DevTools draw grid overlays: line numbers (positive and negative), line names, area names, track sizes and gaps. Firefox's is the most detailed; Chrome's shows subgrid and flex overlays too. Use them constantly: most grid bugs are visible in one glance at the overlay.
+
+<Try task="Open DevTools on this page, find the element with class `page-grid` (or the lesson body), toggle its grid badge, and enable 'Show line names'. Which named lines does this site use?">
+  You'll see `full-start`/`full-end`, `wide-start`/`wide-end` and `content-start`/`content-end`: the full-bleed pattern from this lesson, with content capped at a readable measure and wide blocks (demos, playgrounds) breaking out.
+</Try>
+
+## Accessibility: placement is presentation
+
+Grid placement (line numbers, areas, `order`, `dense`) moves boxes visually but **doesn't change reading or focus order**. Keep the DOM in a meaningful order and use placement for presentation only; if the visual order must differ, check it with a keyboard and a screen reader.
+
+<Playground
+  id="p12-order"
+  title="Placement that breaks focus order"
+  task="Tab through: focus goes 1 → 2 → 3 even though 3 is drawn first. Reorder the HTML so visual and DOM order agree, and remove the placement rule."
+  html={`<div class="g"><a href="#1">1 · Intro</a><a href="#2">2 · Details</a><a href="#3">3 · Summary (placed first)</a></div>`}
+  css={`.g { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }\n.g a { padding: .5rem; background: #fed7aa; }\n.g a:nth-child(3) { grid-row: 1; grid-column: 1; }\na:focus-visible { outline: 3px solid #c2410c; }`}
+/>

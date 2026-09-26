@@ -1,0 +1,91 @@
+---
+/**
+ * Variable font axes on Fraunces: registered axes through high-level properties
+ * (font-weight, font-optical-sizing) and custom axes (SOFT, WONK) composed from custom
+ * properties, because font-variation-settings doesn't inherit piecemeal.
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+import FrauncesFull from './FrauncesFull.astro';
+---
+
+<FrauncesFull />
+<Demo title="Variable font axes: one file, a whole family">
+  <div class="stack" data-vf-lab>
+    <div class="controls">
+      <Control id="vf-wght" label="wght → font-weight" min={100} max={900} value={600} />
+      <Control id="vf-opsz" label="opsz (optical size)" min={9} max={144} value={72} />
+      <Control id="vf-soft" label="SOFT (custom axis)" min={0} max={100} value={0} />
+      <label class="control check" for="vf-wonk">
+        <input type="checkbox" id="vf-wonk" />
+        <span>WONK (custom axis: leaning letters)</span>
+      </label>
+      <label class="control check" for="vf-animate">
+        <input type="checkbox" id="vf-animate" />
+        <span>Animate weight (respects reduced motion)</span>
+      </label>
+    </div>
+    <p class="vf-sample" data-vf-sample>
+      Handgloves &amp; quirky nights
+    </p>
+    <p class="result-line" data-vf-code></p>
+  </div>
+  <p slot="note">
+    Registered axes map to real properties (<code>font-weight</code>,
+    <code>font-optical-sizing</code>, <code>font-stretch</code>, <code>font-style</code>); custom
+    uppercase axes need <code>font-variation-settings</code>, composed here from
+    <code>--soft</code> and <code>--wonk</code> so each can be changed independently.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+  import { prefersReducedMotion } from '../../client/store.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-vf-lab]').forEach((root) => {
+    const sample = need<HTMLElement>(root, '[data-vf-sample]');
+    const code = need<HTMLElement>(root, '[data-vf-code]');
+    const animate = need<HTMLInputElement>(root, '#vf-animate');
+    bindControls(root, () => {
+      const wonk = need<HTMLInputElement>(root, '#vf-wonk').checked ? 1 : 0;
+      sample.style.fontWeight = String(num(root, '#vf-wght'));
+      sample.style.setProperty('--opsz', String(num(root, '#vf-opsz')));
+      sample.style.setProperty('--soft', String(num(root, '#vf-soft')));
+      sample.style.setProperty('--wonk', String(wonk));
+      sample.classList.toggle('vf-breathe', animate.checked && !prefersReducedMotion());
+      code.textContent = `font-weight: ${num(root, '#vf-wght')}; font-variation-settings: "opsz" ${num(root, '#vf-opsz')}, "SOFT" ${num(root, '#vf-soft')}, "WONK" ${wonk};`;
+    });
+  });
+</script>
+
+<style>
+  .vf-sample {
+    --opsz: 72;
+    --soft: 0;
+    --wonk: 0;
+    font-family: 'Fraunces Full', var(--font-display);
+    font-size: clamp(2.5rem, 1rem + 6vi, 5.5rem);
+    line-height: 1.05;
+    font-variation-settings:
+      'opsz' var(--opsz),
+      'SOFT' var(--soft),
+      'WONK' var(--wonk);
+    text-wrap: balance;
+  }
+  .vf-breathe {
+    animation: vf-breathe 2.4s var(--ease-standard) infinite alternate;
+  }
+  @keyframes vf-breathe {
+    from {
+      font-weight: 200;
+    }
+    to {
+      font-weight: 900;
+    }
+  }
+  .check {
+    display: flex;
+    gap: var(--space-2xs);
+    align-items: center;
+  }
+</style>
