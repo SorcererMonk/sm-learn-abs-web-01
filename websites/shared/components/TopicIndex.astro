@@ -30,7 +30,7 @@ const groups = [...new Map(items.map((i) => [i.group, i.groupLabel])).entries()]
 
 <section class="stack" data-topic-index aria-labelledby="index-title">
   <h2 id="index-title">{label}</h2>
-  <div class="index-controls" hidden>
+  <div class="index-controls" data-requires-js>
     <label class="control" for="index-search">
       <span>Search parts and topics</span>
       <input

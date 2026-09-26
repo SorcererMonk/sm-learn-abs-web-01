@@ -145,7 +145,7 @@ import CartButton from '../components/CartButton.tsx'; // interactive island
 
 A small server that serves static assets with correct cache headers, renders pages from templates with data from **SQLite**, handles a form with validation and **PRG**, sets **secure cookies** for a session, returns proper **status codes** and error pages, **streams** a slow section, and sets **security headers** (Part 25). Here is one with no dependencies (Node's built-in `http` and `sqlite`), tested by this site's unit tests. Run it with `npm run guestbook` in `websites/01-foundations`.
 
-<Code code={guestbook} lang="ts" />
+<Code code={guestbook} lang="ts" themes={{ light: 'github-light-high-contrast', dark: 'github-dark-high-contrast' }} />
 
 <Try task="Run the guestbook (`npm run guestbook`), sign it, then try to break it: post HTML in your name, submit with the CSRF field deleted in DevTools, visit /?page=999, /slow on a throttled connection, and read the response headers of each.">
   Your HTML shows as text (escaped). Deleting the csrf field gives 403. `?page=999` renders an empty page with a "Newer" link (you could return 404 instead for out-of-range pages). `/slow` shows "Report" and "Loading figures…" immediately and the figures ~0.8 s later: streaming. Every response carries CSP, nosniff, Referrer-Policy and Permissions-Policy; the CSS has `immutable` caching because its filename is versioned.

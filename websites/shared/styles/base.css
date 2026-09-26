@@ -120,9 +120,12 @@ pre {
   border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
 }
-/* short tokens (marked at build time) never split at their hyphens */
-:not(pre) > code.nowrap {
-  white-space: nowrap;
+/* short tokens (marked at build time) never split at their hyphens, except on narrow
+   screens, where runs like `a-b`/`c-d` would otherwise force sideways scrolling */
+@media (width >= 30rem) {
+  :not(pre) > code.nowrap {
+    white-space: nowrap;
+  }
 }
 
 kbd {
@@ -284,4 +287,10 @@ label {
   kbd {
     border-color: CanvasText;
   }
+}
+
+/* JS-only controls: present from first paint when scripting is on (no layout shift),
+   absent when it's off. The flag is set by the inline script in <head>. */
+html:not([data-js]) [data-requires-js] {
+  display: none !important;
 }

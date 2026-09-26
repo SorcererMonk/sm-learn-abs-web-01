@@ -46,6 +46,16 @@ import FrauncesFull from './FrauncesFull.astro';
     const sample = need<HTMLElement>(root, '[data-vf-sample]');
     const code = need<HTMLElement>(root, '[data-vf-code]');
     const animate = need<HTMLInputElement>(root, '#vf-animate');
+    // Only switch to the 121 KB all-axes font when the demo approaches the viewport, so it
+    // never competes with the page's first render.
+    new IntersectionObserver(
+      (entries, observer) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        sample.classList.add('is-live');
+        observer.disconnect();
+      },
+      { rootMargin: '400px' },
+    ).observe(root);
     bindControls(root, () => {
       const wonk = need<HTMLInputElement>(root, '#vf-wonk').checked ? 1 : 0;
       sample.style.fontWeight = String(num(root, '#vf-wght'));
@@ -63,7 +73,7 @@ import FrauncesFull from './FrauncesFull.astro';
     --opsz: 72;
     --soft: 0;
     --wonk: 0;
-    font-family: 'Fraunces Full', var(--font-display);
+    font-family: var(--font-display);
     font-size: clamp(2.5rem, 1rem + 6vi, 5.5rem);
     line-height: 1.05;
     font-variation-settings:
@@ -71,6 +81,9 @@ import FrauncesFull from './FrauncesFull.astro';
       'SOFT' var(--soft),
       'WONK' var(--wonk);
     text-wrap: balance;
+  }
+  .vf-sample.is-live {
+    font-family: 'Fraunces Full', var(--font-display);
   }
   .vf-breathe {
     animation: vf-breathe 2.4s var(--ease-standard) infinite alternate;

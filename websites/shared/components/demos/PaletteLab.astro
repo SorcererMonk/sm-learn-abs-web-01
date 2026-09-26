@@ -16,13 +16,13 @@ const names = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
       <Control id="pl-hue" label="Hue" min={0} max={360} value={35} unit="°" />
       <Control id="pl-chroma" label="Peak chroma" min={0} max={0.3} step={0.005} value={0.16} />
     </div>
-    <h5 class="kicker">OKLCH: even lightness steps</h5>
+    <h4 class="kicker">OKLCH: even lightness steps</h4>
     <ol class="pl-scale" role="list" data-pl-oklch>
       {names.map((n) => (
         <li data-name={n} />
       ))}
     </ol>
-    <h5 class="kicker">HSL at the same hue, 10% lightness steps (OKLCH L shown)</h5>
+    <h4 class="kicker">HSL at the same hue, 10% lightness steps (OKLCH L shown)</h4>
     <ol class="pl-scale" role="list" data-pl-hsl>
       {names.map((n) => (
         <li data-name={n} />

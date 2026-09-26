@@ -87,7 +87,9 @@ import Control from '@learn/shared/components/Control.astro';
 <style>
   .vb-stage {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     place-items: center;
+    overflow: hidden;
     min-block-size: 22rem;
     background: var(--color-surface-2);
     border-radius: var(--radius-md);

@@ -118,7 +118,10 @@ const items = [
         shrink: num(row, '[data-f="shrink"]'),
       }));
       const result = resolveFlexibleLengths(container, items, gap);
-      const scale = Math.min(1, (root.clientWidth - 8) / Math.max(container, 1));
+      // scale to the lane the track actually has (the grid column), not the whole demo
+      const lane = computed.parentElement ? computed.parentElement.clientWidth : root.clientWidth;
+      const labels = root.querySelector<HTMLElement>('.fc-row .kicker')?.offsetWidth ?? 0;
+      const scale = Math.min(1, (lane - labels - 24) / Math.max(container, 1));
       for (const track of [computed, real]) {
         track.style.inlineSize = `${container * scale}px`;
         track.style.gap = `${gap * scale}px`;
@@ -155,7 +158,7 @@ const items = [
   }
   .fc-row {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: max-content minmax(0, 1fr);
     gap: var(--space-2xs) var(--space-s);
     align-items: center;
   }

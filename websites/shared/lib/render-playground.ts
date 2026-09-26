@@ -53,7 +53,7 @@ export function renderPlayground(props: PlaygroundProps): string {
   const solutionAttr = solution ? ` data-solution="${escapeHtml(JSON.stringify(solution))}"` : '';
   const doc = composeDocument(id, props);
   return `<div class="demo" data-playground="${escapeHtml(id)}"${solutionAttr}${height ? ` style="--pg-height:${escapeHtml(height)}"` : ''}>
-<div class="demo__header"><span class="demo__badge">Playground</span><h4 class="demo__title">${renderInline(title)}</h4></div>
+<div class="demo__header"><span class="demo__badge">Playground</span><h3 class="demo__title">${renderInline(title)}</h3></div>
 ${task ? `<div class="demo__body"><p><strong>Task:</strong> ${renderInline(task)}</p></div>` : ''}
 <div class="playground">
 <div class="playground__editor"><div class="tabs" role="tablist" aria-label="Source files">${tabs}</div>${panels}</div>

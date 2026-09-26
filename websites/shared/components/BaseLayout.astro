@@ -31,7 +31,9 @@ const pageTitle =
   title === site.name ? `${site.name} · ${site.tagline}` : `${title} · ${site.name}`;
 
 // Applied before first paint so a saved theme never flashes.
-const themeScript = `try{var t=localStorage.getItem('learn:theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`;
+// Runs before first paint: applies the saved theme (no flash) and marks that JavaScript is on,
+// so JS-only controls take their space immediately instead of shifting the layout later.
+const themeScript = `document.documentElement.dataset.js='';try{var t=localStorage.getItem('learn:theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`;
 ---
 
 <!doctype html>
@@ -76,11 +78,16 @@ const themeScript = `try{var t=localStorage.getItem('learn:theme');if(t==='light
         </nav>
         <div class="header-actions">
           {showProgress && (
-            <span class="progress-pill" data-progress-pill data-total={totalParts} hidden>
+            <span class="progress-pill" data-progress-pill data-total={totalParts} data-requires-js>
               0/{totalParts}
             </span>
           )}
-          <button type="button" class="btn btn--small btn--ghost" data-theme-toggle hidden>
+          <button
+            type="button"
+            class="btn btn--small btn--ghost"
+            data-theme-toggle
+            data-requires-js
+          >
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path fill="currentColor" d="M12 3a9 9 0 1 0 0 18V3Z"></path>
               <circle

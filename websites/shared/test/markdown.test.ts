@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { escapeHtml, safeUrl } from '../lib/escape.ts';
 import { renderInline, stripInline } from '../lib/inline-md.ts';
 import { rehypeShortCode } from '../lib/rehype-short-code.ts';
+import { rehypeTableScroll } from '../lib/rehype-table-scroll.ts';
 import { hashId, parseBlocks, parseCurriculum, topicLead } from '../lib/md-source.ts';
 import { renderBlocks, renderDojo } from '../lib/render-md.ts';
 import { renderQuiz } from '../lib/render-quiz.ts';
@@ -156,5 +157,43 @@ describe('rehypeShortCode', () => {
     expect(p?.children[0]?.properties.className).toEqual(['nowrap']);
     expect(p?.children[1]?.properties.className).toBeUndefined();
     expect(pre?.children[0]?.properties.className).toBeUndefined();
+  });
+});
+
+describe('rehypeTableScroll', () => {
+  it('wraps tables in a labelled, focusable scroll region', () => {
+    const cell = (tag: string, value: string) => ({
+      type: 'element',
+      tagName: tag,
+      children: [{ type: 'text', value }],
+    });
+    const table = {
+      type: 'element',
+      tagName: 'table',
+      children: [
+        {
+          type: 'element',
+          tagName: 'thead',
+          children: [
+            { type: 'element', tagName: 'tr', children: [cell('th', 'Format'), cell('th', 'Use')] },
+          ],
+        },
+      ],
+    };
+    const tree = { type: 'root', children: [table] };
+    rehypeTableScroll()(tree);
+    const wrapper = tree.children[0] as {
+      tagName: string;
+      properties: Record<string, unknown>;
+      children: unknown[];
+    };
+    expect(wrapper.tagName).toBe('div');
+    expect(wrapper.properties).toEqual({
+      className: ['table-scroll'],
+      role: 'region',
+      tabIndex: 0,
+      ariaLabel: 'Table: Format, Use',
+    });
+    expect(wrapper.children[0]).toBe(table);
   });
 });

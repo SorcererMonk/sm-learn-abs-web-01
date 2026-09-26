@@ -56,9 +56,9 @@ const text =
     </div>
     <p class="result-line" aria-live="polite" data-ts-report></p>
     <div class="ts-stage">
-      <h3 class="ts-heading" data-ts-heading>
+      <p class="ts-heading" data-ts-heading>
         Readers notice reading being easy
-      </h3>
+      </p>
       <p class="ts-sample" data-ts-sample>
         {text}
       </p>
@@ -128,6 +128,8 @@ const text =
     overflow-x: auto;
   }
   .ts-heading {
+    font-family: var(--font-display);
+    font-weight: 700;
     line-height: 1.1;
     margin-block-end: 0.5em;
   }

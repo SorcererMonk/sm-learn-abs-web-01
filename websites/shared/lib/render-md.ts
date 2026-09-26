@@ -12,6 +12,8 @@ import { slugify } from './slug.ts';
 export interface RenderOptions {
   /** Added to heading depth (a source h3 rendered under a page h2 needs +0; under h1 -1 etc.). */
   headingBase?: number;
+  /** depth of the heading these blocks sit under; labels become the next level down */
+  sectionDepth?: number;
   /** Prefix for progress ids; when set, list items and ladder rows become trackable. */
   progressKey?: string;
   /** Section-specific enhancements (see renderDojoSection). */
@@ -104,16 +106,22 @@ function dotList(text: string): string[] | undefined {
 
 export function renderBlocks(blocks: Block[], caption: string, opts: RenderOptions = {}): string {
   const base = opts.headingBase ?? 0;
+  let current = opts.sectionDepth ?? 2;
   const out: string[] = [];
   for (const block of blocks) {
     switch (block.type) {
       case 'heading': {
         const depth = Math.min(6, Math.max(2, block.depth + base));
+        current = depth;
         out.push(`<h${depth} id="${slugify(block.text)}">${renderInline(block.text)}</h${depth}>`);
         break;
       }
       case 'label':
-        out.push(`<h4 class="label-heading">${renderInline(block.text)}</h4>`);
+        {
+          // one level below the heading in force, so the outline never skips a level
+          const level = Math.min(6, current + 1);
+          out.push(`<h${level} class="label-heading">${renderInline(block.text)}</h${level}>`);
+        }
         break;
       case 'paragraph': {
         const items = opts.progressKey && opts.mode !== 'rules' ? dotList(block.text) : undefined;

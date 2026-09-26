@@ -13,7 +13,10 @@
     "coverage": "node ../shared/tools/coverage.ts --site 01-foundations",
     "test:e2e": "playwright test",
     "guestbook": "node --no-warnings=ExperimentalWarning examples/guestbook/server.ts",
-    "test": "cd .. && vitest run 01-foundations shared"
+    "test": "cd .. && vitest run 01-foundations shared",
+    "budget": "node ../shared/tools/budget.ts --site 01-foundations",
+    "lighthouse": "node ../shared/tools/lighthouse.ts --site 01-foundations",
+    "verify": "npm run coverage -- --check && npm run check && npm test && npm run build && npm run budget && npm run test:e2e"
   },
   "dependencies": {
     "@astrojs/mdx": "8.0.2",
