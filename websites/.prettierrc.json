@@ -1,6 +1,16 @@
 {
   "singleQuote": true,
   "printWidth": 100,
-  "plugins": ["prettier-plugin-astro"],
-  "overrides": [{ "files": "*.astro", "options": { "parser": "astro" } }]
+  "plugins": [
+    "prettier-plugin-astro"
+  ],
+  "overrides": [
+    {
+      "files": "*.astro",
+      "options": {
+        "parser": "astro"
+      }
+    }
+  ],
+  "embeddedLanguageFormatting": "off"
 }

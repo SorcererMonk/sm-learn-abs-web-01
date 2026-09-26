@@ -22,6 +22,11 @@ describe('escaping', () => {
     expect(safeUrl(' data:text/html,x')).toBe('#');
     expect(safeUrl('https://example.com')).toBe('https://example.com');
     expect(safeUrl('/learn/')).toBe('/learn/');
+    // the URL parser drops tabs/newlines and leading control characters: so must we
+    expect(safeUrl('java\tscript:alert(1)')).toBe('#');
+    expect(safeUrl('java\nscript:alert(1)')).toBe('#');
+    expect(safeUrl('\u0001javascript:alert(1)')).toBe('#');
+    expect(safeUrl('JaVaScRiPt:alert(1)')).toBe('#');
   });
 });
 

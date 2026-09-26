@@ -1,0 +1,123 @@
+---
+/**
+ * One untrusted value, six template contexts (lib/escape-contexts.ts): what naive HTML escaping
+ * produces in each, whether that's exploitable, and the correct encoding. Nothing is executed:
+ * outputs are shown as text.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+const payloads = [
+  ['x onfocus=alert(1) autofocus', 'Attribute breakout'],
+  ['javascript:alert(document.cookie)', 'javascript: URL'],
+  ['\\"; alert(1); //', 'Backslash in a script string'],
+  ['red; background: url(//evil.example/?c=1)', 'CSS injection'],
+  ['"><script>alert(1)</script>', 'Classic tag injection'],
+  ['Asha & Sam "quoted"', 'Harmless text'],
+];
+---
+
+<Demo title="Escape lab: one value, six output contexts">
+  <div class="stack" data-escape-lab>
+    <div class="controls">
+      <label class="control" for="el-value">
+        <span>Untrusted value (from a form, URL or database)</span>
+        <input id="el-value" value={payloads[0]?.[0]} spellcheck="false" autocomplete="off" />
+      </label>
+      <label class="control" for="el-preset">
+        <span>Try a payload</span>
+        <select id="el-preset">
+          {payloads.map(([v, n]) => (
+            <option value={v}>{n}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Escaping by context" tabindex="0">
+      <table class="el-table">
+        <thead>
+          <tr>
+            <th scope="col">Context</th>
+            <th scope="col">HTML-escape only</th>
+            <th scope="col">Verdict</th>
+            <th scope="col">Correct output</th>
+          </tr>
+        </thead>
+        <tbody data-el-rows></tbody>
+      </table>
+    </div>
+  </div>
+  <p slot="note">
+    Auto-escaping protects HTML text and quoted attributes. Every other context needs its own
+    encoding or validation, which is why "raw" filters, inline scripts with data and style
+    attributes built from strings are where template XSS lives.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { analyse } from '../../lib/escape-contexts.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-escape-lab]').forEach((root) => {
+    const input = need<HTMLInputElement>(root, '#el-value');
+    const preset = need<HTMLSelectElement>(root, '#el-preset');
+    const rows = need<HTMLTableSectionElement>(root, '[data-el-rows]');
+    const cell = (text: string, code = false): HTMLTableCellElement => {
+      const td = document.createElement('td');
+      if (code) {
+        const c = document.createElement('code');
+        c.textContent = text;
+        td.append(c);
+      } else td.textContent = text;
+      return td;
+    };
+    const render = (): void => {
+      rows.replaceChildren(
+        ...analyse(input.value).map((r) => {
+          const tr = document.createElement('tr');
+          const th = document.createElement('th');
+          th.scope = 'row';
+          const tpl = document.createElement('code');
+          tpl.textContent = r.template;
+          th.append(tpl);
+          const verdict = cell(r.danger ? `Unsafe: ${r.danger}` : 'Safe');
+          verdict.dataset.safe = String(!r.danger);
+          const fix = cell(r.correct, true);
+          const note = document.createElement('small');
+          note.textContent = r.fix;
+          fix.append(document.createElement('br'), note);
+          tr.append(th, cell(r.naive, true), verdict, fix);
+          return tr;
+        }),
+      );
+    };
+    input.addEventListener('input', render);
+    preset.addEventListener('change', () => {
+      input.value = preset.value;
+      render();
+    });
+    render();
+  });
+</script>
+
+<style>
+  .el-table {
+    font-size: var(--step-n1);
+  }
+  .el-table :global(code) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .el-table :global(td[data-safe='false']) {
+    color: var(--color-danger);
+    font-weight: 600;
+  }
+  .el-table :global(td[data-safe='true']) {
+    color: var(--color-success);
+    font-weight: 600;
+  }
+  .el-table :global(th),
+  .el-table :global(td) {
+    vertical-align: top;
+    min-inline-size: 10rem;
+  }
+</style>

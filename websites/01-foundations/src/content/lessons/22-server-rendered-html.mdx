@@ -1,0 +1,179 @@
+---
+title: "Server-Rendered HTML: Forms, Templates, Hypermedia & the Backend of Markup"
+source: L1-coding-html-css.md
+part: 22
+tier: Core → Deep
+summary: HTML over HTTP, forms with Post/Redirect/Get and CSRF, auto-escaping templates and their contexts, static site generation, hypermedia with htmx, server-rendered components, a minimal Node backend you can run, sanitising user HTML, internationalised output, and error pages.
+anchors:
+  - "A form plus a server is a complete application architecture that has worked since 1995. Every client-side framework is an optimisation on top of it, so make sure you can build the unoptimised version first."
+  - "Auto-escaping is the server's most important security feature. Every \"raw\"/\"safe\" filter in a template is a hole you've cut in it deliberately. Know where each one is."
+checks:
+  - q: "Implement POST-Redirect-GET for a contact form with server-side validation that re-renders errors accessibly and preserves input."
+    a: "GET /contact renders the form with a CSRF token. POST /contact parses the urlencoded body, checks the token (403 if wrong), validates; on errors it responds 422 with the same template, the user's values escaped back into the fields, `aria-invalid` and `aria-describedby` on each bad field, and an error summary with links to the fields (title prefixed \"Error:\"). On success it stores the data and responds `303 See Other` with `Location: /contact/thanks`; the browser GETs that page, so refresh and back are harmless. The server lab and the guestbook example on this page both do exactly this."
+  - q: "Explain which contexts HTML auto-escaping protects and which it doesn't (inside `<script>`, inside `href=\"javascript:…\"`, inside `style`)."
+    a: "It protects HTML text content and *quoted* attribute values: `& < > \" '` become entities, so a value can't start a tag or end the attribute. It doesn't protect: unquoted attributes (a space starts a new attribute); URLs (escaping leaves `javascript:alert(1)` intact, so validate the scheme); inside `<script>` (entities aren't decoded there, so data is corrupted and a backslash can break out of a string; serialise JSON with `<` escaped instead); inside `style` or a style attribute (`;` starts a new declaration, `url()` can leak data; validate against an allowlist)."
+  - q: "Build a search page with filters as a GET form whose URL is shareable, then enhance it with htmx or `fetch` without breaking the no-JS path."
+    a: "`<form action=\"/search\" method=\"get\">` with named inputs; the server renders results for `?q=…&tag=…` (so the URL is the state: bookmarkable, shareable, back-button friendly). Enhance with `hx-get=\"/search\" hx-target=\"#results\" hx-push-url=\"true\" hx-trigger=\"input changed delay:300ms, submit\"` on the form (or a `submit` listener using fetch and `history.replaceState`), and have the server return just the results fragment when it sees the `HX-Request` header. Without JavaScript the form still submits normally."
+  - q: "Explain streaming HTML and what the user sees on a slow connection at each stage."
+    a: "The server sends the response in chunks as it goes: first the `<head>` (so CSS and fonts start downloading) and the page shell (header, navigation, a placeholder), then each slow section as its data arrives, then the closing tags. On a slow connection the user sees the shell and early content almost immediately (fast FCP), with slow sections filling in, instead of a blank screen until the slowest query finishes. The guestbook's /slow route streams this way."
+build: "A server-rendered guestbook/blog engine with no client framework: templates with layouts and partials, SQLite storage, Markdown posts sanitised, comments via a PRG form with CSRF protection and accessible errors, cookie sessions, pagination via URLs, correct caching and status codes, security headers, an RSS feed, and progressive enhancement with htmx or a small script. Then deploy it."
+steps:
+  - "Start from the guestbook in this repo (`npm run guestbook`): read every route."
+  - "Add Markdown posts rendered with remark/markdown-it, sanitised with the allowlist approach."
+  - "Add layouts and partials (or JSX on the server) for posts, comments and pagination."
+  - "Enhance comment posting with htmx or fetch, keeping the PRG path for no-JS."
+  - "Add caching: hashed static assets `immutable`, HTML `no-cache` with ETags."
+  - "Deploy to a small VPS or a Node host; check headers with securityheaders.com."
+taste: "Send HTML. Servers are fast at producing it, browsers are fast at rendering it, and users get content before JavaScript even arrives. Add client-side rendering only where the interaction genuinely requires it."
+quiz:
+  - q: "Which status should answer a successful form POST in Post/Redirect/Get?"
+    options: ["200 OK", "303 See Other", "301 Moved Permanently"]
+    answer: 1
+    why: "303 tells the browser to fetch the Location with GET, so a refresh never re-posts."
+  - q: "What does a CSRF token protect against?"
+    options: ["XSS", "Another site making the user's browser submit a form to your site with their cookies", "SQL injection"]
+    answer: 1
+    why: "The attacker's page can't read the token, so a forged submission fails the check."
+  - q: "What should `Cache-Control` usually be for HTML vs a hashed CSS file?"
+    options: ["Both immutable", "HTML: no-cache (revalidate); hashed assets: max-age=31536000, immutable", "Both no-store"]
+    answer: 1
+    why: "HTML changes at the same URL; hashed filenames change whenever content does."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import { Code } from 'astro:components';
+import ServerLab from '../../components/demos/ServerLab.astro';
+import EscapeLab from '../../components/demos/EscapeLab.astro';
+import SanitizerLab from '../../components/demos/SanitizerLab.astro';
+import guestbook from '../../../examples/guestbook/server.ts?raw';
+
+## HTML over HTTP
+
+A page is a response: **`Content-Type: text/html; charset=utf-8`**, a status code that browsers and crawlers act on (**200**; redirects **301/308** permanent, **302/307** temporary, **303** "go GET this"; **404** with a helpful page; **410** gone; **500**), **`Cache-Control`** (HTML short and revalidated, hashed assets long and `immutable`), `Content-Language`, `Link` headers for preloading, **103 Early Hints** (send preload hints before the page is ready), and **streaming** (send the `<head>` and shell immediately, flush the rest as data arrives).
+
+<ServerLab />
+
+## Forms as the original API
+
+The server receives `application/x-www-form-urlencoded` or `multipart/form-data`. **POST → Redirect → GET** (303) prevents resubmission on refresh. **Server-side validation** re-renders the form with the user's values, inline errors and an error summary (Part 3's accessible pattern, now server-generated) with status **422**. **CSRF tokens** in hidden inputs, checked against the session. Idempotency keys and double-submit protection. File uploads: size limits, type checking **by content, not extension**, storage outside the web root, signed direct uploads. HTML only has GET and POST, so other verbs use method-override conventions (a proposal to add more is **[Frontier]**).
+
+<Try task="In the server lab above: submit empty, then with an invalid email, then valid data; then tick 'Forge the CSRF token' and submit again. Write down the status code of each response and what the browser did next.">
+  Empty: 422, the same page with an error summary (focus moves to it) and each field marked `aria-invalid`. Invalid email: 422 with only the email error, and your other values preserved. Valid: 303 with `Location: /contact/thanks`, then the browser's automatic GET → 200. Forged token: 403 Forbidden, nothing stored. With PRG off, the valid POST returns 200 directly, and Refresh re-sends it, storing a duplicate.
+</Try>
+
+## Templating and auto-escaping
+
+Server template languages (Jinja/Nunjucks, Liquid, Handlebars/Mustache, EJS, ERB, Blade, Go `html/template`, Razor, Twig, JSX rendered on the server) share the same parts: **auto-escaping**, layouts and blocks, partials/includes, components/macros, loops and conditionals. Keep logic out of templates. And know the **contexts**: auto-escaping covers HTML text and quoted attributes; URLs, scripts and CSS need their own encoding or validation. (Go's `html/template` is one of the few that escapes by context automatically.)
+
+<EscapeLab />
+
+```ts
+// The whole idea of auto-escaping in 20 lines (this site's lib/html-template.ts)
+const SAFE = Symbol('safe-html');
+export const raw = (value: string) => ({ [SAFE]: true, value });        // a hole you cut on purpose
+export function html(strings: TemplateStringsArray, ...values: unknown[]) {
+  let out = strings[0] ?? '';
+  values.forEach((v, i) => {
+    out += (v && typeof v === 'object' && SAFE in v) ? v.value          // nested templates stay as-is
+         : Array.isArray(v) ? v.map(String).join('')
+         : escapeHtml(String(v ?? ''));                                  // everything else is escaped
+    out += strings[i + 1] ?? '';
+  });
+  return raw(out);
+}
+html`<p>Hello ${userName}</p>`;   // <p>Hello &lt;img src=x onerror=…&gt;</p>
+```
+
+## Static site generation and content pipelines
+
+**Eleventy** (templating-agnostic, HTML-first), **Astro** (component islands, zero JavaScript by default, content collections: this site), Hugo, Jekyll, and framework SSG modes. Markdown → HTML via **remark/rehype** or markdown-it, with plugins for heading anchors, syntax highlighting and footnotes; front matter as data; image pipelines at build time; and headless CMSs (content as data, HTML rendered by you).
+
+```ts
+// How this site is built: an Astro content collection of MDX lessons with typed front matter
+import { defineCollection } from 'astro:content';
+import { glob } from 'astro/loaders';
+import { lessonSchema } from '@learn/shared/lib/lesson-schema.ts';
+
+export const collections = {
+  lessons: defineCollection({ loader: glob({ pattern: '*.mdx', base: './src/content/lessons' }), schema: lessonSchema }),
+};
+
+// astro.config.mjs: a rehype plugin runs over every lesson's HTML at build time
+// markdown: { rehypePlugins: [rehypeShortCode] }  (keeps short inline code from wrapping)
+```
+
+<Try task="Write a 20-line rehype (or markdown-it) plugin that adds `id`s to every h2 and a '#' link inside it, then compare with this site's headings (inspect any lesson heading).">
+  A rehype plugin is a function returning a transformer: walk the HAST tree, for each `element` with `tagName === 'h2'` compute a slug from its text (lower-case, spaces to hyphens, strip punctuation, de-duplicate with a counter), set `properties.id`, and append `{ type: 'element', tagName: 'a', properties: { href: '#' + id, ariaLabel: 'Link to this section' }, children: [{ type: 'text', value: '#' }] }`. Astro already adds ids to headings; this site's TOC links to them.
+</Try>
+
+## Hypermedia-driven applications
+
+**HTML over the wire** as an architecture: the server sends HTML with the next actions embedded (HATEOAS). **htmx** (`hx-get`, `hx-post`, `hx-target`, `hx-swap`, `hx-trigger`, `hx-boost`, out-of-band swaps), **Hotwire/Turbo** (Drive, Frames, Streams), Datastar and Unpoly. Great for CRUD apps and dashboards; weaker for highly interactive client-state apps (Carson Gross, *Hypermedia Systems*).
+
+<Playground
+  id="p22-hypermedia"
+  title="A 25-line htmx: attributes on HTML, fragments from the server"
+  task="Click Load more and Delete. Then add an `hx-trigger` of your own: make the search input fetch results as you type (listen for input and reuse the same swap)."
+  html={`<ul id="list"><li>Dal tadka <button hx-post="/delete/1" hx-target="closest li" hx-swap="outerHTML">Delete</button></li></ul>\n<button hx-get="/more?page=2" hx-target="#list" hx-swap="beforeend">Load more</button>\n<p><input id="q" name="q" placeholder="Search" hx-get="/search" hx-target="#results"></p>\n<div id="results"></div>`}
+  css={`li { display: flex; justify-content: space-between; max-width: 18rem; padding: .25rem 0; }\nbutton { font: inherit; }`}
+  js={`// A fake server returning HTML fragments, as a real one would\nconst routes = {\n  '/more': (p) => ['Chana masala', 'Palak paneer'].map((r, i) => '<li>' + r + ' <button hx-post="/delete/' + (i + 2) + '" hx-target="closest li" hx-swap="outerHTML">Delete</button></li>').join(''),\n  '/delete': () => '',\n  '/search': (p) => '<p>Results for <b>' + (p.get('q') || '…').replace(/[<>&]/g, '') + '</b></p>',\n};\nconst request = (url) => { const u = new URL(url, 'https://x.example'); const key = Object.keys(routes).find((k) => u.pathname.startsWith(k)); return key ? routes[key](u.searchParams) : '<p>404</p>'; };\n// The client: read hx-* attributes, fetch, swap. That's the whole architecture.\nconst swap = (el) => {\n  const verb = el.hasAttribute('hx-post') ? 'hx-post' : 'hx-get';\n  let url = el.getAttribute(verb);\n  if (el.name) url += '?' + el.name + '=' + encodeURIComponent(el.value);\n  const html = request(url);\n  const sel = el.getAttribute('hx-target') || 'this';\n  const target = sel === 'this' ? el : sel.startsWith('closest ') ? el.closest(sel.slice(8)) : document.querySelector(sel);\n  const how = el.getAttribute('hx-swap') || 'innerHTML';\n  if (how === 'outerHTML') target.outerHTML = html; else if (how === 'beforeend') target.insertAdjacentHTML('beforeend', html); else target.innerHTML = html;\n  console.log((verb === 'hx-post' ? 'POST ' : 'GET ') + url + ' → swapped ' + how);\n};\ndocument.addEventListener('click', (e) => { const el = e.target.closest('button[hx-get], button[hx-post]'); if (el) swap(el); });`}
+/>
+
+## Server-rendered components
+
+**Declarative Shadow DOM** (Part 20) lets web components render on the server; **React Server Components** emit HTML (and a serialised tree) from the server; **islands** architecture hydrates only the interactive parts (Astro, Fresh); **partial hydration** ships JavaScript per component. With SSR come markup obligations: **valid nesting** (or the parser rewrites it and hydration fails), **stable IDs** (no `Math.random()`), and **deterministic output** (no server/client differences in dates or locales).
+
+```astro
+---
+// An Astro page: rendered to HTML at build time. Only the island ships JavaScript.
+import Header from '../components/Header.astro';     // static HTML, zero JS
+import CartButton from '../components/CartButton.tsx'; // interactive island
+---
+<Header />
+<main>
+  <h1>Trail Runner 3</h1>
+  <CartButton client:visible productId="tr3" />  <!-- hydrated only when scrolled into view -->
+</main>
+```
+
+<Try task="Inspect this page's HTML source (View Source, not DevTools). How much of it would still work if JavaScript failed to load? List the three things that would stop working.">
+  All lesson text, headings, code, tables, links, the quiz fallback answers (in `<details>`), Try model answers, and the sandboxed playground previews (rendered at build time via `srcdoc`) work without JavaScript. What stops: editing a playground and re-rendering, the interactive demos (sliders, labs), and saved progress (checkboxes, lesson done). That's islands thinking: the content is HTML, the interactivity is layered on.
+</Try>
+
+## A minimal backend you should be able to write
+
+A small server that serves static assets with correct cache headers, renders pages from templates with data from **SQLite**, handles a form with validation and **PRG**, sets **secure cookies** for a session, returns proper **status codes** and error pages, **streams** a slow section, and sets **security headers** (Part 25). Here is one with no dependencies (Node's built-in `http` and `sqlite`), tested by this site's unit tests. Run it with `npm run guestbook` in `websites/01-foundations`.
+
+<Code code={guestbook} lang="ts" />
+
+<Try task="Run the guestbook (`npm run guestbook`), sign it, then try to break it: post HTML in your name, submit with the CSRF field deleted in DevTools, visit /?page=999, /slow on a throttled connection, and read the response headers of each.">
+  Your HTML shows as text (escaped). Deleting the csrf field gives 403. `?page=999` renders an empty page with a "Newer" link (you could return 404 instead for out-of-range pages). `/slow` shows "Report" and "Loading figures…" immediately and the figures ~0.8 s later: streaming. Every response carries CSP, nosniff, Referrer-Policy and Permissions-Policy; the CSS has `immutable` caching because its filename is versioned.
+</Try>
+
+## Sanitising user HTML
+
+Never render user-submitted HTML unsanitised. Use **allowlist** sanitisers: DOMPurify in the browser, `sanitize-html` or bleach on the server, and the browser's **Sanitizer API** (`element.setHTML()`) **[Frontier]**. Prefer **Markdown** for user content with raw HTML disabled or sanitised, and mark user links **`rel="ugc nofollow"`**.
+
+<SanitizerLab />
+
+## Internationalised server output
+
+Locale negotiation (**`Accept-Language` is a hint; the URL is the source of truth**: `/hi/…`), `lang` and `dir` set per response, `hreflang` alternates, translated templates with **pluralisation** (ICU MessageFormat), date and number formatting on the server (`Intl`), and RTL via logical properties rather than separate stylesheets.
+
+<Playground
+  id="p22-intl"
+  title="The same data, formatted per locale with Intl"
+  task="Add `ar-EG` and `ja-JP` to the locales. Then pluralise 'item' correctly for Polish (`pl`) using Intl.PluralRules categories one/few/many."
+  html={`<table><thead><tr><th>Locale</th><th>Price</th><th>Date</th><th>Items</th></tr></thead><tbody id="rows"></tbody></table>`}
+  css={`table { border-collapse: collapse; font: .9rem system-ui; }\nth, td { padding: .35rem .75rem; border-bottom: 1px solid #eee; text-align: start; }`}
+  js={`const locales = ['en-IN', 'hi-IN', 'de-DE', 'fr-FR', 'en-US'];\nconst words = { one: 'item', other: 'items' };\nconst date = new Date(Date.UTC(2026, 8, 26, 9, 30));\ndocument.getElementById('rows').innerHTML = locales.map((l) => {\n  const price = new Intl.NumberFormat(l, { style: 'currency', currency: 'INR' }).format(1234567.5);\n  const when = new Intl.DateTimeFormat(l, { dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Kolkata' }).format(date);\n  const n = 3;\n  const cat = new Intl.PluralRules(l).select(n);\n  return '<tr><td>' + l + '</td><td>' + price + '</td><td>' + when + '</td><td>' + n + ' ' + (words[cat] || words.other) + ' (' + cat + ')</td></tr>';\n}).join('');`}
+/>
+
+## Error and edge pages
+
+404, 500, maintenance, offline (service worker), rate-limited (429 with `Retry-After`), and "JavaScript failed" states, **all designed as carefully as the home page**: say what happened in plain words, offer the next step (search, home, the likely page), keep the site's navigation, return the **correct status code** (a "not found" page served with 200 is a soft 404 that search engines index), and never leak stack traces.
+
+<Try task="Visit /definitely-missing on this site. Evaluate the 404 page: status code (check the Network panel), wording, next steps, navigation. Then design the 500 and 429 equivalents.">
+  This site's 404 keeps the header and navigation, says plainly the page doesn't exist, and links to the index of all parts and the home page; on a static host it's served with a real 404 status. A 500 page should apologise without blaming, avoid technical details, offer a retry and a status page link, and be static (it must render when the app is broken). A 429 should say when to try again (and send `Retry-After`).
+</Try>

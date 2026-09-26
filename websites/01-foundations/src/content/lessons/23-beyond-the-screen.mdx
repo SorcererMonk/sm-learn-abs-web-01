@@ -1,0 +1,165 @@
+---
+title: "HTML & CSS Beyond the Screen: Email, Print, PDF & Other Targets"
+source: L1-coding-html-css.md
+part: 23
+tier: Deep
+summary: HTML email as its own platform, print CSS, paged media and PDF generation, images generated from HTML/CSS, EPUB, WebViews and desktop shells, reader modes and feeds, and 10-foot TV and kiosk interfaces.
+anchors:
+  - "Email HTML is time travel. The skills are the same (semantics, accessibility, restraint), but the tools are tables, inline styles, and conditional comments. Treat it as a separate platform with its own compatibility table."
+  - "Print and PDF are where CSS's paged-media side lives. The same semantic HTML that works on screen becomes an invoice, a résumé, or a book when you give it a page model."
+checks:
+  - q: "Build a responsive, dark-mode-aware transactional email that renders acceptably in Outlook for Windows, Gmail, and Apple Mail, with a bulletproof button."
+    a: "A 600px centred `<table role=\"presentation\">` wrapper (fluid below 600px with `width: 100%; max-width: 600px`), inline styles (inlined by MJML/Maizzle), web-safe fonts with a web font as enhancement, images with `alt`, `width` and `height`, a preheader, `<meta name=\"color-scheme\" content=\"light dark\">` with `@media (prefers-color-scheme: dark)` overrides in a `<style>` block for clients that support it, and a bulletproof button: a padded `<a>` inside a table cell with `bgcolor`, plus a VML `<v:roundrect>` inside `<!--[if mso]>` for classic Outlook. Test in Litmus or Email on Acid, and send a plain-text part."
+  - q: "Write a print stylesheet for an article that prints cleanly with link URLs, no orphans in headings, and a table header repeated on each page."
+    a: "`@media print { nav, .site-header, .site-footer, .no-print { display: none } body { color: #000; background: #fff; font: 11pt/1.45 Georgia, serif } a[href^=\"http\"]::after { content: \" (\" attr(href) \")\"; font-size: 0.85em } h2, h3 { break-after: avoid } p { orphans: 3; widows: 3 } figure, tr, pre { break-inside: avoid } thead { display: table-header-group } }` plus `@page { size: A4; margin: 18mm 16mm }`. Check it with DevTools' print emulation and a real print preview."
+  - q: "Generate a two-page A4 invoice PDF from HTML with page numbers and a running footer."
+    a: "Write the invoice as semantic HTML with a table of line items (`thead` repeats). CSS: `@page { size: A4; margin: 20mm 18mm 25mm; @bottom-center { content: \"Page \" counter(page) \" of \" counter(pages); } @bottom-left { content: \"Invoice INV-2026-042\"; } }`. Render with Playwright's `page.pdf({ format: 'A4', printBackground: true, displayHeaderFooter: true, footerTemplate })` (Chromium supports margin boxes via its own templates) or with Paged.js/WeasyPrint/Prince, which support `@page` margin boxes and `counter(pages)` directly."
+build: "A \"same content, five targets\" project: one Markdown source rendered as a responsive web article, a print/PDF edition with Paged.js, an HTML email newsletter, an EPUB, and an Open Graph share image, all from shared templates and tokens."
+steps:
+  - "One Markdown article with front matter (title, summary, hero image)."
+  - "Web: an Astro/Eleventy page with the site's tokens."
+  - "Print/PDF: a Paged.js stylesheet with running headers and page numbers; export with Playwright."
+  - "Email: MJML or Maizzle template fed the same content; test in Litmus."
+  - "EPUB: XHTML chapters + a small stylesheet; validate with EPUBCheck."
+  - "OG image: Satori renders the title over a brand background at 1200×630."
+taste: "Respect each medium's constraints instead of fighting them. A great email designer, a great print designer, and a great web designer all use the same judgement with different tools, and the best designer-developers can switch between them."
+quiz:
+  - q: "Why are email layouts built with tables?"
+    options: ["Tables are semantic", "Classic Outlook renders with Word's engine, which has poor CSS layout support", "Tables are faster"]
+    answer: 1
+    why: "Tables (with role=\"presentation\") are the layout primitive every client supports."
+  - q: "Which CSS makes a table header repeat on every printed page?"
+    options: ["`position: sticky`", "`thead { display: table-header-group }` (the default for a real thead)", "`@page :first`"]
+    answer: 1
+    why: "Browsers repeat table-header-group rows across page breaks."
+  - q: "Satori renders HTML/CSS to SVG with…"
+    options: ["Full CSS support", "A flexbox subset (no grid, limited selectors)", "Only inline styles"]
+    answer: 1
+    why: "Satori implements Yoga-based flexbox and a subset of CSS; design OG templates within it."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## HTML email: a separate platform
+
+### Rendering engines
+
+**Outlook for Windows** (classic versions render with Word's engine; the new Outlook is web-based), **Gmail** (strips `<style>` in some contexts, rewrites classes, clips messages over ~102 KB), **Apple Mail** (WebKit, the most capable), Yahoo, Samsung, and dark-mode behaviour that differs in each.
+
+### Techniques
+
+**Table-based layouts** with `role="presentation"`, **inline styles** (tools inline them for you), a ~600px maximum width, hybrid ("spongy") fluid layouts, **`<!--[if mso]>` conditional comments**, **VML** for Outlook background images and bulletproof buttons, web-safe font stacks (web fonts as enhancement), images with `alt` and dimensions (many clients block images), **preheader** text, and `bgcolor` attributes.
+
+### Dark mode, accessibility and tooling
+
+Dark mode: the `color-scheme` meta and `prefers-color-scheme` where supported; some clients **force-invert** colours, so use transparent PNG logos with an outline. Accessibility: `lang`, `role="presentation"` on layout tables, real text (not images of text), contrast, semantic headings, clear link text. Tooling: **MJML**, **Maizzle**, React Email, Foundation for Emails; test with Litmus or Email on Acid; send a plain-text alternative; mind deliverability.
+
+<Playground
+  id="p23-email"
+  title="A transactional email: presentation tables, inline styles and a bulletproof button"
+  task="Narrow the preview: the layout stays fluid below 600px. Turn the images 'off' by deleting the src (as many clients do): does the alt text still make sense?"
+  html={`<div style="display:none;max-height:0;overflow:hidden">Your order #4821 has shipped and arrives Thursday.</div>\n<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ee;">\n <tr><td align="center" style="padding:24px 12px;">\n  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:8px;">\n   <tr><td style="padding:24px 24px 0;font:700 20px/1.3 Arial,Helvetica,sans-serif;color:#1d1a19;">\n    <h1 style="margin:0;font-size:22px;">Your order has shipped</h1>\n   </td></tr>\n   <tr><td style="padding:12px 24px;font:16px/1.5 Arial,Helvetica,sans-serif;color:#44403c;">\n    <p style="margin:0 0 16px;">Hi Asha, order <strong>#4821</strong> (Trail Runner 3, size 8) is on its way and should arrive <strong>Thursday 1 October</strong>.</p>\n   </td></tr>\n   <tr><td style="padding:0 24px 24px;">\n    <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="https://shop.example/track/4821" style="height:44px;width:220px;v-text-anchor:middle;" arcsize="18%" fillcolor="#c2410c" stroke="f"><center style="color:#ffffff;font:bold 16px Arial,sans-serif;">Track your parcel</center></v:roundrect><![endif]-->\n    <!--[if !mso]><!--><table role="presentation" cellpadding="0" cellspacing="0"><tr><td bgcolor="#c2410c" style="border-radius:8px;"><a href="https://shop.example/track/4821" style="display:inline-block;padding:12px 24px;font:bold 16px Arial,sans-serif;color:#ffffff;text-decoration:none;">Track your parcel</a></td></tr></table><!--<![endif]-->\n   </td></tr>\n  </table>\n </td></tr>\n</table>`}
+  css={`/* Email clients that support <style> get dark mode; the rest keep the inline light design */\n@media (prefers-color-scheme: dark) { body { background: #1d1a19; } }`}
+/>
+
+## Print CSS
+
+`@media print`: hide navigation and interactive chrome, show link URLs (`a[href]::after { content: " (" attr(href) ")" }`), black on white, no backgrounds. **`@page`** sets `size` and `margin`, with `:first`, `:left` and `:right` pages and margin boxes for running headers and footers (partially supported). **Fragmentation**: `break-before`, `break-after: avoid` on headings, `break-inside: avoid` on figures, `orphans` and `widows`. Tables repeat their `<thead>`. `print-color-adjust: exact` when backgrounds must print. Test with DevTools' print emulation (Rendering → Emulate CSS media type: print) and real printers. This site has a print stylesheet: print any lesson.
+
+<Playground
+  id="p23-print"
+  title="An article with a print stylesheet (toggle the preview)"
+  task="Press Preview print (it adds the class the @media print rules also use). Then open DevTools → Rendering → Emulate media type print on the preview to see the real thing."
+  html={`<button id="toggle" class="no-print">Preview print</button>\n<nav class="no-print">Home · Blog · About</nav>\n<article>\n  <h2>Cycle lanes approved</h2>\n  <p>The council voted to build 14 km of protected lanes. Read the <a href="https://planet.example/council/minutes">full minutes</a>.</p>\n  <table><thead><tr><th>Street</th><th>km</th></tr></thead><tbody><tr><td>MG Road</td><td>3.2</td></tr><tr><td>FC Road</td><td>2.1</td></tr></tbody></table>\n</article>`}
+  css={`body { font-family: system-ui; }\nnav { background: #1d1a19; color: white; padding: .5rem; }\narticle { background: #fff4ed; padding: 1rem; margin-top: .5rem; }\n.print-preview, .print-preview article { background: white; color: black; font: 11pt/1.45 Georgia, serif; }\n.print-preview .no-print:not(#toggle) { display: none; }\n.print-preview a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .85em; }\n.print-preview h2 { break-after: avoid; }\n@media print {\n  .no-print { display: none; }\n  body, article { background: white; color: black; font: 11pt/1.45 Georgia, serif; }\n  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .85em; }\n  h2 { break-after: avoid; } p { orphans: 3; widows: 3; }\n  @page { size: A4; margin: 18mm 16mm; }\n}`}
+  js={`document.getElementById('toggle').addEventListener('click', () => document.body.classList.toggle('print-preview'));`}
+/>
+
+## Paged media and PDF generation
+
+HTML → PDF with **headless Chromium** (Puppeteer/Playwright `page.pdf()`), **WeasyPrint**, **Prince** or Vivliostyle. The **Paged.js** polyfill adds running headers, page counters (`counter(page)`), footnotes and cross-references to browsers. Build invoices, résumés, reports and books from HTML and CSS.
+
+```css
+/* An invoice's page model (Paged.js, WeasyPrint and Prince support margin boxes) */
+@page {
+  size: A4;
+  margin: 20mm 18mm 25mm;
+  @bottom-left   { content: "Invoice INV-2026-042 · Studio Rao"; font: 8pt system-ui; }
+  @bottom-right  { content: "Page " counter(page) " of " counter(pages); font: 8pt system-ui; }
+}
+@page :first { @bottom-left { content: none; } }
+thead { display: table-header-group; }   /* repeat the line-item header on page 2 */
+tr, .totals { break-inside: avoid; }
+```
+
+```ts
+// Render it to PDF with Playwright (Chromium)
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage();
+await page.goto('http://localhost:4321/invoice/042/', { waitUntil: 'networkidle' });
+await page.pdf({ path: 'invoice-042.pdf', format: 'A4', printBackground: true, preferCSSPageSize: true });
+await browser.close();
+```
+
+<Try task="Print this lesson to PDF from your browser (Ctrl/Cmd+P → Save as PDF). What did the print stylesheet remove, and where do page breaks fall? Find one break you'd improve with a CSS rule.">
+  The site's print layer hides the header and footer (navigation, theme toggle, progress), the table of contents and the pager, prints black on white at 11pt, keeps demos from splitting across pages, and expands external link URLs. A common improvement: a heading stranded at the bottom of a page (`h2 { break-after: avoid }`), or a code block split across pages (`pre { break-inside: avoid }` for short blocks).
+</Try>
+
+## Images generated from HTML/CSS
+
+**Open Graph images** generated from templates: **Satori** (HTML/CSS → SVG, then resvg → PNG; supports a flexbox subset) or headless browser screenshots (full CSS, slower). Social cards, certificates, badges. Design within each renderer's constraints.
+
+```tsx
+// Satori: a 1200×630 OG image from JSX with inline flexbox styles
+import satori from 'satori';
+import { Resvg } from '@resvg/resvg-js';
+
+const svg = await satori(
+  <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                width: '100%', height: '100%', padding: 64, background: '#1d1a19', color: 'white' }}>
+    <div style={{ fontSize: 28, color: '#fdba74' }}>Foundations · Part 23</div>
+    <div style={{ fontSize: 72, fontWeight: 700, lineHeight: 1.05 }}>HTML & CSS beyond the screen</div>
+  </div>,
+  { width: 1200, height: 630, fonts: [{ name: 'Fraunces', data: fontBuffer, weight: 700 }] },
+);
+const png = new Resvg(svg).render().asPng();
+```
+
+<Try task="Sketch an OG template for this site's lessons within Satori's limits (flexbox only, no grid, inline styles). Which parts of the lesson page design can't be reproduced?">
+  Title, part number, tier chip and brand colours all work with flex columns and rows. What doesn't: CSS grid layouts, `::before`/`::after` decorations, most filters and blend modes, and variable-font axes beyond weight. Replace decorations with real elements or an SVG background image.
+</Try>
+
+## Other HTML targets
+
+**EPUB** (XHTML + CSS, with reading-system quirks), **WebViews** in native apps (safe areas, `-webkit-` behaviours, `L18-cs-app-engineering.md`), **Electron/Tauri** desktop apps (title bars, `-webkit-app-region: drag`, native-feeling controls), **slides** (reveal.js, Slidev, or plain HTML with scroll snap), documentation sites, and **embeddable widgets** (style isolation with shadow DOM or iframes).
+
+<Playground
+  id="p23-slides"
+  title="Slides in plain HTML: scroll snap, keyboard and print"
+  task="Scroll or use PageDown through the slides. Add a fourth slide, and a print rule that puts one slide per page."
+  html={`<main class="deck" tabindex="0" aria-label="Slides">\n  <section><h2>One idea per slide</h2></section>\n  <section><h2>Big type, few words</h2></section>\n  <section><h2>HTML is a fine slide tool</h2></section>\n</main>`}
+  css={`.deck { height: 14rem; overflow-y: auto; scroll-snap-type: y mandatory; border-radius: 1rem; }\n.deck section { height: 100%; scroll-snap-align: start; display: grid; place-items: center; background: #1d1a19; color: #fdba74; border-bottom: 1px solid #444; }\n.deck h2 { font: 700 1.8rem/1.1 Georgia, serif; text-align: center; padding: 1rem; }\n@media print { .deck { height: auto; overflow: visible; } .deck section { height: 100vh; break-after: page; } }`}
+/>
+
+## Reader modes, RSS readers and syndication
+
+Safari Reader, Firefox Reader View and feed readers extract content using **semantic markup**: `<article>`, `<h1>`, `<time>`, `<figure>`, bylines, and a clean main content region. If your page falls apart in reader mode, your HTML probably relies on `<div>`s and CSS for meaning: it's a free test of markup quality.
+
+<Try task="Open this lesson in Firefox Reader View or Safari Reader. What survived, what disappeared, and what does that tell you about the markup?">
+  Headings, paragraphs, code blocks, tables and lists survive because they're real elements in a single `<main>` with an `<article>`-like structure. Interactive demos and playgrounds disappear (they're decoration from the reader's point of view), which is fine because the explanations around them carry the meaning. If a page's reader view shows only a fragment, its main content probably isn't marked up as such.
+</Try>
+
+## Kiosk, TV and large-screen interfaces
+
+**Spatial (D-pad) navigation** (arrow keys move focus in two dimensions), focus styles **visible at a distance**, 10-foot typography (large sizes, high contrast), **overscan safe areas** (keep content inside ~5% margins), and low-power hardware (few effects, no huge DOMs).
+
+<Playground
+  id="p23-tv"
+  title="D-pad focus navigation on a 10-foot grid"
+  task="Click a tile, then use the arrow keys to move focus spatially. Make the focus style even more visible (scale plus a thick ring), and keep the grid inside a 5% overscan margin."
+  html={`<div class="tv" id="tv">${['Home', 'Movies', 'Series', 'Sports', 'Kids', 'News', 'Music', 'Search'].map((t) => '<button class="tile">' + t + '</button>').join('')}</div>`}
+  css={`body { background: #0c0a09; margin: 0; }\n.tv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; padding: 5%; }\n.tile { aspect-ratio: 16 / 9; font: 700 1.25rem system-ui; color: #f5f5f4; background: #292524; border: 0; border-radius: .75rem; transition: scale .15s; }\n.tile:focus-visible, .tile:focus { outline: 4px solid #fdba74; outline-offset: 4px; scale: 1.06; }`}
+  js={`const tiles = [...document.querySelectorAll('.tile')];\nconst cols = 4;\ndocument.getElementById('tv').addEventListener('keydown', (e) => {\n  const i = tiles.indexOf(document.activeElement);\n  const moves = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols };\n  if (i < 0 || !(e.key in moves)) return;\n  e.preventDefault();\n  tiles[Math.min(tiles.length - 1, Math.max(0, i + moves[e.key]))].focus();\n});`}
+/>

@@ -1,0 +1,210 @@
+---
+/**
+ * A browser and a server on one page: the "browser" is a sandboxed iframe (no scripts), and its
+ * form posts and link clicks are sent to the in-page mini server (lib/mini-server.ts). Every
+ * request and response is shown as raw HTTP, so PRG, 303, 422 and CSRF are visible on the wire.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+---
+
+<Demo title="Server lab: a form, a server, and the HTTP in between">
+  <div class="stack" data-server-lab>
+    <div class="cluster sl-toolbar">
+      <button type="button" class="btn btn--small btn--ghost" data-sl-refresh>
+        ↻ Refresh
+      </button>
+      <output class="sl-address" data-sl-address>
+        shop.example/contact
+      </output>
+      <label class="sl-check">
+        <input type="checkbox" data-sl-prg checked /> Post/Redirect/Get
+      </label>
+      <label class="sl-check">
+        <input type="checkbox" data-sl-tamper /> Forge the CSRF token
+      </label>
+      <button type="button" class="btn btn--small btn--ghost" data-sl-reset>
+        Reset server
+      </button>
+    </div>
+    <div class="switcher" style="--switcher-threshold: 46rem">
+      <div class="stack stack-sm">
+        <span class="kicker">Browser</span>
+        <iframe
+          class="sl-browser"
+          title="Simulated browser showing the server's HTML"
+          sandbox="allow-same-origin allow-forms"
+          data-sl-frame
+        ></iframe>
+        <p class="muted" data-sl-db>
+          Messages stored: 0
+        </p>
+      </div>
+      <div class="stack stack-sm">
+        <span class="kicker">Network (newest first)</span>
+        <ol class="sl-log" role="list" aria-live="polite" data-sl-log></ol>
+      </div>
+    </div>
+  </div>
+  <p slot="note">
+    Submit empty (422 with an error summary), then valid data (303 → GET). Refresh after each: with
+    PRG the refresh repeats a harmless GET; untick PRG and the refresh re-sends the POST, storing
+    the message twice. The iframe runs no scripts, and the server escaped every value.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import {
+    createServer,
+    formatRequest,
+    formatResponse,
+    type Req,
+    type Res,
+  } from '../../lib/mini-server.ts';
+
+  const FRAME_CSS = `<style>body{font:15px/1.5 system-ui,sans-serif;margin:1rem;color:#1d1a19}h1{font-size:1.4rem;margin:0 0 .75rem}
+  .field{display:grid;gap:.2rem;margin-bottom:.8rem}input,textarea{font:inherit;padding:.35rem;border:1px solid #a8a29e;border-radius:.35rem}
+  [aria-invalid=true]{border:2px solid #b91c1c}.error{color:#b91c1c;font-weight:700;margin:0}
+  .error-summary{border:3px solid #b91c1c;padding:.5rem 1rem;margin-bottom:1rem}.error-summary h2{font-size:1rem;margin:0}
+  button{font:inherit;padding:.45rem .9rem;border:0;border-radius:.4rem;background:#1d1a19;color:#fff}</style>`;
+
+  document.querySelectorAll<HTMLElement>('[data-server-lab]').forEach((root) => {
+    const frame = need<HTMLIFrameElement>(root, '[data-sl-frame]');
+    const log = need<HTMLOListElement>(root, '[data-sl-log]');
+    const address = need<HTMLOutputElement>(root, '[data-sl-address]');
+    const prg = need<HTMLInputElement>(root, '[data-sl-prg]');
+    const tamper = need<HTMLInputElement>(root, '[data-sl-tamper]');
+    const db = need<HTMLElement>(root, '[data-sl-db]');
+    let server = createServer({ prg: prg.checked });
+    let current: Req = { method: 'GET', path: '/contact' };
+
+    const record = (req: Req, res: Res, note?: string): void => {
+      const li = document.createElement('li');
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = `${note ? `${note} · ` : ''}${req.method} ${req.path} → ${res.status} ${res.statusText}`;
+      summary.dataset.status = String(res.status)[0];
+      const pre = document.createElement('pre');
+      pre.textContent = `${formatRequest(req)}\n\n${formatResponse(res)}`;
+      details.append(summary, pre);
+      li.append(details);
+      log.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open'));
+      details.open = true;
+      log.prepend(li);
+    };
+
+    const show = (res: Res): void => {
+      frame.srcdoc = res.body.replace('<head>', `<head>${FRAME_CSS}`) || '<p>(empty body)</p>';
+      db.textContent = `Messages stored: ${server.messages.length}`;
+    };
+
+    /** Sends a request like a browser would, following redirects with a GET. */
+    const navigate = (req: Req, note?: string): void => {
+      let res = server.handle(req);
+      record(req, res, note);
+      let final = req;
+      for (let hops = 0; res.status >= 300 && res.status < 400 && hops < 5; hops += 1) {
+        final = { method: 'GET', path: res.headers.Location ?? '/' };
+        res = server.handle(final);
+        record(final, res, 'Browser follows redirect');
+      }
+      current = final;
+      address.textContent = `shop.example${final.path}`;
+      show(res);
+    };
+
+    frame.addEventListener('load', () => {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      doc.querySelector<HTMLElement>('.error-summary')?.focus();
+      doc.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const form = event.target as HTMLFormElement;
+        const data = new FormData(form);
+        if (tamper.checked) data.set('csrf', 'forged-by-evil.example');
+        const body = new URLSearchParams(data as unknown as Record<string, string>).toString();
+        navigate({ method: 'POST', path: form.getAttribute('action') ?? '/', body });
+      });
+      doc.addEventListener('click', (event) => {
+        const link = (event.target as Element).closest('a');
+        if (!link) return;
+        const href = link.getAttribute('href') ?? '';
+        event.preventDefault();
+        if (href.startsWith('#')) doc.getElementById(href.slice(1))?.focus();
+        else navigate({ method: 'GET', path: href });
+      });
+    });
+
+    need<HTMLButtonElement>(root, '[data-sl-refresh]').addEventListener('click', () =>
+      navigate(
+        current,
+        current.method === 'POST' ? 'Refresh: browser re-sends the POST' : 'Refresh',
+      ),
+    );
+    need<HTMLButtonElement>(root, '[data-sl-reset]').addEventListener('click', () => {
+      server = createServer({ prg: prg.checked });
+      log.replaceChildren();
+      navigate({ method: 'GET', path: '/contact' });
+    });
+    prg.addEventListener('change', () => {
+      server = createServer({ prg: prg.checked });
+      log.replaceChildren();
+      navigate({ method: 'GET', path: '/contact' });
+    });
+    navigate(current);
+  });
+</script>
+
+<style>
+  .sl-toolbar {
+    align-items: center;
+    gap: var(--space-2xs) var(--space-s);
+  }
+  .sl-address {
+    flex: 1 1 12rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 99px;
+    background: var(--color-surface-2);
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+  }
+  .sl-check {
+    display: flex;
+    gap: var(--space-3xs);
+    align-items: center;
+    font-size: var(--step-n1);
+  }
+  .sl-browser {
+    inline-size: 100%;
+    block-size: 26rem;
+    border: 2px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: #fff;
+  }
+  .sl-log {
+    display: grid;
+    gap: var(--space-3xs);
+    max-block-size: 28rem;
+    overflow: auto;
+    font-size: var(--step-n1);
+  }
+  .sl-log :global(summary) {
+    font-family: var(--font-mono);
+    cursor: pointer;
+  }
+  .sl-log :global(summary[data-status='2']) {
+    color: var(--color-success);
+  }
+  .sl-log :global(summary[data-status='3']) {
+    color: var(--color-info);
+  }
+  .sl-log :global(summary[data-status='4']) {
+    color: var(--color-danger);
+  }
+  .sl-log :global(pre) {
+    font-size: var(--step-n2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: var(--space-3xs) 0 0;
+  }
+</style>
