@@ -64,3 +64,9 @@ html {
 [hidden]:not([hidden='until-found']) {
   display: none !important;
 }
+
+/* A closed <dialog> stays closed even if a layout class sets display on it: an !important in
+   the lowest layer beats every later layer (Part 8: resets can protect themselves). */
+dialog:not([open]) {
+  display: none !important;
+}

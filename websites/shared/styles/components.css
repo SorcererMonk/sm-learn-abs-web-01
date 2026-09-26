@@ -65,9 +65,10 @@
 }
 .site-header__inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-s);
-  min-block-size: var(--header-height);
+  gap: 0 var(--space-s);
+  min-block-size: 4rem;
   max-inline-size: var(--size-wide);
   margin-inline: auto;
   padding-inline: var(--gutter);
@@ -94,6 +95,21 @@
 .site-nav {
   flex: 1;
   min-inline-size: 0;
+}
+@media (width < 48rem) {
+  /* second row, full width: the nav gets room to scroll instead of shrinking to one link */
+  .site-nav {
+    order: 3;
+    flex-basis: 100%;
+    padding-block-end: var(--space-2xs);
+  }
+  .header-actions {
+    margin-inline-start: auto;
+  }
+  .site-header__inner {
+    padding-block-start: var(--space-2xs);
+    min-block-size: 0;
+  }
 }
 .site-nav ul {
   list-style: none;
@@ -855,6 +871,9 @@
 /* ---------- dojo (training pages) ---------- */
 .dojo-section + .dojo-section {
   margin-block-start: var(--space-2xl);
+}
+.callout + .dojo-section {
+  margin-block-start: var(--space-xl);
 }
 .dojo-section > * + * {
   margin-block-start: var(--space-s);

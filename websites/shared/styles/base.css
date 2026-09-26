@@ -3,7 +3,7 @@
 :root {
   color-scheme: light dark;
   --gutter: clamp(1rem, 4vi, 2.5rem);
-  --header-height: 4rem;
+  --header-height: 4rem; /* one row; phones get a second row for the nav, see below */
 }
 :root[data-theme='light'] {
   color-scheme: light;
@@ -293,4 +293,11 @@ label {
    absent when it's off. The flag is set by the inline script in <head>. */
 html:not([data-js]) [data-requires-js] {
   display: none !important;
+}
+
+/* On narrow screens the header has two rows (brand + actions, then the nav). */
+@media (width < 48rem) {
+  :root {
+    --header-height: 6.75rem;
+  }
 }
