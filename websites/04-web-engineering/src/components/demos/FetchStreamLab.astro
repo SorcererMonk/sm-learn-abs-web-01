@@ -1,0 +1,162 @@
+---
+/**
+ * fetch() with a streamed body: NDJSON read through TextDecoderStream and a line-splitting
+ * TransformStream, rendered row by row, cancellable with AbortController; versus awaiting one big
+ * JSON array. Time to first row is the number that users feel.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Streams lab: first row in milliseconds, or everything at the end" badge="Live server">
+  <div class="lab" data-stream-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Rows</span>
+        <select data-sl-count>
+          <option>200</option>
+          <option selected>2000</option>
+          <option>20000</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn--small" data-sl-mode="stream">
+        Stream NDJSON
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-sl-mode="json">
+        Await one JSON array
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-sl-abort disabled>
+        Abort
+      </button>
+    </div>
+    <dl class="lab-stats" data-sl-stats>
+      <div>
+        <dt>First row after</dt>
+        <dd data-sl-first>–</dd>
+      </div>
+      <div>
+        <dt>All rows after</dt>
+        <dd data-sl-all>–</dd>
+      </div>
+      <div>
+        <dt>Rows received</dt>
+        <dd data-sl-rows>–</dd>
+      </div>
+    </dl>
+    <ol class="lab-log sl-rows" data-sl-list aria-label="Latest rows"></ol>
+  </div>
+  <p slot="note">
+    The stream renders as bytes arrive and Abort cancels the request (the server logs that the
+    client went away and stops producing). The JSON array has the same bytes, but{' '}
+    <code>await res.json()</code>
+    can't give you row 1 until row N has arrived and the whole body has parsed.
+  </p>
+</Demo>
+
+<style>
+  .sl-rows {
+    block-size: 12rem;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard } from '../../client/api.ts';
+
+  interface Row {
+    id: number;
+    name: string;
+    score: number;
+  }
+
+  /** Splits a text stream into lines, carrying partial lines across chunks. */
+  const lines = (): TransformStream<string, string> => {
+    let carry = '';
+    return new TransformStream({
+      transform(chunk, controller) {
+        const parts = (carry + chunk).split('\n');
+        carry = parts.pop() ?? '';
+        for (const line of parts) if (line) controller.enqueue(line);
+      },
+      flush(controller) {
+        if (carry) controller.enqueue(carry);
+      },
+    });
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-stream-lab]').forEach((root) => {
+    const list = need<HTMLOListElement>(root, '[data-sl-list]');
+    const first = need<HTMLElement>(root, '[data-sl-first]');
+    const all = need<HTMLElement>(root, '[data-sl-all]');
+    const rows = need<HTMLElement>(root, '[data-sl-rows]');
+    const abortButton = need<HTMLButtonElement>(root, '[data-sl-abort]');
+    const count = need<HTMLSelectElement>(root, '[data-sl-count]');
+    let controller: AbortController | undefined;
+
+    const show = (batch: Row[], total: number): void => {
+      const fragment = document.createDocumentFragment();
+      for (const r of batch.slice(-20)) {
+        const li = document.createElement('li');
+        li.textContent = `#${r.id} ${r.name} · ${r.score}`;
+        fragment.prepend(li);
+      }
+      list.prepend(fragment);
+      while (list.children.length > 20) list.lastElementChild?.remove();
+      rows.textContent = total.toLocaleString();
+    };
+
+    const run = async (mode: string): Promise<void> => {
+      controller?.abort();
+      controller = new AbortController();
+      const { signal } = controller;
+      list.replaceChildren();
+      first.textContent = all.textContent = rows.textContent = '…';
+      abortButton.disabled = false;
+      const t0 = performance.now();
+      const since = (): string => `${Math.round(performance.now() - t0)} ms`;
+      try {
+        const res = await fetch(
+          `/api/stream/${mode === 'stream' ? 'ndjson' : 'json'}?count=${count.value}&delay=10`,
+          { signal },
+        );
+        if (mode === 'json') {
+          const data = (await res.json()) as Row[];
+          first.textContent = since();
+          show(data, data.length);
+        } else if (res.body) {
+          let total = 0;
+          let pending: Row[] = [];
+          const reader = res.body
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(lines())
+            .getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (total === 0) first.textContent = since();
+            total += 1;
+            pending.push(JSON.parse(value) as Row);
+            if (pending.length >= 25) {
+              show(pending, total);
+              pending = [];
+            }
+          }
+          show(pending, total);
+        }
+        all.textContent = since();
+      } catch (error) {
+        all.textContent = signal.aborted ? `aborted at ${since()}` : String(error);
+      } finally {
+        abortButton.disabled = true;
+      }
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-sl-mode]').forEach((button) => {
+      button.addEventListener('click', () => void run(button.dataset.slMode ?? 'stream'));
+    });
+    abortButton.addEventListener('click', () => controller?.abort());
+    void guard(root);
+  });
+</script>

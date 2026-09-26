@@ -1,0 +1,229 @@
+---
+/**
+ * A live report on the page you are reading: bytes over the wire, JavaScript shipped, requests,
+ * DOM size and the Core Web Vitals observed so far, each against a budget. `focus` changes which
+ * figures lead and the note underneath.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+
+interface Props {
+  title?: string;
+  focus?: 'hostile' | 'vitals' | 'budget';
+}
+const { title = 'This page, measured', focus = 'hostile' } = Astro.props;
+---
+
+<Demo title={title}>
+  <div class="lab" data-page-report data-focus={focus}>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-pr-measure>
+        Measure now
+      </button>
+      {focus === 'vitals' && (
+        <>
+          <button type="button" class="btn btn--small btn--ghost" data-pr-shift>
+            Inject a late banner (layout shift)
+          </button>
+          <button type="button" class="btn btn--small btn--ghost" data-pr-block>
+            Run a 300 ms click handler
+          </button>
+        </>
+      )}
+    </div>
+    <div class="pr-banner" data-pr-banner hidden>
+      A late-arriving banner with no reserved space pushed everything below it down.
+    </div>
+    <div class="table-scroll" role="region" aria-label="Measurements" tabindex="0">
+      <table class="lab-kv">
+        <caption class="visually-hidden">Measurements of this page</caption>
+        <thead>
+          <tr>
+            <th scope="col">Measure</th>
+            <th scope="col">Value</th>
+            <th scope="col">Budget</th>
+            <th scope="col">Verdict</th>
+          </tr>
+        </thead>
+        <tbody data-pr-rows>
+          <tr>
+            <td colspan="4">Press “Measure now”.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p slot="note">
+    {focus === 'vitals'
+      ? 'LCP, CLS and INP come from PerformanceObserver, exactly as a RUM script collects them. Inject the banner to watch CLS rise; run the slow handler and click anything to see INP.'
+      : focus === 'budget'
+        ? 'JavaScript is counted twice: bytes over the wire (compressed) and bytes the engine must parse and compile (decoded). The budget applies to what is shipped per page.'
+        : 'Transfer size is what crossed the network (compressed; 0 when cached). Now open DevTools, set Slow 4G and 4× CPU, disable JavaScript and reload: that is the hostile report.'}
+  </p>
+</Demo>
+
+<style>
+  .pr-banner {
+    padding: var(--space-s);
+    border-radius: var(--radius-md);
+    background: var(--color-warning);
+    color: var(--color-canvas);
+    font-weight: 600;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { clsFromShifts, inpFromEvents, rate, type Metric } from '@learn/shared/lib/vitals.ts';
+
+  interface Shift extends PerformanceEntry {
+    value: number;
+    hadRecentInput: boolean;
+  }
+  const shifts: { value: number; startTime: number; hadRecentInput: boolean }[] = [];
+  const events: { interactionId: number; duration: number }[] = [];
+  let lcp: number | undefined;
+  const watch = (type: string, fn: (entries: PerformanceEntry[]) => void): void => {
+    try {
+      new PerformanceObserver((list) => fn(list.getEntries())).observe({
+        type,
+        buffered: true,
+        ...(type === 'event' ? { durationThreshold: 16 } : {}),
+      } as PerformanceObserverInit);
+    } catch {
+      /* unsupported entry type */
+    }
+  };
+  watch('largest-contentful-paint', (e) => {
+    lcp = e.at(-1)?.startTime ?? lcp;
+  });
+  watch('layout-shift', (e) =>
+    (e as Shift[]).forEach((s) =>
+      shifts.push({ value: s.value, startTime: s.startTime, hadRecentInput: s.hadRecentInput }),
+    ),
+  );
+  watch('event', (e) =>
+    (e as (PerformanceEntry & { interactionId: number })[]).forEach((x) =>
+      events.push({ interactionId: x.interactionId, duration: x.duration }),
+    ),
+  );
+
+  const kb = (bytes: number): string => `${(bytes / 1024).toFixed(1)} KB`;
+
+  document.querySelectorAll<HTMLElement>('[data-page-report]').forEach((root) => {
+    const rows = need<HTMLTableSectionElement>(root, '[data-pr-rows]');
+    const measure = (): void => {
+      const nav = performance.getEntriesByType('navigation')[0] as
+        PerformanceNavigationTiming | undefined;
+      const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+      const scripts = resources.filter(
+        (r) => r.initiatorType === 'script' || /\.m?js(\?|$)/.test(r.name),
+      );
+      const sum = (list: PerformanceResourceTiming[], key: 'transferSize' | 'decodedBodySize') =>
+        list.reduce((n, r) => n + r[key], 0);
+      const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime;
+      const inp = inpFromEvents(events);
+      const vital = (metric: Metric, value: number | undefined, unit: string) =>
+        value === undefined
+          ? [metric, '—', '', 'not observed yet']
+          : [
+              metric,
+              `${metric === 'CLS' ? value.toFixed(3) : Math.round(value)}${unit}`,
+              metric === 'CLS' ? '≤ 0.1' : metric === 'INP' ? '≤ 200 ms' : '≤ 2500 ms',
+              rate(metric, value),
+            ];
+      const data: string[][] = [
+        [
+          'Transferred (page + resources)',
+          kb((nav?.transferSize ?? 0) + sum(resources, 'transferSize')),
+          '≤ 500 KB',
+          (nav?.transferSize ?? 0) + sum(resources, 'transferSize') <= 512_000 ? 'good' : 'poor',
+        ],
+        [
+          'HTML document (compressed)',
+          kb(nav?.encodedBodySize ?? 0),
+          '≤ 60 KB',
+          (nav?.encodedBodySize ?? 0) <= 61_440 ? 'good' : 'poor',
+        ],
+        [
+          'JavaScript over the wire',
+          `${kb(sum(scripts, 'transferSize'))} (${scripts.length} files)`,
+          '≤ 150 KB',
+          sum(scripts, 'transferSize') <= 153_600 ? 'good' : 'poor',
+        ],
+        [
+          'JavaScript to parse (decoded)',
+          kb(sum(scripts, 'decodedBodySize')),
+          '≤ 400 KB',
+          sum(scripts, 'decodedBodySize') <= 409_600 ? 'good' : 'poor',
+        ],
+        [
+          'Requests',
+          String(resources.length + 1),
+          '≤ 40',
+          resources.length + 1 <= 40 ? 'good' : 'poor',
+        ],
+        [
+          'DOM elements',
+          String(document.getElementsByTagName('*').length),
+          '≤ 1500',
+          document.getElementsByTagName('*').length <= 1500 ? 'good' : 'poor',
+        ],
+        [
+          'First contentful paint',
+          fcp === undefined ? '—' : `${Math.round(fcp)} ms`,
+          '≤ 1800 ms',
+          fcp === undefined ? '' : rate('FCP', fcp),
+        ],
+        vital('LCP', lcp, ' ms'),
+        vital('CLS', clsFromShifts(shifts), ''),
+        vital('INP', inp, ' ms'),
+      ] as string[][];
+      const focus = root.dataset.focus;
+      const order =
+        focus === 'vitals'
+          ? [7, 8, 9, 6, 0, 1, 2, 3, 4, 5]
+          : focus === 'budget'
+            ? [2, 3, 0, 1, 4, 5, 6, 7, 8, 9]
+            : data.map((_, i) => i);
+      rows.replaceChildren(
+        ...order.map((i) => {
+          const [name = '', value = '', budget = '', verdict = ''] = data[i] ?? [];
+          const tr = document.createElement('tr');
+          const th = document.createElement('th');
+          th.scope = 'row';
+          th.textContent = name;
+          tr.append(th);
+          for (const text of [value, budget]) tr.insertCell().textContent = text;
+          const cell = tr.insertCell();
+          cell.textContent = verdict;
+          if (verdict)
+            cell.dataset.tone =
+              verdict === 'good'
+                ? 'good'
+                : verdict === 'poor'
+                  ? 'bad'
+                  : verdict.includes('needs')
+                    ? 'warn'
+                    : 'info';
+          return tr;
+        }),
+      );
+    };
+    need<HTMLButtonElement>(root, '[data-pr-measure]').addEventListener('click', measure);
+    root.querySelector('[data-pr-shift]')?.addEventListener('click', () => {
+      // Deliberately late and outside the click's 500 ms input window, so it counts toward CLS.
+      setTimeout(() => {
+        need<HTMLElement>(root, '[data-pr-banner]').hidden = false;
+        setTimeout(measure, 100);
+      }, 800);
+    });
+    root.querySelector('[data-pr-block]')?.addEventListener('click', () => {
+      const end = performance.now() + 300;
+      while (performance.now() < end) {
+        /* a long task: nothing else can run, including the next paint */
+      }
+      setTimeout(measure, 50);
+    });
+  });
+</script>

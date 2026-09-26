@@ -1,0 +1,39 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '@learn/shared/components/BaseLayout.astro';
+import TopicIndex, { type IndexItem } from '@learn/shared/components/TopicIndex.astro';
+import { lessonHref, sortLessons, sourceLabel } from '@learn/shared/lib/content.ts';
+import { site } from '../../site';
+
+const lessons = sortLessons(site, await getCollection('lessons'));
+const items: IndexItem[] = await Promise.all(
+  lessons.map(async (entry) => {
+    const { headings } = await render(entry);
+    return {
+      id: `${entry.data.source}:${entry.data.part}`,
+      href: lessonHref(entry.id),
+      part: entry.data.part,
+      title: entry.data.title,
+      summary: entry.data.summary,
+      tier: entry.data.tier,
+      group: entry.data.source.split('-')[0]?.toLowerCase() ?? 'l',
+      groupLabel: sourceLabel(site, entry.data.source),
+      keywords: headings.map((h) => h.text).join(' '),
+    };
+  }),
+);
+---
+
+<BaseLayout site={site} title="All parts" showProgress totalParts={lessons.length}>
+  <div class="page-grid">
+    <header class="lesson-hero stack">
+      <p class="kicker">Index</p>
+      <h1>All {lessons.length} parts</h1>
+      <p class="lede">
+        Search by any topic inside a part (try “CORS”, “hydration” or “service worker”) or filter by
+        tier.
+      </p>
+    </header>
+    <TopicIndex items={items} label="Parts of L18 Web engineering" />
+  </div>
+</BaseLayout>

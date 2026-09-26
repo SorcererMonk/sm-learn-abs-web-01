@@ -1,0 +1,145 @@
+---
+/**
+ * Capability APIs through one pattern: query the Permissions API, feature-detect, ask only on a
+ * user gesture. Camera and microphone are disabled for this whole site by its Permissions-Policy
+ * header, which the query reports as "denied" before any prompt could appear.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+
+const permissions = [
+  'geolocation',
+  'notifications',
+  'camera',
+  'microphone',
+  'clipboard-read',
+  'persistent-storage',
+  'screen-wake-lock',
+];
+---
+
+<Demo title="Capabilities lab: query first, ask on a gesture, degrade honestly">
+  <div class="lab" data-perm-lab data-perms={JSON.stringify(permissions)}>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-pm="query">
+        Query permission states
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-pm="clipboard">
+        Copy a line
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-pm="share">
+        Share this page
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-pm="wake">
+        Keep screen awake 10 s
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-pm="viewport">
+        Visual viewport
+      </button>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Permission states" tabindex="0">
+      <table class="lab-kv">
+        <caption class="visually-hidden">Permission states for this page</caption>
+        <tbody data-pm-rows>
+          {permissions.map((name) => (
+            <tr>
+              <th scope="row">{name}</th>
+              <td>–</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <ul class="lab-log" data-pm-log aria-live="polite"></ul>
+  </div>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-perm-lab]').forEach((root) => {
+    const names = JSON.parse(root.dataset.perms ?? '[]') as string[];
+    const rows = need<HTMLTableSectionElement>(root, '[data-pm-rows]');
+    const log = need<HTMLUListElement>(root, '[data-pm-log]');
+
+    const actions: Record<string, () => Promise<void>> = {
+      query: async () => {
+        for (const [i, name] of names.entries()) {
+          const cell = rows.rows[i]?.cells[1];
+          if (!cell) continue;
+          try {
+            const status = await navigator.permissions.query({
+              name,
+            } as unknown as PermissionDescriptor);
+            cell.textContent = status.state;
+            cell.dataset.tone =
+              status.state === 'granted' ? 'good' : status.state === 'denied' ? 'bad' : 'info';
+          } catch {
+            cell.textContent = 'not queryable in this browser';
+            delete cell.dataset.tone;
+          }
+        }
+        logLine(
+          log,
+          '"prompt" means asking would show a prompt. Camera and microphone are "denied" by this site\'s Permissions-Policy header, before any user choice.',
+          'info',
+        );
+      },
+      clipboard: async () => {
+        await navigator.clipboard.writeText('Copied by the capabilities lab');
+        logLine(
+          log,
+          'navigator.clipboard.writeText worked: writing needs a user gesture and focus, not a prompt.',
+          'good',
+        );
+      },
+      share: async () => {
+        if (!('share' in navigator)) {
+          logLine(
+            log,
+            'Web Share is not available here (common on desktop): the fallback is a copy-link button.',
+            'warn',
+          );
+          return;
+        }
+        await navigator.share({ title: document.title, url: location.href });
+        logLine(log, 'Shared through the operating system share sheet.', 'good');
+      },
+      wake: async () => {
+        if (!('wakeLock' in navigator)) {
+          logLine(log, 'Screen Wake Lock is not supported here.', 'warn');
+          return;
+        }
+        const lock = await navigator.wakeLock.request('screen');
+        logLine(
+          log,
+          'Screen wake lock held for 10 s (released automatically if you switch tabs).',
+          'good',
+        );
+        setTimeout(
+          () => void lock.release().then(() => logLine(log, 'Wake lock released.')),
+          10_000,
+        );
+      },
+      viewport: async () => {
+        const vv = window.visualViewport;
+        logLine(
+          log,
+          vv
+            ? `Visual viewport ${Math.round(vv.width)}×${Math.round(vv.height)} at scale ${vv.scale.toFixed(2)}, offset ${Math.round(vv.offsetTop)} px (the part of the page actually visible, e.g. above an on-screen keyboard).`
+            : 'visualViewport is not supported here.',
+          'info',
+        );
+        await Promise.resolve();
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-pm]').forEach((button) => {
+      button.addEventListener('click', () => {
+        void actions[button.dataset.pm ?? '']?.().catch((error: unknown) =>
+          logLine(log, String(error), 'bad'),
+        );
+      });
+    });
+  });
+</script>

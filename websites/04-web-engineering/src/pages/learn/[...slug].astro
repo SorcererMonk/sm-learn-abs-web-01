@@ -1,0 +1,43 @@
+---
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import LessonLayout from '@learn/shared/components/LessonLayout.astro';
+import { sortLessons, sourceLabel, toLink, withBase } from '@learn/shared/lib/content.ts';
+import type { LessonLink } from '@learn/shared/lib/site.ts';
+import { site } from '../../site';
+
+export async function getStaticPaths() {
+  const lessons = sortLessons(site, await getCollection('lessons'));
+  return lessons.map((entry, i) => ({
+    params: { slug: entry.id },
+    props: {
+      entry,
+      prev: toLink(lessons[i - 1]),
+      next: toLink(lessons[i + 1]),
+      total: lessons.length,
+    },
+  }));
+}
+
+interface Props {
+  entry: CollectionEntry<'lessons'>;
+  prev?: LessonLink;
+  next?: LessonLink;
+  total: number;
+}
+const { entry, prev, next, total } = Astro.props;
+const { Content, headings } = await render(entry);
+---
+
+<LessonLayout
+  site={site}
+  lesson={entry.data}
+  slug={entry.id}
+  headings={headings}
+  prev={prev}
+  next={next}
+  totalParts={total}
+  sourceLabel={sourceLabel(site, entry.data.source)}
+  dojoHref={withBase('/dojo/')}
+>
+  <Content />
+</LessonLayout>

@@ -1,0 +1,23 @@
+---
+import BaseLayout from '@learn/shared/components/BaseLayout.astro';
+import TrainingPage from '@learn/shared/components/TrainingPage.astro';
+import { repoPath } from '@learn/shared/lib/content.ts';
+import { site } from '../site';
+
+const file = 'T18-cs-web-engineering.md';
+---
+
+<BaseLayout site={site} title="Dojo: the web-engineering training programme">
+  <div class="page-grid" style="--page-row-gap: var(--space-l)">
+    <header class="lesson-hero stack">
+      <p class="kicker">T18 · Training programme</p>
+      <h1>The dojo</h1>
+      <p class="lede">
+        Platform drills with timers, belt gates, screen reps against the hostile spec, audit hunts,
+        rescue trials, intuition probes and a logbook. Measure, fix, re-measure, with the numbers
+        logged.
+      </p>
+    </header>
+    <TrainingPage path={repoPath(file)} file={file} key="t18-web-engineering" />
+  </div>
+</BaseLayout>

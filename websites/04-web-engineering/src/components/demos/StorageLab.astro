@@ -1,0 +1,138 @@
+---
+/**
+ * Browser storage, measured: quota and usage (StorageManager), persistence, and the same 1 MB
+ * written to localStorage (synchronous, blocks the main thread), IndexedDB and the Cache API.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Storage lab: quota, persistence and who blocks the main thread">
+  <div class="lab" data-storage-lab>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-st="estimate">
+        Estimate quota
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-st="local">
+        Write 1 MB to localStorage
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-st="idb">
+        Write 1 MB to IndexedDB
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-st="cache">
+        Put 1 MB in the Cache API
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-st="persist">
+        Ask for persistence
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-st="clear">
+        Clear lab data
+      </button>
+    </div>
+    <ul class="lab-log" data-st-log aria-live="polite"></ul>
+  </div>
+  <p slot="note">
+    The localStorage write is timed as main-thread blocking time: nothing else runs until it
+    returns. IndexedDB and Cache API writes happen off the main thread and resolve a promise.
+    Storage here is partitioned: the same origin framed inside another site gets a separate jar.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { logLine } from '../../client/api.ts';
+
+  const MB = 'x'.repeat(1024 * 1024 - 64);
+  const mb = (bytes = 0): string => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+  const idb = (): Promise<IDBDatabase> =>
+    new Promise((resolve, reject) => {
+      const open = indexedDB.open('storage-lab', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('blobs');
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error ?? new Error('IndexedDB failed'));
+    });
+
+  document.querySelectorAll<HTMLElement>('[data-storage-lab]').forEach((root) => {
+    const log = need<HTMLUListElement>(root, '[data-st-log]');
+    const actions: Record<string, () => Promise<void>> = {
+      estimate: async () => {
+        const { usage, quota } = await navigator.storage.estimate();
+        const persisted = await navigator.storage.persisted();
+        logLine(
+          log,
+          `Using ${mb(usage)} of a ${mb(quota)} quota for this origin. Persistent: ${persisted ? 'yes' : 'no (best-effort, may be evicted under pressure)'}.`,
+          'info',
+        );
+      },
+      local: async () => {
+        const t0 = performance.now();
+        try {
+          localStorage.setItem('storage-lab', MB);
+          logLine(
+            log,
+            `localStorage.setItem blocked the main thread for ${(performance.now() - t0).toFixed(1)} ms (synchronous, and capped around 5 MB per origin).`,
+            'warn',
+          );
+        } catch (error) {
+          logLine(log, `localStorage refused: ${String(error)}`, 'bad');
+        }
+        await Promise.resolve();
+      },
+      idb: async () => {
+        const db = await idb();
+        const t0 = performance.now();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction('blobs', 'readwrite');
+          tx.objectStore('blobs').put(new Blob([MB]), 'one-mb');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error ?? new Error('write failed'));
+        });
+        db.close();
+        logLine(
+          log,
+          `IndexedDB committed 1 MB in ${(performance.now() - t0).toFixed(1)} ms without blocking: the page stayed responsive while it wrote.`,
+          'good',
+        );
+      },
+      cache: async () => {
+        const t0 = performance.now();
+        const cache = await caches.open('storage-lab');
+        await cache.put(
+          '/storage-lab/one-mb',
+          new Response(MB, { headers: { 'Content-Type': 'text/plain' } }),
+        );
+        logLine(
+          log,
+          `Cache API stored a 1 MB Response in ${(performance.now() - t0).toFixed(1)} ms (the store service workers read from).`,
+          'good',
+        );
+      },
+      persist: async () => {
+        const granted = await navigator.storage.persist();
+        logLine(
+          log,
+          granted
+            ? "Persistence granted: the browser won't evict this origin's data under storage pressure."
+            : 'Persistence not granted (browsers decide from engagement, bookmarks or install state).',
+          granted ? 'good' : 'info',
+        );
+      },
+      clear: async () => {
+        localStorage.removeItem('storage-lab');
+        await caches.delete('storage-lab');
+        await new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase('storage-lab');
+          req.onsuccess = req.onerror = req.onblocked = () => resolve();
+        });
+        logLine(log, 'Lab data cleared.');
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-st]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = actions[button.dataset.st ?? ''];
+        action?.().catch((error: unknown) => logLine(log, String(error), 'bad'));
+      });
+    });
+  });
+</script>

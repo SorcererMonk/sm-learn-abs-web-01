@@ -1,0 +1,127 @@
+---
+/**
+ * The same CPU-heavy job on the main thread and in a Web Worker, with a JavaScript-driven clock
+ * that can only tick while the main thread is free; then postMessage of 64 MiB, cloned versus
+ * transferred.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Worker lab: keep the main thread free">
+  <div class="lab" data-worker-lab>
+    <div class="lab-toolbar">
+      <output class="lab-status wk-clock" data-wk-clock aria-label="Main-thread clock">
+        0.0 s
+      </output>
+      <button type="button" class="btn btn--small btn--ghost" data-wk-main>
+        Count primes on the main thread
+      </button>
+      <button type="button" class="btn btn--small" data-wk-worker>
+        Count primes in a worker
+      </button>
+    </div>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small btn--ghost" data-wk-clone>
+        Send 64 MiB (structured clone)
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-wk-transfer>
+        Send 64 MiB (transfer)
+      </button>
+    </div>
+    <ul class="lab-log" data-wk-log aria-live="polite"></ul>
+  </div>
+  <p slot="note">
+    The clock is updated by requestAnimationFrame, so it stops whenever the main thread is busy:
+    that is what users feel as a frozen page. The worker does the same work while the clock keeps
+    running. Transferring moves ownership of the buffer (the sender's copy becomes zero bytes)
+    instead of copying it.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { countPrimes } from '../../lib/primes.ts';
+  import { logLine } from '../../client/api.ts';
+
+  const LIMIT = 3_000_000;
+
+  document.querySelectorAll<HTMLElement>('[data-worker-lab]').forEach((root) => {
+    const clock = need<HTMLOutputElement>(root, '[data-wk-clock]');
+    const log = need<HTMLUListElement>(root, '[data-wk-log]');
+    const started = performance.now();
+    let ticking = false;
+    const tick = (): void => {
+      clock.textContent = `${((performance.now() - started) / 1000).toFixed(1)} s`;
+      requestAnimationFrame(tick);
+    };
+    let worker: Worker | undefined;
+    const getWorker = (): Worker => {
+      if (worker) return worker;
+      worker = new Worker(new URL('../../client/primes.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      worker.onmessage = (
+        event: MessageEvent<{ kind: string; count: number; ms: number; bytes: number }>,
+      ) => {
+        const d = event.data;
+        if (d.kind === 'primes')
+          logLine(
+            log,
+            `Worker: ${d.count} primes in ${d.ms.toFixed(0)} ms, and the page stayed responsive.`,
+            'good',
+          );
+        else logLine(log, `Worker received ${(d.bytes / 1024 / 1024).toFixed(0)} MiB.`);
+      };
+      return worker;
+    };
+    const startClock = (): void => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(tick);
+      }
+    };
+
+    need<HTMLButtonElement>(root, '[data-wk-main]').addEventListener('click', () => {
+      startClock();
+      logLine(log, 'Main thread: counting… (watch the clock)');
+      setTimeout(() => {
+        const t0 = performance.now();
+        const count = countPrimes(LIMIT);
+        logLine(
+          log,
+          `Main thread: ${count} primes below ${LIMIT.toLocaleString()} in ${(performance.now() - t0).toFixed(0)} ms. The clock and every click were frozen meanwhile.`,
+          'warn',
+        );
+      }, 50);
+    });
+
+    need<HTMLButtonElement>(root, '[data-wk-worker]').addEventListener('click', () => {
+      startClock();
+      logLine(log, 'Worker: counting… (the clock keeps running)');
+      getWorker().postMessage({ kind: 'primes', limit: LIMIT });
+    });
+
+    const send = (transfer: boolean): void => {
+      const w = getWorker();
+      const buffer = new ArrayBuffer(64 * 1024 * 1024);
+      const t0 = performance.now();
+      w.postMessage({ kind: 'buffer', buffer }, transfer ? [buffer] : []);
+      const ms = performance.now() - t0;
+      logLine(
+        log,
+        `${transfer ? 'Transfer' : 'Clone'}: postMessage returned after ${ms.toFixed(1)} ms; the page's copy is now ${buffer.byteLength.toLocaleString()} bytes.`,
+        transfer ? 'good' : 'info',
+      );
+    };
+    need<HTMLButtonElement>(root, '[data-wk-clone]').addEventListener('click', () => send(false));
+    need<HTMLButtonElement>(root, '[data-wk-transfer]').addEventListener('click', () => send(true));
+  });
+</script>
+
+<style>
+  .wk-clock {
+    min-inline-size: 5rem;
+    text-align: center;
+  }
+</style>

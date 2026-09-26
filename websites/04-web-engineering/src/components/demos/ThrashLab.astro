@@ -1,0 +1,169 @@
+---
+/**
+ * Two rendering-pipeline experiments: (1) layout thrashing, interleaved read/write versus batched,
+ * timed; (2) a `left` animation and a `transform` animation while the main thread is blocked.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Pipeline lab: forced layouts and compositor-only animation">
+  <div class="lab" data-thrash>
+    <section class="lab-panel" aria-label="Layout thrashing">
+      <h4>1 · Read, write, read, write…</h4>
+      <p class="muted">
+        Widen 400 boxes by 1 px. Interleaved code reads <code>offsetWidth</code> after each write,
+        forcing a synchronous layout every time; batched code reads everything, then writes.
+      </p>
+      <div class="lab-toolbar">
+        <button type="button" class="btn btn--small" data-th-run="interleaved">
+          Interleaved
+        </button>
+        <button type="button" class="btn btn--small btn--ghost" data-th-run="batched">
+          Batched
+        </button>
+      </div>
+      <output class="lab-pre" data-th-out>
+        –
+      </output>
+      <div class="th-boxes" data-th-boxes aria-hidden="true"></div>
+    </section>
+    <section class="lab-panel" aria-label="Compositor animation">
+      <h4>2 · Block the main thread mid-animation</h4>
+      <p class="muted">
+        Both dots cross the track in 2 s. One animates <code>left</code> (layout on the main thread
+        every frame), the other <code>transform</code> (the compositor thread).
+      </p>
+      <div class="lab-toolbar">
+        <button type="button" class="btn btn--small" data-th-play>
+          Play
+        </button>
+        <button type="button" class="btn btn--small btn--ghost" data-th-block>
+          Block main thread 1.5 s
+        </button>
+      </div>
+      <div class="th-track" data-th-track>
+        <span class="th-dot th-left" title="left">
+          left
+        </span>
+        <span class="th-dot th-transform" title="transform">
+          transform
+        </span>
+      </div>
+      <output class="lab-pre" data-th-anim>
+        Press Play, then block the thread while the dots move.
+      </output>
+    </section>
+  </div>
+</Demo>
+
+<style>
+  .th-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    block-size: 3rem;
+    overflow: hidden;
+  }
+  .th-boxes :global(div) {
+    inline-size: 10px;
+    block-size: 6px;
+    background: var(--color-accent-subtle);
+  }
+  .th-track {
+    position: relative;
+    display: grid;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    overflow: hidden;
+  }
+  .th-dot {
+    position: relative;
+    inline-size: 5.5rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--radius-pill);
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    font-family: var(--font-mono);
+    font-size: var(--step-n2);
+    text-align: center;
+  }
+  .th-track[data-playing] .th-left {
+    animation: th-left 2s linear infinite alternate;
+  }
+  .th-track[data-playing] .th-transform {
+    animation: th-transform 2s linear infinite alternate;
+  }
+  @keyframes th-left {
+    to {
+      left: calc(100% - 5.5rem);
+    }
+  }
+  @keyframes th-transform {
+    to {
+      transform: translateX(calc(var(--track-width, 20rem) - 5.5rem));
+    }
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-thrash]').forEach((root) => {
+    const boxes = need<HTMLElement>(root, '[data-th-boxes]');
+    const out = need<HTMLOutputElement>(root, '[data-th-out]');
+    for (let i = 0; i < 400; i += 1) boxes.append(document.createElement('div'));
+    const items = [...boxes.children] as HTMLElement[];
+    const results: Record<string, number> = {};
+
+    root.querySelectorAll<HTMLButtonElement>('[data-th-run]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.thRun ?? 'batched';
+        items.forEach((el) => el.style.removeProperty('width'));
+        void boxes.offsetWidth;
+        const t0 = performance.now();
+        if (mode === 'interleaved') {
+          for (const el of items) el.style.width = `${el.offsetWidth + 1}px`;
+        } else {
+          const widths = items.map((el) => el.offsetWidth);
+          items.forEach((el, i) => {
+            el.style.width = `${(widths[i] ?? 0) + 1}px`;
+          });
+        }
+        void boxes.offsetWidth;
+        results[mode] = performance.now() - t0;
+        const lines = Object.entries(results).map(
+          ([m, ms]) => `${m.padEnd(12)} ${ms.toFixed(1)} ms`,
+        );
+        if (results.interleaved && results.batched)
+          lines.push(
+            `Interleaving is ${(results.interleaved / results.batched).toFixed(0)}× slower: ${items.length} forced layouts instead of one.`,
+          );
+        out.textContent = lines.join('\n');
+      });
+    });
+
+    const track = need<HTMLElement>(root, '[data-th-track]');
+    const anim = need<HTMLOutputElement>(root, '[data-th-anim]');
+    need<HTMLButtonElement>(root, '[data-th-play]').addEventListener('click', (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      track.style.setProperty('--track-width', `${track.clientWidth - 16}px`);
+      track.toggleAttribute('data-playing');
+      button.textContent = track.hasAttribute('data-playing') ? 'Stop' : 'Play';
+    });
+    need<HTMLButtonElement>(root, '[data-th-block]').addEventListener('click', () => {
+      anim.textContent = 'Main thread blocked…';
+      requestAnimationFrame(() => {
+        const end = performance.now() + 1500;
+        while (performance.now() < end) {
+          /* busy: no style, layout or paint on the main thread can happen now */
+        }
+        anim.textContent = track.hasAttribute('data-playing')
+          ? 'The left dot froze for 1.5 s; the transform dot kept gliding on the compositor.'
+          : 'Press Play first so the dots are moving when the thread blocks.';
+      });
+    });
+  });
+</script>

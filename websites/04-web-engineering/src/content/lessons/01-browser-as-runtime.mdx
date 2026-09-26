@@ -1,0 +1,183 @@
+---
+title: The Browser as a Runtime
+source: L18-cs-web-engineering.md
+part: 1
+tier: Core → Deep
+summary: Browser processes and site isolation, the navigation and loading sequence end to end, the main thread and the event loop, rendering-pipeline internals, the JavaScript engine at engineer depth, workers, storage and quota, and the other engines you meet (bfcache, prerendering, parser recovery).
+anchors:
+  - "There is one main thread, and it runs your JavaScript, your style recalculation, your layout and your event handlers. Everything \"janky\" is something occupying it for too long."
+  - "The browser wants to show something as soon as possible; almost every performance technique is about not standing in its way."
+checks:
+  - q: "Trace a navigation from URL entry to first paint, naming every step that your code can block."
+    a: "URL parsing and the network (DNS, TCP + TLS or QUIC). Your server's time to first byte: slow rendering or a database query blocks here. HTML streams in; the preload scanner races ahead fetching what it can see. The parser builds the DOM and stops at every classic `<script>` without `async`/`defer` (parser-blocking: your script's download plus execution). CSS is render-blocking: nothing paints until every stylesheet in the head has arrived and the CSSOM is built, and a script after a stylesheet waits for it too. Then style, layout, paint and composite produce the first paint; web fonts with `font-display: block` can hide text for up to 3 s; a lazy-loaded or late-discovered hero image delays LCP. In the waterfall lab, a 1 s stylesheet moves FCP by 1 s."
+  - q: "Explain layout thrashing with a code example and the fix."
+    a: "Reading a layout property (`offsetWidth`, `getBoundingClientRect`, `scrollTop`) after a style write forces the browser to run layout synchronously to answer. In a loop, `for (const el of items) el.style.width = el.offsetWidth + 1 + 'px'` forces one layout per element. Fix: batch the reads, then the writes: `const widths = items.map(el => el.offsetWidth); items.forEach((el, i) => el.style.width = widths[i] + 1 + 'px')`, which gives one layout. Or schedule writes in `requestAnimationFrame`, or use a library like fastdom. The pipeline lab measures the difference (often 10–100×)."
+  - q: "Explain why `transform`-based animation is smoother than animating `top`/`left`."
+    a: "`top`/`left` change geometry, so every frame needs style, layout and paint on the main thread; if the main thread is busy (a long task, GC), frames are dropped. `transform` (and `opacity`) on an element with its own compositor layer only changes how an already-painted layer is drawn, which the compositor thread does on its own, without layout or paint. So the animation keeps running even while JavaScript blocks the main thread, as the second pipeline lab shows."
+  - q: "Explain what disqualifies a page from bfcache and why it matters for perceived navigation speed."
+    a: "The back/forward cache keeps the whole page (DOM and JS heap) frozen in memory, so Back/Forward is instant with no network or re-execution. Disqualifiers include: `unload` listeners (use `pagehide` instead), `Cache-Control: no-store` in some browsers, open IndexedDB transactions, BroadcastChannel/WebSocket/WebRTC connections still open at navigation, `window.opener` references, and pages in the middle of certain APIs. Chrome reports the reasons in `PerformanceNavigationTiming.notRestoredReasons` and the DevTools bfcache panel. It matters because Back is one of the most common navigations: a restore takes milliseconds while a reload takes seconds on mobile."
+build: "A 'browser mechanics lab': one page demonstrating render-blocking CSS, a blocking script, layout thrashing, a long task destroying INP, a composited versus non-composited animation, and a memory leak, each with a DevTools trace saved and annotated."
+steps:
+  - "Create `lab/index.html` with six sections, one per mechanism, each with a button that triggers it (reuse the ideas in this lesson's labs)."
+  - "Serve the CSS and script from a tiny server with a `?delay=` parameter, like `/lab/asset/` here, so render-blocking is visible."
+  - "Record a Performance trace per mechanism with 4× CPU throttling; save each as JSON under `traces/`."
+  - "Annotate each trace (screenshot + three sentences): the long task, the forced reflow warning, the dropped frames, the growing heap."
+  - "Add the fix next to each problem and record the 'after' trace."
+taste: "Learn the pipeline once and you stop cargo-culting performance advice. Most tips are special cases of \"don't block the main thread\" and \"don't make the browser recalculate what didn't change\"."
+quiz:
+  - q: "Which runs first after a script finishes: a resolved promise's `.then` callback or a `setTimeout(fn, 0)` callback?"
+    options: ["setTimeout", "The promise callback (microtasks run before the next task)", "It's random"]
+    answer: 1
+    why: "The microtask queue is drained completely after each task, before the event loop picks the next task."
+  - q: "Why is CSS render-blocking?"
+    options: ["Browsers are slow at parsing CSS", "Painting before the styles arrive would show unstyled content and then reflow everything (FOUC)", "It isn't"]
+    answer: 1
+    why: "The browser won't paint until the CSSOM for head stylesheets is ready, to avoid a flash of unstyled content."
+  - q: "What can a Web Worker not do?"
+    options: ["fetch()", "Touch the DOM", "Use IndexedDB"]
+    answer: 1
+    why: "Workers have no DOM; they communicate with the page by postMessage."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import IsolationLab from '../../components/demos/IsolationLab.astro';
+import WaterfallLab from '../../components/demos/WaterfallLab.astro';
+import ThrashLab from '../../components/demos/ThrashLab.astro';
+import WorkerLab from '../../components/demos/WorkerLab.astro';
+import StorageLab from '../../components/demos/StorageLab.astro';
+import NavLab from '../../components/demos/NavLab.astro';
+
+## Process architecture
+
+A modern browser is several cooperating processes:
+
+- **Browser process**: UI, navigation, permissions, the network service and storage.
+- **Renderer processes**, one per *site*: **site isolation** since Spectre means `evil.example` and `bank.example` never share one.
+- **GPU process**: raster and compositing.
+- **Utility processes**: audio, decoding, and others.
+
+A renderer is sandboxed: it can't open files or sockets, and asks the browser process for everything, so a crashed tab doesn't take the browser down. Spectre-class attacks can read memory inside a process, so cross-origin data must never share a process. Timers are coarsened, and **`SharedArrayBuffer`** (a high-resolution timer in disguise) is only available when a page opts into **cross-origin isolation**:
+
+- `Cross-Origin-Opener-Policy: same-origin` keeps other origins' windows out of its browsing context group.
+- `Cross-Origin-Embedder-Policy: require-corp` refuses cross-origin subresources that haven't opted in.
+
+<IsolationLab />
+
+## The navigation and loading sequence
+
+End to end:
+
+1. **URL parsing**, then **DNS**, then **connection setup** (TCP + TLS, or QUIC for HTTP/3).
+2. The **HTML streams in** while the **preload scanner** races ahead of the parser, fetching scripts, stylesheets and images it can see in the markup.
+3. **Tokenisation and DOM construction** pause at every classic `<script>` (parser-blocking). `async` and `defer` scripts don't pause it.
+4. **CSSOM construction**. CSS is **render-blocking**: nothing paints until head stylesheets arrive.
+5. Then the **render tree**, **layout**, **paint** and **compositing**.
+
+Each step can be delayed by a decision you made. Change the stylesheet and script delays below and watch FCP move with them:
+
+<WaterfallLab id="wf-pipeline" preset="pipeline" />
+
+## The main thread and the event loop
+
+One main thread runs **tasks** (a script, a timer, an event handler). After each task the **microtask queue** is drained completely: promise reactions and `queueMicrotask`. Then the browser may take a **rendering opportunity**, running `requestAnimationFrame` callbacks, then style, layout and paint. **`requestIdleCallback`** runs only when a frame has time left.
+
+A **long task** (more than 50 ms) delays everything behind it, including the response to a click: **input delay**, the first part of INP. The modern answer is to **yield**. `scheduler.yield()` (or `setTimeout(0)` as a fallback) splits work so input gets a turn, and `scheduler.postTask` sets priorities. `isInputPending` is the older, narrower tool. The rule: everything competes for one thread.
+
+<Playground
+  id="p01-event-loop"
+  title="Event loop: predict the order, then feel a long task"
+  task="Predict the log order of the first button before pressing it. Then type in the box while each of the other two runs: which one lets your keystrokes appear during the work?"
+  html={`<p><button id="order">Log the order</button></p>\n<p><button id="long">One 600 ms task</button> <button id="yield">Same work, yielding every 50 ms</button></p>\n<p><label>Type here while they run: <input id="type"></label></p>\n<p id="out" role="status">Ready.</p>`}
+  css={`button { font: inherit; padding: .35rem .7rem; }\ninput { font: inherit; }`}
+  js={`const out = document.getElementById('out');\ndocument.getElementById('order').onclick = () => {\n  console.log('script: sync start');\n  setTimeout(() => console.log('task: setTimeout 0'));\n  requestAnimationFrame(() => console.log('render step: requestAnimationFrame'));\n  queueMicrotask(() => console.log('microtask: queueMicrotask'));\n  Promise.resolve().then(() => console.log('microtask: promise.then'));\n  if (window.requestIdleCallback) requestIdleCallback(() => console.log('idle: requestIdleCallback'));\n  console.log('script: sync end');\n};\nconst work = (ms) => { const end = performance.now() + ms; while (performance.now() < end) {} };\nconst yieldToMain = () => globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise((r) => setTimeout(r, 0));\ndocument.getElementById('long').onclick = () => {\n  const t = performance.now();\n  work(600);\n  out.textContent = 'One long task: ' + Math.round(performance.now() - t) + ' ms, input waited the whole time.';\n};\ndocument.getElementById('yield').onclick = async () => {\n  const t = performance.now();\n  for (let i = 0; i < 12; i++) { work(50); await yieldToMain(); }\n  out.textContent = 'Chunked: ' + Math.round(performance.now() - t) + ' ms in total, but input got a turn every 50 ms.';\n};`}
+/>
+
+## Rendering pipeline internals
+
+The pipeline runs in stages:
+
+1. **Style recalculation**: which rules apply to which elements.
+2. **Layout** (reflow): geometry. It is triggered by changing width, height, position, fonts or content, and forced *synchronously* when you read `offsetWidth`, `getBoundingClientRect()` or `scrollTop` after a write. Interleaving reads and writes in a loop is **layout thrashing**.
+3. **Paint and raster**: turning boxes into pixels, per layer.
+4. **Compositing**: on the **compositor thread**, which can move, scale and fade existing layers without the main thread. That is why `transform` and `opacity` animate smoothly while other properties don't.
+
+`will-change` promotes an element to its own layer, so use it sparingly: every layer costs memory. `content-visibility: auto` and CSS **containment** (`contain: layout paint`) tell the browser it can skip work for offscreen or self-contained subtrees.
+
+<ThrashLab />
+
+## The JavaScript engine
+
+At the level an engineer needs (language mechanics are in `L1-coding-typescript-javascript.md`):
+
+- **Parse and lazy compilation**: functions are pre-parsed and fully compiled on first call.
+- **Bytecode**: executed by an interpreter.
+- **An optimising JIT**: compiles hot functions using type feedback, and **deoptimises** when the assumptions break.
+- **Hidden classes (shapes) and inline caches**: objects built the same way share a shape, and property access at a call site stays fast while it sees few shapes. Monomorphic is fast; megamorphic is a slow lookup.
+- **Garbage collection**: generational (most objects die young), incremental and concurrent to shorten pauses.
+- **Memory retention**, which is where leaks come from:
+  - detached DOM nodes still referenced from JavaScript;
+  - closures capturing large objects;
+  - listeners and timers never removed;
+  - caches that only grow.
+
+<Playground
+  id="p01-engine"
+  title="Shapes, inline caches and a leak"
+  task="Run the benchmark twice (edit and re-run). Then press Leak a few times and take a heap snapshot in DevTools (Memory panel): search for 'Detached' nodes. Fix the leak with one line."
+  html={`<p><button id="leak">Leak 100 KB of detached DOM</button></p>`}
+  css={`button { font: inherit; padding: .35rem .7rem; }`}
+  js={`// Same work, same data size: only the number of object shapes differs.\nconst areaMono = (s) => s.w * s.h;\nconst areaPoly = (s) => s.w * s.h;\nconst mono = Array.from({ length: 100000 }, (_, i) => ({ w: i, h: 2 }));\nconst poly = Array.from({ length: 100000 }, (_, i) =>\n  i % 4 === 0 ? { w: i, h: 2 } : i % 4 === 1 ? { h: 2, w: i } : i % 4 === 2 ? { w: i, h: 2, d: 1 } : { x: 0, w: i, h: 2 });\nconst time = (label, fn, list) => {\n  let sum = 0; const t = performance.now();\n  for (let r = 0; r < 40; r++) for (const s of list) sum += fn(s);\n  console.log(label + ': ' + (performance.now() - t).toFixed(1) + ' ms');\n};\ntime('monomorphic call site (1 shape)', areaMono, mono);\ntime('megamorphic call site (4 shapes)', areaPoly, poly);\n\nconst retained = []; // the leak: removed nodes kept alive by this array\ndocument.getElementById('leak').onclick = () => {\n  const node = document.createElement('div');\n  node.textContent = 'x'.repeat(100000);\n  document.body.append(node);\n  node.remove();\n  retained.push(node);\n  console.log('Detached nodes still referenced: ' + retained.length);\n};`}
+  solution={{ js: `const areaMono = (s) => s.w * s.h;\nconst mono = Array.from({ length: 100000 }, (_, i) => ({ w: i, h: 2 }));\nlet sum = 0; const t = performance.now();\nfor (let r = 0; r < 40; r++) for (const s of mono) sum += areaMono(s);\nconsole.log('monomorphic: ' + (performance.now() - t).toFixed(1) + ' ms');\n\ndocument.getElementById('leak').onclick = () => {\n  const node = document.createElement('div');\n  node.textContent = 'x'.repeat(100000);\n  document.body.append(node);\n  node.remove(); // nothing keeps a reference, so the GC can reclaim it\n  console.log('Removed and released');\n};` }}
+/>
+
+## Threads off the main thread
+
+**Web Workers** run JavaScript on their own thread and talk to the page with `postMessage`. Data is copied by **structured clone** unless you **transfer** it: transferring an `ArrayBuffer` moves ownership in constant time. **`SharedArrayBuffer`** gives true shared memory with `Atomics`, but only with cross-origin isolation. **Worklets** are tiny specialised threads (CSS paint, audio, animation).
+
+Move off-thread what doesn't need the DOM:
+
+- parsing large JSON or CSV;
+- image and media decoding;
+- crypto and compression;
+- search indexes;
+- heavy data transforms.
+
+The DOM itself can only be touched from the main thread.
+
+<WorkerLab />
+
+## Storage and quota
+
+The main stores:
+
+- **Cookies**: small, sent with every request.
+- **`localStorage`**: synchronous. Every read and write blocks the main thread, so it's for tiny preferences only.
+- **`sessionStorage`**: per tab.
+- **IndexedDB**: async and transactional; the real client database.
+- **The Cache API**: Request/Response pairs, used by service workers.
+- **The Origin Private File System**: fast file access, with sync handles in workers.
+
+All of them share an origin **quota**, managed by **StorageManager** (`estimate()`, `persist()`). Best-effort data can be **evicted** under pressure. Storage is **partitioned by top-level site**, so an embedded third party gets a separate jar on every site that embeds it.
+
+<StorageLab />
+
+## The browser's other engines
+
+The browser has other engines you will meet:
+
+- **The HTTP cache**: Parts 5 and 9.
+- **The back/forward cache (bfcache)**: freezes whole pages in memory so Back is instant. It is disqualified by `unload` listeners, sometimes `no-store`, and open connections.
+- **Prerendering and speculation rules**: `<script type="speculationrules">` lets you prerender likely next pages.
+- **The HTML parser's error recovery**: every input produces a DOM, even broken markup.
+- **Layout quirks across browsers**: a missing doctype triggers quirks mode, and engines still differ at the edges, which is what the Interop project tracks.
+
+<NavLab />
+
+<Playground
+  id="p01-parser"
+  title="The parser never fails: see what it built"
+  task="Predict what the DOM looks like for each broken line, then read the console. Which recovery rule explains each result?"
+  html={`<p>Paragraph <div>a div inside a p</div> after</p>\n<table><tr><td>cell</td></tr>stray text</table>\n<b><i>bold italic</b> italic?</i>`}
+  js={`console.log(document.body.innerHTML.split('<script')[0]);`}
+/>

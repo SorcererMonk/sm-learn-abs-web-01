@@ -1,0 +1,248 @@
+---
+/**
+ * The six failure modes Part 0 names, each reproducible in place with a measurement:
+ * bundle weight, layout shift, keyboard traps, stale caches, script-readable tokens and a vendor
+ * script hogging the main thread.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Failure-mode gallery: reproduce each one, then measure it" badge="Live server">
+  <div class="lab" data-failures>
+    <ServerNotice />
+    <div class="lab-grid">
+      <article class="lab-panel">
+        <h4>1 · A multi-megabyte bundle</h4>
+        <p class="muted">Download 2 MB of JavaScript, then make the engine compile it.</p>
+        <button type="button" class="btn btn--small" data-fg="bundle">
+          Ship it
+        </button>
+        <output class="lab-pre" data-fg-out="bundle">
+          –
+        </output>
+      </article>
+      <article class="lab-panel">
+        <h4>2 · A layout that jumps</h4>
+        <p class="muted">An image without dimensions arrives 1.2 s late.</p>
+        <div class="lab-toolbar">
+          <button type="button" class="btn btn--small" data-fg="shift">
+            Load it
+          </button>
+          <label class="lab-check">
+            <input type="checkbox" data-fg-dims /> Reserve space
+          </label>
+        </div>
+        <div class="fg-stage" data-fg-stage>
+          <p>Text you were about to read.</p>
+        </div>
+        <output class="lab-pre" data-fg-out="shift">
+          –
+        </output>
+      </article>
+      <article class="lab-panel">
+        <h4>3 · Keyboard-inaccessible controls</h4>
+        <p class="muted">Press Tab through these two “buttons”, then Enter on each.</p>
+        <div class="lab-toolbar">
+          <div class="fg-fake" data-fg-fake>
+            div “button”
+          </div>
+          <button type="button" class="btn btn--small btn--ghost" data-fg-real>
+            real button
+          </button>
+        </div>
+        <output class="lab-pre" data-fg-out="keys">
+          Clicks: div 0 · button 0
+        </output>
+      </article>
+      <article class="lab-panel">
+        <h4>4 · Last week's JavaScript</h4>
+        <p class="muted">What protects this page's scripts from a stale cache?</p>
+        <button type="button" class="btn btn--small" data-fg="stale">
+          Inspect my scripts
+        </button>
+        <output class="lab-pre" data-fg-out="stale">
+          –
+        </output>
+      </article>
+      <article class="lab-panel">
+        <h4>5 · Tokens in localStorage</h4>
+        <p class="muted">Log in both ways, then run an injected script.</p>
+        <div class="lab-toolbar">
+          <button type="button" class="btn btn--small btn--ghost" data-fg="login">
+            Log in
+          </button>
+          <button type="button" class="btn btn--small" data-fg="xss">
+            Run injected script
+          </button>
+        </div>
+        <output class="lab-pre" data-fg-out="xss">
+          –
+        </output>
+      </article>
+      <article class="lab-panel">
+        <h4>6 · A vendor script owns the main thread</h4>
+        <p class="muted">Start the “tag manager”, then click the counter.</p>
+        <div class="lab-toolbar">
+          <button type="button" class="btn btn--small" data-fg="vendor">
+            Load vendor.js
+          </button>
+          <button type="button" class="btn btn--small btn--ghost" data-fg-count>
+            Count: 0
+          </button>
+        </div>
+        <output class="lab-pre" data-fg-out="vendor">
+          –
+        </output>
+      </article>
+    </div>
+  </div>
+</Demo>
+
+<style>
+  .fg-stage {
+    padding: var(--space-2xs);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-sm);
+  }
+  .fg-stage :global(img) {
+    display: block;
+    max-inline-size: 100%;
+    block-size: auto;
+  }
+  .fg-fake {
+    padding: 0.35rem 0.8rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+    cursor: pointer;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, timedFetch } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-failures]').forEach((root) => {
+    const out = (key: string): HTMLOutputElement => need(root, `[data-fg-out="${key}"]`);
+    const on = (key: string, fn: () => void | Promise<void>): void =>
+      need<HTMLButtonElement>(root, `[data-fg="${key}"]`).addEventListener('click', () => {
+        void fn();
+      });
+
+    on('bundle', async () => {
+      out('bundle').textContent = 'Downloading…';
+      const { res, ms } = await timedFetch('/api/payload?kb=2048', { cache: 'no-store' });
+      const code = await res.text();
+      const t0 = performance.now();
+      new Function(code);
+      const compile = performance.now() - t0;
+      const slow4g = (code.length * 8) / 1_600_000;
+      out('bundle').textContent =
+        `${(code.length / 1e6).toFixed(1)} MB in ${ms} ms here; ≈ ${slow4g.toFixed(0)} s on Slow 4G (1.6 Mbit/s).\n` +
+        `Compile alone: ${compile.toFixed(0)} ms on this machine, ≈ ${(compile * 4).toFixed(0)} ms at 4× CPU slowdown. Execution hasn't even started.`;
+    });
+
+    on('shift', () => {
+      const stage = need<HTMLElement>(root, '[data-fg-stage]');
+      const reserve = need<HTMLInputElement>(root, '[data-fg-dims]').checked;
+      stage.querySelector('img')?.remove();
+      let cls = 0;
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as (PerformanceEntry & { value: number })[])
+          cls += entry.value;
+      });
+      observer.observe({ type: 'layout-shift' });
+      const img = document.createElement('img');
+      img.alt = 'A late chart';
+      if (reserve) {
+        img.width = 320;
+        img.height = 120;
+      }
+      img.src = `/api/slow-image?ms=1200&t=${Date.now()}`;
+      stage.prepend(img);
+      out('shift').textContent = 'Waiting for the image…';
+      img.addEventListener('load', () => {
+        setTimeout(() => {
+          observer.disconnect();
+          out('shift').textContent =
+            `Layout shift caused: ${cls.toFixed(3)} (CLS budget for the whole page: 0.1). ${reserve ? 'width/height let the browser reserve the box before a byte arrived.' : 'Tick “Reserve space” and load again.'}`;
+        }, 100);
+      });
+    });
+
+    const counts = { div: 0, button: 0 };
+    const showKeys = (): void => {
+      out('keys').textContent =
+        `Clicks: div ${counts.div} · button ${counts.button}. The div is not focusable, has no role and ignores Enter and Space: keyboard and screen-reader users can't use it.`;
+    };
+    need<HTMLElement>(root, '[data-fg-fake]').addEventListener('click', () => {
+      counts.div += 1;
+      showKeys();
+    });
+    need<HTMLButtonElement>(root, '[data-fg-real]').addEventListener('click', () => {
+      counts.button += 1;
+      showKeys();
+    });
+
+    on('stale', async () => {
+      const scripts = (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
+        .filter((r) => /\/_astro\/.+\.js$/.test(r.name))
+        .slice(0, 3);
+      const lines = await Promise.all(
+        scripts.map(async (r) => {
+          const res = await fetch(r.name, { method: 'HEAD', cache: 'no-store' });
+          return `${new URL(r.name).pathname}\n  Cache-Control: ${res.headers.get('cache-control')}`;
+        }),
+      );
+      const page = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+      out('stale').textContent =
+        `${lines.join('\n')}\nThis page: Cache-Control: ${page.headers.get('cache-control')}\n` +
+        'Hashed file names change whenever content does, so scripts can be cached forever; the HTML that names them is revalidated every time. A new deploy is a new HTML pointing at new names.';
+    });
+
+    on('login', async () => {
+      localStorage.setItem('demo-token', 'eyJhbGciOi.demo-secret-token.signature');
+      await fetch('/api/failure/session', { method: 'POST' });
+      out('xss').textContent =
+        'Logged in twice: a token in localStorage, and an HttpOnly session cookie set by the server.';
+    });
+    on('xss', () => {
+      // What any injected script (or compromised dependency) can do on this origin:
+      const stolen = localStorage.getItem('demo-token');
+      const cookies = document.cookie;
+      out('xss').textContent =
+        `localStorage token: ${stolen ?? '(none: log in first)'}\n` +
+        `document.cookie: ${cookies.includes('demo_session') ? cookies : `${cookies || '(empty)'}; the HttpOnly demo_session cookie is invisible`}\n` +
+        'The token can be sent anywhere and replayed for as long as it is valid. The HttpOnly cookie cannot be read, only ridden while the page is open.';
+    });
+
+    let clicks = 0;
+    const counter = need<HTMLButtonElement>(root, '[data-fg-count]');
+    const delays: number[] = [];
+    counter.addEventListener('click', (event) => {
+      clicks += 1;
+      counter.textContent = `Count: ${clicks}`;
+      delays.push(performance.now() - event.timeStamp);
+    });
+    on('vendor', () => {
+      delays.length = 0;
+      out('vendor').textContent = 'vendor.js is running for 5 s. Click the counter now.';
+      const stop = performance.now() + 5000;
+      const tick = (): void => {
+        const end = performance.now() + 350;
+        while (performance.now() < end) {
+          /* a 350 ms long task: "collecting analytics" */
+        }
+        if (performance.now() < stop) setTimeout(tick, 150);
+        else
+          out('vendor').textContent = delays.length
+            ? `Your clicks waited up to ${Math.round(Math.max(...delays))} ms before the handler could run (INP “good” is ≤ 200 ms for the whole interaction).`
+            : 'No clicks recorded: try again and click during the 5 s.';
+      };
+      setTimeout(tick, 0);
+    });
+
+    void guard(root);
+  });
+</script>

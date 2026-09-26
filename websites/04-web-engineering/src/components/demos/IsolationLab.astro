@@ -1,0 +1,98 @@
+---
+/**
+ * Site isolation and cross-origin isolation: what this page can do, the headers that change it,
+ * and a twin page served with COOP + COEP (opened in a new tab, because isolation is decided per
+ * top-level browsing context group).
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Isolation lab: what COOP and COEP unlock" badge="Live server">
+  <div class="lab" data-isolation>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-is-probe>
+        Probe this page
+      </button>
+      <a
+        class="btn btn--small btn--ghost"
+        href="/lab/isolation?coep=1"
+        target="_blank"
+        rel="noopener"
+      >
+        Open the isolated twin ↗
+      </a>
+      <a
+        class="btn btn--small btn--ghost"
+        href="/lab/isolation?coep=0"
+        target="_blank"
+        rel="noopener"
+      >
+        Open the ordinary twin ↗
+      </a>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Isolation facts" tabindex="0">
+      <table class="lab-kv">
+        <caption class="visually-hidden">Isolation facts for this page and the twin</caption>
+        <tbody data-is-rows>
+          <tr>
+            <td>Press “Probe this page”.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-isolation]').forEach((root) => {
+    const rows = need<HTMLTableSectionElement>(root, '[data-is-rows]');
+    need<HTMLButtonElement>(root, '[data-is-probe]').addEventListener('click', () => {
+      void (async () => {
+        const twin = await fetch('/lab/isolation?coep=1', { method: 'HEAD', cache: 'no-store' });
+        const steps = new Set<number>();
+        let prev = performance.now();
+        for (let i = 0; i < 200_000 && steps.size < 50; i += 1) {
+          const t = performance.now();
+          if (t !== prev) {
+            steps.add(t - prev);
+            prev = t;
+          }
+        }
+        const facts: [string, string][] = [
+          ['This page: crossOriginIsolated', String(self.crossOriginIsolated)],
+          [
+            'This page: SharedArrayBuffer',
+            typeof SharedArrayBuffer === 'function' ? 'available' : 'unavailable',
+          ],
+          ['This page: smallest performance.now() step', `${Math.min(...steps).toFixed(3)} ms`],
+          [
+            'Twin: Cross-Origin-Opener-Policy',
+            twin.headers.get('cross-origin-opener-policy') ?? '—',
+          ],
+          [
+            'Twin: Cross-Origin-Embedder-Policy',
+            twin.headers.get('cross-origin-embedder-policy') ?? '—',
+          ],
+        ];
+        rows.replaceChildren(
+          ...facts.map(([k, v]) => {
+            const tr = document.createElement('tr');
+            const th = document.createElement('th');
+            th.scope = 'row';
+            th.textContent = k;
+            tr.append(th);
+            tr.insertCell().textContent = v;
+            return tr;
+          }),
+        );
+      })();
+    });
+    void guard(root);
+  });
+</script>

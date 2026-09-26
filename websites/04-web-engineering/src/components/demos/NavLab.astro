@@ -1,0 +1,64 @@
+---
+/**
+ * Back/forward cache and prerendering, which only happen in real top-level navigations: choose
+ * what might disqualify the page, open the pair in a new tab, navigate A → B → Back, and read
+ * what each page reports about how it was shown.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Navigation lab: bfcache and speculation-rules prerender" badge="Live server">
+  <div class="lab" data-nav-lab>
+    <fieldset class="lab-toolbar nl-options">
+      <legend class="visually-hidden">Page settings</legend>
+      <label class="lab-check">
+        <input type="checkbox" name="nostore" /> <code>Cache-Control: no-store</code>
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" name="unload" /> an <code>unload</code> listener
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" name="prerender" /> speculation rules: prerender the other page
+      </label>
+    </fieldset>
+    <p class="lab-toolbar">
+      <a class="btn btn--small" href="/lab/nav/a" target="_blank" rel="noopener" data-nl-open>
+        Open page A in a new tab ↗
+      </a>
+    </p>
+    <ol class="stack stack-sm">
+      <li>On page A, follow the link to page B, then press Back.</li>
+      <li>
+        Page A says whether it was restored from the back/forward cache (instantly, with its
+        JavaScript state intact) or reloaded, and in Chrome, why not.
+      </li>
+      <li>With prerender ticked, page B says it was prerendered and when it was activated.</li>
+    </ol>
+  </div>
+</Demo>
+
+<style>
+  .nl-options {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-nav-lab]').forEach((root) => {
+    const link = need<HTMLAnchorElement>(root, '[data-nl-open]');
+    const update = (): void => {
+      const params = new URLSearchParams();
+      root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((box) => {
+        if (box.checked) params.set(box.name, '1');
+      });
+      link.href = `/lab/nav/a${params.size ? `?${params}` : ''}`;
+    };
+    root.addEventListener('change', update);
+    update();
+  });
+</script>

@@ -1,0 +1,148 @@
+---
+title: What Web Engineering Is
+source: L18-cs-web-engineering.md
+part: 0
+tier: Core
+summary: The platform's constraints (unknown device, unknown network, untrusted runtime), the four surfaces of every web app, the URL as state, where the web wins and loses against native, the failure modes this discipline prevents, and how the rest of the course fits together.
+anchors:
+  - "Your application is a guest in a browser on a stranger's phone, arriving over a network that may be a train tunnel. Every assumption you don't test is a bug waiting for a specific user."
+  - "The fastest code is the code you never ship. On the web, bytes are latency and JavaScript is main-thread time."
+checks:
+  - q: "Explain what makes the web different from a native platform in five concrete engineering consequences."
+    a: "(1) No install step: every visit may be a cold start, so first-load bytes and caching are product features, not optimisations. (2) Unknown device and network: you must budget for a mid-tier Android on Slow 4G, not your laptop, which is why JavaScript budgets and throttled testing exist. (3) Untrusted runtime shared with extensions and other origins: the same-origin policy, CSP and server-side validation are mandatory, and view-source means no secret ships to the client. (4) No version pinning: a deploy reaches everyone at once, and users can be on old HTML during a deploy, so immutable hashed assets, atomic deploys and stale-chunk handling are required. (5) Backward compatibility is inherited: the platform never breaks old pages, so standards-based HTML keeps working for decades, while framework code rots; feature detection and progressive enhancement beat user-agent sniffing."
+  - q: "Explain why the URL should encode application state, and name three things that break when it doesn't."
+    a: "The URL is the only state the user, other people and crawlers can hold: it is shared, bookmarked, reloaded and walked by the back button. If filters, tabs, pagination or the selected item live only in memory: (1) reload resets the screen, (2) a shared link opens the wrong view, so support conversations and bug reports lose context, (3) Back leaves the page instead of undoing the last filter. Also: analytics can't segment by view, and crawlers can't index distinct states (infinite scroll with no URLs is the classic case). The URL-state lab above shows the difference in one checkbox."
+build: "Take any page you've built and produce its 'hostile report': Slow 4G with 4× CPU throttling, JavaScript disabled, a screen reader, 200% browser zoom, and a cold cache, with a numbered list of what breaks."
+steps:
+  - "Pick one real page (yours, or this site). Record its URL and today's date in `audits/hostile-report.md`."
+  - "Cold cache + Slow 4G + 4× CPU (DevTools → Network and Performance panels): record LCP and the time until the page is usable. Screenshot the filmstrip."
+  - "Disable JavaScript (DevTools command menu → 'Disable JavaScript') and reload: list every feature that stops working and whether the page says so."
+  - "Zoom to 200% and resize to 320 CSS px: list clipped, overlapping or horizontally scrolling content (WCAG 1.4.4 and 1.4.10)."
+  - "Complete the primary task with a screen reader (VoiceOver, NVDA or TalkBack): note unlabelled controls and missing announcements."
+  - "Number every failure, tag it with the surface it belongs to (client, network, server, build) and estimate the fix."
+taste: "Start every feature by asking what it does as plain HTML over a slow connection. What you build on top of that answer will be faster, more accessible and more resilient than what you'd have built without asking."
+quiz:
+  - q: "Which constraint is unique to the web compared with native apps?"
+    options: ["Users have different devices", "There is no install step, so every first visit loads your code over the network", "Code can crash"]
+    answer: 1
+    why: "Native apps pay the download once at install time; the web pays it on every cold visit, which is why bytes are latency."
+  - q: "Where should the active filter of a product list live?"
+    options: ["In a global store", "In the URL's query string", "In localStorage"]
+    answer: 1
+    why: "The URL makes it shareable, bookmarkable, restorable on reload and undoable with Back."
+  - q: "A page ships 2 MB of JavaScript. What costs the user most on a mid-tier phone?"
+    options: ["Only the download", "The download plus parse, compile and execution on the main thread", "Nothing, the browser caches it"]
+    answer: 1
+    why: "JavaScript is paid for twice: on the network and on the CPU, on the same thread that handles input."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import PageReport from '../../components/demos/PageReport.astro';
+import SurfacesLab from '../../components/demos/SurfacesLab.astro';
+import UrlStateLab from '../../components/demos/UrlStateLab.astro';
+import FailureGallery from '../../components/demos/FailureGallery.astro';
+
+## The platform's defining constraints
+
+You ship to an **unknown device** (a four-year-old Android as often as a new laptop) over an **unknown network** (fibre, hotel Wi-Fi, a train tunnel) into an **untrusted runtime you do not control** (a browser with extensions, other tabs, and a user who can open DevTools). There is **no install step**, so every cold visit downloads your application; **no version pinning**, so every deploy reaches everyone at once; and a **decades-long backward-compatibility guarantee**: pages from 1996 still render, and yours will too if you stay on the standards.
+
+Every one of those constraints becomes a measurable number. Here is the page you are reading, measured in your browser:
+
+<PageReport focus="hostile" />
+
+<Try task="Produce a two-minute hostile report of this page: DevTools → Network: Slow 4G; Performance: 4× CPU; disable cache; reload. Then disable JavaScript and reload again. What still works, and what does the page say about what doesn't?">
+  With throttling, the HTML arrives first and the lesson text renders before any script runs (the site is server-rendered HTML with small, lazily loaded scripts), so LCP stays near the HTML's arrival. Without JavaScript, every section, code sample, "Try it" answer (native `<details>`) and navigation link still works; the labs can't run, and the theme toggle and progress controls are hidden rather than broken, because they carry `data-requires-js` and only appear when JavaScript is on. That is the pattern: make the core content HTML, and make enhancements announce or hide themselves when missing.
+</Try>
+
+## The four surfaces of every web application
+
+Every web application lives on four surfaces:
+
+- **Client**: a browser running your code in a sandbox, on one main thread shared with rendering and input.
+- **Network**: latency, packet loss, caches and CDNs between the user and you.
+- **Server**: rendering, APIs and data.
+- **Build**: what you compile, bundle, hash and ship.
+
+Most decisions trade one surface against another. Server-side rendering moves work from the client to the server. A CDN moves the server closer through the network. Code splitting trades one big download for more requests. Inlining CSS trades cacheability for one fewer round trip.
+
+This page loaded through all four, and the browser recorded where the time went: the **Navigation Timing** API for the network and client phases, and the server's own **`Server-Timing`** header for its share.
+
+<SurfacesLab />
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Cache-Control: no-cache
+ETag: "dL3kN0g6pW2vQx8yZ1aB-br"
+Server-Timing: static;dur=0.9;desc="read + compress", total;dur=1.2
+X-Request-Id: 3f2c9a0e-…
+```
+
+## The web's unique properties
+
+These properties shape everything else:
+
+- **The URL is shareable application state.**
+- **The back button is a user-owned undo.** Break it and you break trust.
+- **View-source is permanent.** Assume every client-side secret is public.
+- **Linkability and crawlability**: anything with a URL can be linked, indexed and previewed.
+- **"The user agent is the user's, not yours."** Users zoom, block scripts, translate pages, override fonts and colours, and use assistive technology, and the page must survive all of it.
+
+<UrlStateLab />
+
+## Where the web wins and where it loses against native
+
+The web wins on **reach** (one URL works on every device with a browser), **zero install** (no store, no download gate), **instant updates** (deploy once, everyone has it) and **linkability** (any state can be shared and indexed). It loses on **device integration** (Bluetooth, NFC and background sensors are partial or missing, especially on iOS), **background execution** (a closed tab stops running; background sync and push are limited), and the **performance ceiling** (heavy 3D, real-time audio and large offline datasets hit memory and thread limits first). Part 13 turns this into a decision framework.
+
+| Need | Web | Native |
+| --- | --- | --- |
+| Reach from a shared link | Instant | Store detour |
+| Ship a fix | Seconds, to everyone | Review, then user updates |
+| Run while closed | Push and sync only, limited | Background tasks |
+| Device APIs | Growing, uneven by browser | Full |
+| Indexable content | Yes | No |
+
+<Try task="Pick three apps on your phone. For each, decide web, native or both using the table above, and name the single capability that decides it.">
+  Examples: a newspaper is web-first (reach, indexable content, instant updates) with an optional native wrapper for push. A step counter is native (it needs background sensors and runs while closed). A banking app is often both: a responsive web app for reach and accessibility, and a native app for biometrics, device binding and push. The deciding capability is usually background execution or a specific device API. If nothing on the "native" side is essential, the web's reach and zero install win.
+</Try>
+
+## The failure modes this discipline exists to prevent
+
+This course exists to prevent a set of engineering failures:
+
+- multi-megabyte bundles shipped to phones;
+- layouts that jump while loading;
+- keyboard-inaccessible interfaces;
+- cache-invalidation bugs that serve last week's JavaScript;
+- auth implemented with tokens in `localStorage`;
+- a single vendor script that owns your main thread.
+
+Each of them can be reproduced in a few lines. Reproduce them below:
+
+<FailureGallery />
+
+## The composition of the discipline
+
+The course is built in layers:
+
+- **Platform knowledge**: Parts 1–2.
+- **Architecture**: Parts 3–4.
+- **The quality attributes the web cares most about**: Parts 5–8 (performance, accessibility, security, discoverability).
+- **The server and delivery**: Parts 9–12.
+- **The web as an app platform**: Part 13.
+- **Judgement**: Part 14, the craft that turns all of the above into taste.
+
+| Part | Mostly about | Surface |
+| --- | --- | --- |
+| 1 Browser runtime, 2 Platform APIs | how the client works | client |
+| 3 Architecture, 4 Data & API | who renders, where state lives | client + server |
+| 5 Performance | bytes, round trips, main-thread time | all four |
+| 6 Accessibility, 8 Discoverability | the tree you ship to people and crawlers | client (HTML) |
+| 7 Security | origins, cookies, headers, dependencies | client + server + build |
+| 9 Server, 12 Delivery | caching layers, releases, observability | server + network |
+| 10 Build, 11 Testing | what you ship and how you know it works | build |
+| 13 PWA | offline, install, push | client + network |
+
+<Try task="Write your own one-line definition of web engineering, then list the three Parts you are weakest in and why. Revisit the list after Part 5.">
+  A useful definition: "Shipping software to an unknown device over an unknown network into an untrusted runtime, and making it fast, accessible, secure and operable anyway." For weaknesses, be specific ("I can't read a performance trace", "I have never written a CSP"), because each maps to a drill in the [dojo](/dojo/). Most people starting from a framework background find Parts 1 (browser internals), 7 (security) and 9 (caching layers) weakest.
+</Try>

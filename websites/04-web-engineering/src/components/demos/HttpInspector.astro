@@ -1,0 +1,157 @@
+---
+/**
+ * A small "curl -v" and request builder against this site's own server. Two transports:
+ * - browser: fetch() from this page, so the browser's cache, cookies and CORS rules apply;
+ * - wire: the server repeats the request over a raw socket (/api/curl) and returns the untouched
+ *   response, so redirects, Set-Cookie and 304s are visible (fetch hides all three).
+ * Presets fill the form and send. Optional panels: Server-Timing bars, correlated server logs,
+ * a security-header grade, and a repeat mode that tabulates N responses.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import type { Preset } from '../../lib/inspector.ts';
+import '../../styles/labs.css';
+
+interface Props {
+  id: string;
+  title: string;
+  presets: Preset[];
+  /** Response headers to highlight (lower-case). */
+  highlight?: string[];
+  logs?: boolean;
+  grade?: boolean;
+}
+
+const { id, title, presets, highlight = [], logs = false, grade = false } = Astro.props;
+const first = presets[0];
+---
+
+<Demo title={title} badge="Live server">
+  <div
+    class="lab"
+    data-http-inspector
+    data-presets={JSON.stringify(presets)}
+    data-highlight={highlight.join(',')}
+    data-logs={logs ? '' : undefined}
+    data-grade={grade ? '' : undefined}
+  >
+    <ServerNotice />
+    <div class="lab-toolbar" role="group" aria-label="Presets">
+      {presets.map((preset, i) => (
+        <button type="button" class="btn btn--small btn--ghost" data-preset={i}>
+          {preset.label}
+        </button>
+      ))}
+    </div>
+    <form class="hi-form" data-hi-form>
+      <label class="lab-field">
+        <span>Method</span>
+        <select name="method">
+          {['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].map((m) => (
+            <option selected={m === (first?.method ?? 'GET')}>{m}</option>
+          ))}
+        </select>
+      </label>
+      <label class="lab-field hi-path">
+        <span>Path</span>
+        <input name="path" value={first?.path ?? '/api/health'} spellcheck="false" />
+      </label>
+      <label class="lab-field">
+        <span>Send via</span>
+        <select name="via">
+          <option value="browser" selected={first?.via !== 'wire'}>
+            Browser fetch
+          </option>
+          <option value="wire" selected={first?.via === 'wire'}>
+            Raw wire (curl)
+          </option>
+        </select>
+      </label>
+      <label class="lab-field hi-wide">
+        <span>Request headers (one "Name: value" per line)</span>
+        <textarea
+          name="headers"
+          rows="2"
+          spellcheck="false"
+        >{Object.entries(first?.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join('\n')}</textarea>
+      </label>
+      <label class="lab-field hi-wide">
+        <span>Body</span>
+        <textarea name="body" rows="2" spellcheck="false">{first?.body ?? ''}</textarea>
+      </label>
+      <div class="lab-toolbar hi-wide">
+        <button class="btn btn--small" type="submit">
+          Send
+        </button>
+        <label class="lab-field hi-repeat">
+          <span>Times</span>
+          <input name="repeat" type="number" min="1" max="30" value={first?.repeat ?? 1} />
+        </label>
+      </div>
+    </form>
+    <div class="lab-grid" aria-live="polite">
+      <section class="lab-panel" aria-labelledby={`${id}-res`}>
+        <h4 id={`${id}-res`}>Response</h4>
+        <p data-hi-status class="muted">
+          Pick a preset or press Send.
+        </p>
+        <div class="table-scroll" data-hi-headers-wrap hidden>
+          <table class="lab-kv" data-hi-headers>
+            <caption class="visually-hidden">Response headers</caption>
+          </table>
+        </div>
+        <ul class="lab-bars" data-hi-timing hidden></ul>
+      </section>
+      <section class="lab-panel" aria-labelledby={`${id}-body`}>
+        <h4 id={`${id}-body`}>Body</h4>
+        <pre class="lab-pre" data-hi-body tabindex="0" aria-label="Response body">…</pre>
+      </section>
+    </div>
+    <div class="table-scroll" data-hi-repeat-wrap hidden>
+      <table class="lab-kv" data-hi-repeat>
+        <caption class="visually-hidden">Repeated responses</caption>
+      </table>
+    </div>
+    {grade && (
+      <section class="lab-panel" aria-labelledby={`${id}-grade`} data-hi-grade-wrap hidden>
+        <h4 id={`${id}-grade`}>Security header grade</h4>
+        <ul class="lab-log" data-hi-grade />
+      </section>
+    )}
+    {logs && (
+      <section class="lab-panel" aria-labelledby={`${id}-logs`} data-hi-logs-wrap hidden>
+        <h4 id={`${id}-logs`}>Server log lines for this request ID</h4>
+        <ul class="lab-log" data-hi-logs />
+      </section>
+    )}
+  </div>
+</Demo>
+
+<style>
+  .hi-form {
+    display: grid;
+    gap: var(--space-2xs) var(--space-s);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  }
+  .hi-path {
+    grid-column: span 2;
+  }
+  .hi-wide {
+    grid-column: 1 / -1;
+  }
+  .hi-repeat {
+    grid-template-columns: auto 4.5rem;
+    align-items: center;
+  }
+  @media (width < 30rem) {
+    .hi-path {
+      grid-column: 1 / -1;
+    }
+  }
+</style>
+
+<script>
+  import { initHttpInspector } from '../../client/http-inspector.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-http-inspector]').forEach(initHttpInspector);
+</script>

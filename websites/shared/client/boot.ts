@@ -23,6 +23,12 @@ markIndexRows();
 
 if (!$('[data-dojo]')) initCheckboxes();
 
+const rum = document.documentElement.dataset.rum;
+if (rum)
+  import('./rum.ts')
+    .then(({ initRum }) => initRum(rum))
+    .catch((error: unknown) => console.error('Failed to load RUM', error));
+
 const lazy: [string, () => Promise<void>][] = [
   [
     'form[data-quiz]',

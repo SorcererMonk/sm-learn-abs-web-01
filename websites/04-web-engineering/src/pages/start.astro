@@ -1,0 +1,41 @@
+---
+import StartPage from '@learn/shared/components/StartPage.astro';
+import { withBase } from '@learn/shared/lib/content.ts';
+import { site } from '../site';
+---
+
+<StartPage site={site}>
+  <p>
+    <strong>
+      Every PART of <code>L18-cs-web-engineering.md</code> is one lesson
+    </strong>{' '}
+    at <a href={withBase('/learn/')}>/learn/</a>. Inside a lesson, each top-level bullet of the
+    source is its own section, in the same order, with an explanation, code where code helps, and a
+    live lab, playground or “Try it” exercise with a model answer. The Part's intuition anchors,
+    mastery checks (with model answers), build project and taste note follow at the end.
+  </p>
+  <p>
+    <strong>The labs talk to a real server.</strong> <code>npm start</code> builds the site and runs
+    <code>server/main.ts</code>, a dependency-free Node backend that serves the pages and the API
+    the labs call: HTTP caching with ETags, cookie sessions with CSRF tokens and passkeys, CORS, CSP
+    with violation reports, rate limiting, idempotency keys, Server-Sent Events, a hand-written
+    WebSocket server, background jobs, webhooks, feature flags and real-user monitoring. Every
+    response carries a request ID and Server-Timing, so you can follow a click from the browser into
+    the server's logs.
+  </p>
+  <p>
+    <strong>
+      The training file <code>T18-cs-web-engineering.md</code> is the{' '}
+      <a href={withBase('/dojo/')}>dojo</a>
+    </strong>
+    : drill tables get timers, belt gates record passes, lists become checklists, intuition probes
+    track your hit rate, and the logbook exports <code>LOG.md</code>. Capstones, the learning path
+    and the resource library each have their own page, and the{' '}
+    <a href={withBase('/coverage/')}>coverage matrix</a> proves nothing was skipped.
+  </p>
+  <p>
+    Progress (completed parts, ticks, drill times) is stored only in this browser. The only data
+    sent to the server is what a lab sends when you press its buttons, and anonymous Core Web Vitals
+    for the pages you visit (route, device class and connection type) that power the field-data lab.
+  </p>
+</StartPage>

@@ -1,0 +1,102 @@
+---
+/**
+ * The four surfaces of this very page load: the network (DNS, connect, TLS, download), the server
+ * (its own Server-Timing, read from the navigation entry), the build (what was shipped) and the
+ * client (parsing to load). Navigation Timing Level 2 + Server-Timing, no guessing.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Four surfaces, one page load: where did the time go?">
+  <div class="lab" data-surfaces>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-sf-run>
+        Break down this page load
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-sf-reload>
+        Reload and compare
+      </button>
+    </div>
+    <ul class="lab-bars" data-sf-bars aria-label="Timeline of this navigation"></ul>
+    <dl class="lab-stats" data-sf-stats></dl>
+  </div>
+  <p slot="note">
+    Bars start where each phase started, relative to the navigation. “Server” is the time between
+    the request being sent and the first byte arriving; the server's own Server-Timing header says
+    how much of that it spent working. On a warm localhost the network phases are near zero:
+    throttle to Slow 4G in DevTools and reload to see what users on trains get.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-surfaces]').forEach((root) => {
+    const bars = need<HTMLUListElement>(root, '[data-sf-bars]');
+    const stats = need<HTMLDListElement>(root, '[data-sf-stats]');
+    const run = (): void => {
+      const nav = performance.getEntriesByType('navigation')[0] as
+        PerformanceNavigationTiming | undefined;
+      if (!nav) return;
+      const phases: [string, number, number][] = [
+        ['Network · redirect', nav.redirectStart, nav.redirectEnd],
+        ['Network · DNS', nav.domainLookupStart, nav.domainLookupEnd],
+        ['Network · connect + TLS', nav.connectStart, nav.connectEnd],
+        ['Server · waiting (TTFB)', nav.requestStart, nav.responseStart],
+        ['Network · download', nav.responseStart, nav.responseEnd],
+        ['Client · parse to DOMContentLoaded', nav.responseEnd, nav.domContentLoadedEventEnd],
+        ['Client · to load event', nav.domContentLoadedEventEnd, nav.loadEventEnd],
+      ];
+      const serverWork = nav.serverTiming.filter((t) => t.name !== 'total');
+      const total = Math.max(1, nav.loadEventEnd || nav.domContentLoadedEventEnd);
+      bars.replaceChildren(
+        ...phases.map(([label, start, end]) => {
+          const li = document.createElement('li');
+          const name = document.createElement('span');
+          name.textContent = label;
+          const bar = document.createElement('span');
+          bar.className = 'lab-bar';
+          const fill = document.createElement('span');
+          const dur = Math.max(0, end - start);
+          fill.style.insetInlineStart = `${(Math.max(0, start) / total) * 100}%`;
+          fill.style.inlineSize = `${(dur / total) * 100}%`;
+          bar.append(fill);
+          const value = document.createElement('span');
+          value.textContent = `${dur.toFixed(1)} ms`;
+          li.append(name, bar, value);
+          return li;
+        }),
+      );
+      const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+      const js = resources.filter((r) => /\.m?js(\?|$)/.test(r.name));
+      const facts: [string, string][] = [
+        ['Protocol', nav.nextHopProtocol || 'unknown'],
+        [
+          'Server work (Server-Timing)',
+          serverWork.length
+            ? serverWork.map((t) => `${t.name} ${t.duration.toFixed(1)} ms`).join(', ')
+            : 'not reported',
+        ],
+        ['HTML over the wire', `${(nav.transferSize / 1024).toFixed(1)} KB`],
+        ['Build output fetched', `${resources.length} files, ${js.length} of them JavaScript`],
+        ['Navigation type', nav.type],
+      ];
+      stats.replaceChildren(
+        ...facts.map(([term, value]) => {
+          const div = document.createElement('div');
+          const dt = document.createElement('dt');
+          dt.textContent = term;
+          const dd = document.createElement('dd');
+          dd.textContent = value;
+          div.append(dt, dd);
+          return div;
+        }),
+      );
+    };
+    need<HTMLButtonElement>(root, '[data-sf-run]').addEventListener('click', run);
+    need<HTMLButtonElement>(root, '[data-sf-reload]').addEventListener('click', () => {
+      location.reload();
+    });
+  });
+</script>

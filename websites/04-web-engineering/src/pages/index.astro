@@ -1,0 +1,127 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '@learn/shared/components/BaseLayout.astro';
+import { lessonHref, sortLessons, withBase } from '@learn/shared/lib/content.ts';
+import { site, chapters } from '../site';
+
+const lessons = sortLessons(site, await getCollection('lessons'));
+const byPart = new Map(lessons.map((l) => [l.data.part, l]));
+const titles = lessons.map((l) => l.data.title);
+const loop = [
+  [
+    'Open DevTools before the editor',
+    'Network waterfall, performance trace, coverage, rendering panel and the accessibility tree. Measuring is cheap.',
+  ],
+  [
+    'Throttle everything',
+    '4–6× CPU slowdown and Slow 4G are the defaults you develop against, not the exceptions you test at the end.',
+  ],
+  [
+    'Build it without the framework once',
+    'Routing, hydration, data caching, form handling: reimplement each in 100 lines once, and the framework stops being a mystery.',
+  ],
+  [
+    'Read the spec, not the summary',
+    'WHATWG HTML, Fetch and URL, the CSS specs and the ECMAScript proposals say what actually happens.',
+  ],
+  [
+    'Field data over lab data',
+    'Lighthouse is one run on your machine; real-user monitoring is your users. Ship measurement before optimisation.',
+  ],
+  [
+    'Progressive enhancement as a discipline',
+    'Make it work as HTML over a network, then improve it: the cheapest accessibility, SEO and resilience strategy there is.',
+  ],
+];
+---
+
+<BaseLayout site={site} title={site.name} showProgress totalParts={lessons.length}>
+  <div class="page-grid">
+    <section class="hero stack" aria-labelledby="hero-title">
+      <p class="kicker">
+        L18 · Web engineering · {lessons.length} parts · a real Node backend · 12-section dojo
+      </p>
+      <h1 id="hero-title" class="hero__title">
+        Ship to a stranger's phone, over a train-tunnel network, <em>on purpose</em>.
+      </h1>
+      <p class="lede">
+        Every part of the web-engineering curriculum as a lesson with labs that talk to a real
+        server: caching with ETags, cookie sessions and CSRF, CORS and CSP, streaming SSR,
+        Server-Sent Events and WebSockets, background jobs, feature flags and field data from your
+        own visits.
+      </p>
+      <p class="cluster">
+        <a class="btn" href={lessonHref(byPart.get(0)?.id ?? '')}>
+          Start with Part 0
+        </a>
+        <a class="btn btn--ghost" href={withBase('/learn/')}>
+          Browse all parts
+        </a>
+        <a class="btn btn--ghost" href={withBase('/dojo/')}>
+          Open the dojo
+        </a>
+      </p>
+    </section>
+
+    <div class="marquee full-bleed" aria-hidden="true">
+      <div class="marquee__track">
+        {[...titles, ...titles].map((t) => (
+          <span>{t}</span>
+        ))}
+      </div>
+    </div>
+
+    <section class="stack" aria-labelledby="chapters-title">
+      <p class="kicker">Suggested learning order</p>
+      <h2 id="chapters-title">Ten chapters, one loop</h2>
+      <div class="bento">
+        {chapters.map((chapter, i) => {
+          const first = byPart.get(chapter.parts[0] ?? 0);
+          return (
+            <article
+              class:list={[
+                'card card--link stack reveal',
+                i === 0 && 'bento__feature card--inverse',
+              ]}
+            >
+              <p class="kicker">
+                Chapter {i + 1} · Part{chapter.parts.length > 1 ? 's' : ''}{' '}
+                {chapter.parts.join(', ')}
+              </p>
+              <h3 class="card__title">
+                <a href={first ? lessonHref(first.id) : withBase('/learn/')}>{chapter.title}</a>
+              </h3>
+              <p>{chapter.blurb}</p>
+              <ul class="cluster" role="list">
+                {chapter.parts.map((p) => (
+                  <li class="pill">{byPart.get(p)?.data.title ?? `Part ${p}`}</li>
+                ))}
+              </ul>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="stack" aria-labelledby="loop-title">
+      <p class="kicker">How to use this site</p>
+      <h2 id="loop-title">The web-engineering learning loop</h2>
+      <ol class="auto-grid" role="list" style="--grid-min: 15rem">
+        {loop.map(([title, body], i) => (
+          <li class="card stack reveal">
+            <span class="stat__value" aria-hidden="true">
+              {i + 1}
+            </span>
+            <h3>{title}</h3>
+            <p class="muted">{body}</p>
+          </li>
+        ))}
+      </ol>
+      <p>
+        <a href={withBase('/start/')}>
+          Read the full orientation: depth ladder, tier tags and how the backend fits in →
+        </a>
+      </p>
+    </section>
+  </div>
+</BaseLayout>

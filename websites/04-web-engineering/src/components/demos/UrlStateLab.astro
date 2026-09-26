@@ -1,0 +1,159 @@
+---
+/**
+ * Filters that live in the URL (?status=4xx&q=…): shareable, bookmarkable, restored on reload and
+ * walked by the back button. The "in memory only" mode keeps the same state in a variable, so you
+ * can feel what breaks.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import '../../styles/labs.css';
+
+const codes: [number, string][] = [
+  [200, 'OK'],
+  [201, 'Created'],
+  [202, 'Accepted'],
+  [204, 'No Content'],
+  [206, 'Partial Content'],
+  [301, 'Moved Permanently'],
+  [302, 'Found'],
+  [303, 'See Other'],
+  [304, 'Not Modified'],
+  [307, 'Temporary Redirect'],
+  [308, 'Permanent Redirect'],
+  [400, 'Bad Request'],
+  [401, 'Unauthorized'],
+  [403, 'Forbidden'],
+  [404, 'Not Found'],
+  [405, 'Method Not Allowed'],
+  [409, 'Conflict'],
+  [412, 'Precondition Failed'],
+  [413, 'Content Too Large'],
+  [422, 'Unprocessable Content'],
+  [429, 'Too Many Requests'],
+  [500, 'Internal Server Error'],
+  [502, 'Bad Gateway'],
+  [503, 'Service Unavailable'],
+  [504, 'Gateway Timeout'],
+];
+---
+
+<Demo title="URL as application state: filter, share, go back">
+  <div class="lab" data-url-state>
+    <form class="lab-toolbar" data-us-form role="search" aria-label="Filter status codes">
+      <label class="lab-field">
+        <span>Class</span>
+        <select name="class">
+          <option value="">All</option>
+          <option>2xx</option>
+          <option>3xx</option>
+          <option>4xx</option>
+          <option>5xx</option>
+        </select>
+      </label>
+      <label class="lab-field">
+        <span>Search</span>
+        <input name="q" type="search" autocomplete="off" />
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-us-memory /> Keep state in memory only
+      </label>
+    </form>
+    <p class="muted" aria-live="polite" data-us-summary>
+      {codes.length} of {codes.length} status codes shown.
+    </p>
+    <ul class="cluster" role="list" data-us-list>
+      {codes.map(([code, text]) => (
+        <li class="pill" data-code={code} data-text={text.toLowerCase()}>
+          {code} {text}
+        </li>
+      ))}
+    </ul>
+    <p class="lab-toolbar">
+      <output class="lab-pre us-url" data-us-url>
+        /
+      </output>
+      <button type="button" class="btn btn--small btn--ghost" data-us-copy>
+        Copy link
+      </button>
+    </p>
+  </div>
+  <p slot="note">
+    Pick a class, type “not”, then press the browser's Back button: each class change is a history
+    entry (pushState) while typing replaces the current one (replaceState), so Back steps through
+    filters, not keystrokes. Reload: the filters survive. Tick “in memory only” and do the same.
+  </p>
+</Demo>
+
+<style>
+  .us-url {
+    flex: 1 1 12rem;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-url-state]').forEach((root) => {
+    const form = need<HTMLFormElement>(root, '[data-us-form]');
+    const cls = need<HTMLSelectElement>(form, '[name="class"]');
+    const q = need<HTMLInputElement>(form, '[name="q"]');
+    const memoryOnly = need<HTMLInputElement>(root, '[data-us-memory]');
+    const summary = need<HTMLElement>(root, '[data-us-summary]');
+    const urlOut = need<HTMLOutputElement>(root, '[data-us-url]');
+    const items = [...root.querySelectorAll<HTMLLIElement>('[data-code]')];
+    let memory = { class: '', q: '' };
+
+    const read = (): { class: string; q: string } => {
+      if (memoryOnly.checked) return memory;
+      const params = new URLSearchParams(location.search);
+      return { class: params.get('class') ?? '', q: params.get('q') ?? '' };
+    };
+
+    const render = (): void => {
+      const state = read();
+      cls.value = state.class;
+      q.value = state.q;
+      let shown = 0;
+      for (const li of items) {
+        const code = li.dataset.code ?? '';
+        const match =
+          (!state.class || code.startsWith(state.class[0] ?? '')) &&
+          (!state.q ||
+            code.includes(state.q) ||
+            (li.dataset.text ?? '').includes(state.q.toLowerCase()));
+        li.hidden = !match;
+        if (match) shown += 1;
+      }
+      summary.textContent = `${shown} of ${items.length} status codes shown.`;
+      urlOut.textContent = memoryOnly.checked ? '(state is invisible to the URL)' : location.href;
+    };
+
+    const write = (next: { class: string; q: string }, mode: 'push' | 'replace'): void => {
+      if (memoryOnly.checked) {
+        memory = next;
+      } else {
+        const params = new URLSearchParams(location.search);
+        for (const [key, value] of Object.entries(next)) {
+          if (value) params.set(key, value);
+          else params.delete(key);
+        }
+        const url = `${location.pathname}${params.size ? `?${params}` : ''}${location.hash}`;
+        history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', url);
+      }
+      render();
+    };
+
+    cls.addEventListener('change', () => write({ class: cls.value, q: q.value }, 'push'));
+    q.addEventListener('input', () => write({ class: cls.value, q: q.value }, 'replace'));
+    form.addEventListener('submit', (event) => event.preventDefault());
+    memoryOnly.addEventListener('change', render);
+    addEventListener('popstate', render);
+    need<HTMLButtonElement>(root, '[data-us-copy]').addEventListener('click', () => {
+      void navigator.clipboard?.writeText(location.href).then(() => {
+        summary.textContent = 'Link copied: paste it in another tab to restore these filters.';
+      });
+    });
+    render();
+  });
+</script>

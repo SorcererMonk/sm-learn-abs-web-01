@@ -1,0 +1,149 @@
+---
+/**
+ * Drives the PWA lab (/lab/pwa/, a real app with a real service worker) from the lesson: start it,
+ * deploy a new server version, cut the server off, reload, unregister. The frame reports every
+ * fetch strategy decision and lifecycle event to the log.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+
+interface Props {
+  id: string;
+  focus?: 'strategies' | 'updates' | 'offline';
+  title?: string;
+}
+const {
+  id,
+  focus = 'strategies',
+  title = 'Service-worker lab: a real app, a real worker, a server you can break',
+} = Astro.props;
+const notes = {
+  strategies:
+    'Start the app, add a note, then reload it: the log shows each request and which strategy answered it (network-first for the page, cache-first for versioned files, stale-while-revalidate for data). Turn the outage on and reload again.',
+  updates:
+    'Start the app, then “Deploy v+1” and “Check for updates” inside the app: the new worker installs and waits. The app shows a prompt; until you accept, the page keeps running the old version. That wait is the lifecycle protecting open tabs, and ignoring it is how users end up stuck.',
+  offline:
+    'Start the app, turn the outage on, then add notes: they go to the IndexedDB outbox. Turn the outage off: within five seconds the outbox replays them, and the server ignores duplicates because each note carries its own ID.',
+};
+---
+
+<Demo title={title} badge="Live server">
+  <div class="lab" data-sw-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-sw="start">
+        Start the app
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-sw="reload">
+        Reload the app
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-sw="deploy">
+        Deploy v+1
+      </button>
+      <label class="lab-check">
+        <input type="checkbox" data-sw-outage /> Server outage
+      </label>
+      <button type="button" class="btn btn--small btn--ghost" data-sw="reset">
+        Unregister and clear
+      </button>
+    </div>
+    <p class="muted" data-sw-state aria-live="polite">
+      Server state: –
+    </p>
+    <div class="lab-grid">
+      <iframe class="lab-frame" title="The PWA lab app" data-sw-frame></iframe>
+      <section class="lab-panel" aria-labelledby={`${id}-log`}>
+        <h4 id={`${id}-log`}>Worker and app log</h4>
+        <ol class="lab-log" data-sw-log></ol>
+      </section>
+    </div>
+  </div>
+  <p slot="note">{notes[focus]}</p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-sw-lab]').forEach((root) => {
+    const frame = need<HTMLIFrameElement>(root, '[data-sw-frame]');
+    const log = need<HTMLOListElement>(root, '[data-sw-log]');
+    const stateLine = need<HTMLElement>(root, '[data-sw-state]');
+    const outage = need<HTMLInputElement>(root, '[data-sw-outage]');
+
+    const refresh = async (): Promise<void> => {
+      const s = (await (await fetch('/api/pwa/state')).json()) as {
+        version: number;
+        outage: boolean;
+        notes: number;
+      };
+      outage.checked = s.outage;
+      stateLine.textContent = `Server state: release v${s.version} · ${s.outage ? 'OUTAGE (connections dropped)' : 'reachable'} · ${s.notes} note(s) stored`;
+    };
+
+    addEventListener('message', (event: MessageEvent<{ type?: string; text?: string }>) => {
+      if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+      if (event.data?.type === 'lab:pwa' && event.data.text) {
+        logLine(log, event.data.text);
+        void refresh();
+      }
+    });
+
+    const actions: Record<string, () => Promise<void>> = {
+      start: async () => {
+        frame.src = '/lab/pwa/';
+        logLine(log, 'Opening /lab/pwa/ in the frame', 'info');
+      },
+      reload: async () => {
+        frame.contentWindow?.location.reload();
+        logLine(log, 'Reloading the app', 'info');
+      },
+      deploy: async () => {
+        const { version } = (await (await fetch('/api/pwa/deploy', { method: 'POST' })).json()) as {
+          version: number;
+        };
+        logLine(
+          log,
+          `Deployed v${version}: sw.js now has different bytes. Press "Check for updates" in the app.`,
+          'info',
+        );
+      },
+      reset: async () => {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs.filter((r) => r.scope.includes('/lab/pwa/')).map((r) => r.unregister()),
+        );
+        for (const name of await caches.keys())
+          if (name.startsWith('pwa-')) await caches.delete(name);
+        await fetch('/api/pwa/reset', { method: 'POST' });
+        frame.removeAttribute('src');
+        log.replaceChildren();
+        logLine(log, 'Worker unregistered, caches and server notes cleared.', 'info');
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-sw]').forEach((button) => {
+      button.addEventListener('click', () => {
+        void actions[button.dataset.sw ?? '']?.().then(refresh);
+      });
+    });
+    outage.addEventListener('change', () => {
+      void fetch(`/api/pwa/outage?on=${outage.checked ? '1' : '0'}`, { method: 'POST' }).then(
+        () => {
+          logLine(
+            log,
+            outage.checked
+              ? 'Outage ON: the server now drops every /lab/pwa/ connection.'
+              : 'Outage OFF: the server answers again.',
+            outage.checked ? 'warn' : 'good',
+          );
+          if (!outage.checked) frame.contentWindow?.postMessage('lab:flush', location.origin);
+          return refresh();
+        },
+      );
+    });
+    void guard(root).then((ok) => {
+      if (ok) void refresh();
+    });
+  });
+</script>

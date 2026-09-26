@@ -5,7 +5,8 @@
   "description": "Five learning websites built from the L/T curriculum files in the repository root.",
   "workspaces": [
     "shared",
-    "01-foundations"
+    "01-foundations",
+    "04-web-engineering"
   ],
   "engines": {
     "node": ">=22.12.0"
@@ -16,7 +17,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "tokens": "node shared/tools/build-tokens.ts",
-    "start:01": "npm start -w 01-foundations"
+    "start:01": "npm start -w 01-foundations",
+    "start:04": "npm start -w 04-web-engineering"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

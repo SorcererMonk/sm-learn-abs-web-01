@@ -1,0 +1,326 @@
+---
+/**
+ * Loads /lab/waterfall in a frame with the chosen delays and loading modes, then draws the
+ * waterfall the page reports about itself (resource timings, render-blocking status, FCP, LCP,
+ * DOMContentLoaded, load). Each preset exposes the controls one topic is about.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+
+type Resource = 'css' | 'js' | 'img' | 'font' | 'vendor';
+type PresetName = 'pipeline' | 'critical-path' | 'hints' | 'images' | 'fonts' | 'third-party';
+
+interface Props {
+  id: string;
+  preset: PresetName;
+  title?: string;
+}
+
+const MODES: Record<Resource, { key: string; label: string; options: [string, string][] }> = {
+  css: {
+    key: 'cssMode',
+    label: 'Stylesheet',
+    options: [
+      ['blocking', '<link rel=stylesheet> (render-blocking)'],
+      ['async', 'preload + swap to stylesheet (non-blocking)'],
+      ['inline', 'critical CSS inlined, no request'],
+    ],
+  },
+  js: {
+    key: 'jsMode',
+    label: 'App script',
+    options: [
+      ['sync', '<script> in <head> (parser-blocking)'],
+      ['defer', '<script defer>'],
+      ['async', '<script async>'],
+      ['none', 'no script'],
+    ],
+  },
+  img: {
+    key: 'imgMode',
+    label: 'Hero image (the LCP element)',
+    options: [
+      ['eager', '<img> default priority'],
+      ['lazy', '<img loading=lazy>'],
+      ['high', '<img fetchpriority=high>'],
+      ['preload', '<link rel=preload> + fetchpriority=high'],
+    ],
+  },
+  font: {
+    key: 'fontDisplay',
+    label: 'Heading web font',
+    options: [
+      ['block', 'font-display: block'],
+      ['swap', 'font-display: swap'],
+      ['fallback', 'font-display: fallback'],
+      ['optional', 'font-display: optional'],
+      ['none', 'system font only'],
+    ],
+  },
+  vendor: {
+    key: 'vendorMode',
+    label: 'Third-party script (other origin)',
+    options: [
+      ['sync', '<script> in <head>'],
+      ['async', '<script async>'],
+      ['facade', 'facade: load on click'],
+      ['none', 'removed'],
+    ],
+  },
+};
+
+const PRESETS: Record<
+  PresetName,
+  { controls: Resource[]; values: Record<string, string | number> }
+> = {
+  pipeline: {
+    controls: ['css', 'js'],
+    values: { css: 800, cssMode: 'blocking', js: 600, jsMode: 'sync', img: 200, imgMode: 'eager' },
+  },
+  'critical-path': {
+    controls: ['css', 'js'],
+    values: {
+      css: 1200,
+      cssMode: 'blocking',
+      js: 400,
+      jsMode: 'defer',
+      img: 200,
+      imgMode: 'eager',
+    },
+  },
+  hints: {
+    controls: ['img', 'css'],
+    values: { css: 600, cssMode: 'blocking', img: 900, imgMode: 'eager', js: 500, jsMode: 'defer' },
+  },
+  images: {
+    controls: ['img'],
+    values: { img: 700, imgMode: 'lazy', css: 200, cssMode: 'blocking' },
+  },
+  fonts: {
+    controls: ['font'],
+    values: { font: 1500, fontDisplay: 'block', css: 100, cssMode: 'blocking', img: 100 },
+  },
+  'third-party': {
+    controls: ['vendor'],
+    values: { vendor: 1200, vendorMode: 'sync', css: 100, cssMode: 'blocking', img: 100 },
+  },
+};
+
+const {
+  id,
+  preset,
+  title = 'Waterfall lab: change how one page loads, then read its waterfall',
+} = Astro.props;
+const config = PRESETS[preset];
+---
+
+<Demo title={title} badge="Live server">
+  <div class="lab" data-waterfall data-base={JSON.stringify(config.values)}>
+    <ServerNotice />
+    <form class="lab-grid" data-wf-form aria-label="Page configuration">
+      {config.controls.map((resource) => {
+        const mode = MODES[resource];
+        return (
+          <fieldset class="lab-panel wf-fieldset">
+            <legend>{mode.label}</legend>
+            <label class="lab-field">
+              <span>Server delay (ms)</span>
+              <input
+                type="number"
+                min="0"
+                max="5000"
+                step="100"
+                name={resource}
+                value={config.values[resource] ?? 0}
+              />
+            </label>
+            <label class="lab-field">
+              <span>Loading</span>
+              <select name={mode.key}>
+                {mode.options.map(([value, label]) => (
+                  <option value={value} selected={config.values[mode.key] === value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+        );
+      })}
+    </form>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-wf-run>
+        Load the page
+      </button>
+      <span class="muted" data-wf-state aria-live="polite">
+        Not loaded yet.
+      </span>
+    </div>
+    <div class="lab-grid">
+      <iframe class="lab-frame" title={`Page under test (${preset})`} data-wf-frame></iframe>
+      <section class="lab-panel" aria-labelledby={`${id}-wf`}>
+        <h4 id={`${id}-wf`}>Waterfall</h4>
+        <dl class="lab-stats" data-wf-stats></dl>
+        <ul class="lab-bars wf-bars" data-wf-bars aria-label="Resources in request order"></ul>
+      </section>
+    </div>
+    <div
+      class="table-scroll"
+      role="region"
+      aria-label="Runs so far"
+      tabindex="0"
+      data-wf-history-wrap
+      hidden
+    >
+      <table class="lab-kv">
+        <caption class="visually-hidden">Runs so far</caption>
+        <thead>
+          <tr>
+            <th scope="col">Run</th>
+            <th scope="col">Configuration</th>
+            <th scope="col">FCP</th>
+            <th scope="col">LCP</th>
+            <th scope="col">load</th>
+          </tr>
+        </thead>
+        <tbody data-wf-history></tbody>
+      </table>
+    </div>
+  </div>
+</Demo>
+
+<style>
+  .wf-fieldset {
+    margin: 0;
+  }
+  .wf-fieldset legend {
+    padding-inline: var(--space-3xs);
+    font-weight: 700;
+  }
+  .wf-bars :global(.lab-bar) {
+    overflow: visible;
+  }
+  .wf-bars :global([data-blocking] .lab-bar > span) {
+    background: var(--color-danger);
+  }
+  .wf-bars :global(.wf-tick) {
+    position: absolute;
+    inset-block: -0.2rem;
+    inline-size: 2px;
+    background: var(--color-text);
+    opacity: 0.55;
+  }
+  .wf-bars :global(.wf-tick[data-kind='lcp']) {
+    background: var(--color-success);
+    opacity: 1;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard } from '../../client/api.ts';
+
+  interface Report {
+    type: 'lab:waterfall';
+    run: string;
+    ttfb: number;
+    fcp: number;
+    lcp: number;
+    dcl: number;
+    load: number;
+    resources: { name: string; host: string; start: number; end: number; blocking: string }[];
+  }
+
+  let runs = 0;
+  document.querySelectorAll<HTMLElement>('[data-waterfall]').forEach((root) => {
+    const base = JSON.parse(root.dataset.base ?? '{}') as Record<string, string | number>;
+    const form = need<HTMLFormElement>(root, '[data-wf-form]');
+    const frame = need<HTMLIFrameElement>(root, '[data-wf-frame]');
+    const state = need<HTMLElement>(root, '[data-wf-state]');
+    const bars = need<HTMLUListElement>(root, '[data-wf-bars]');
+    const stats = need<HTMLDListElement>(root, '[data-wf-stats]');
+    const history = need<HTMLTableSectionElement>(root, '[data-wf-history]');
+    let current = '';
+    let summary = '';
+
+    const run = (): void => {
+      runs += 1;
+      current = `${runs}${Math.random().toString(36).slice(2, 6)}`;
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(base)) params.set(key, String(value));
+      for (const [key, value] of new FormData(form)) params.set(key, String(value));
+      params.set('run', current);
+      summary = [...new FormData(form)].map(([k, v]) => `${k}=${String(v)}`).join(' ');
+      state.textContent = 'Loading…';
+      frame.src = `/lab/waterfall?${params}`;
+    };
+
+    addEventListener('message', (event: MessageEvent<Report>) => {
+      if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+      const r = event.data;
+      if (r?.type !== 'lab:waterfall' || r.run !== current) return;
+      const end = Math.max(r.load, r.lcp, ...r.resources.map((x) => x.end), 1);
+      const pct = (t: number): string => `${Math.min(100, (t / end) * 100)}%`;
+      const stat = (label: string, value: number): HTMLDivElement => {
+        const div = document.createElement('div');
+        const dt = document.createElement('dt');
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.textContent = `${Math.round(value)} ms`;
+        div.append(dt, dd);
+        return div;
+      };
+      stats.replaceChildren(
+        stat('TTFB', r.ttfb),
+        stat('FCP', r.fcp),
+        stat('LCP', r.lcp),
+        stat('DOMContentLoaded', r.dcl),
+        stat('load', r.load),
+      );
+      bars.replaceChildren(
+        ...r.resources.map((res) => {
+          const li = document.createElement('li');
+          if (res.blocking === 'blocking') li.dataset.blocking = '';
+          const name = document.createElement('span');
+          name.textContent = `${res.name}${res.host !== location.host ? ' (3rd party)' : ''}${res.blocking === 'blocking' ? ' · blocking' : ''}`;
+          const track = document.createElement('span');
+          track.className = 'lab-bar';
+          const fill = document.createElement('span');
+          fill.style.insetInlineStart = pct(res.start);
+          fill.style.inlineSize = `calc(${pct(res.end - res.start)} + 2px)`;
+          track.append(fill);
+          for (const [kind, at] of [
+            ['fcp', r.fcp],
+            ['lcp', r.lcp],
+          ] as const) {
+            const tick = document.createElement('span');
+            tick.className = 'wf-tick';
+            tick.dataset.kind = kind;
+            tick.style.insetInlineStart = pct(at);
+            track.append(tick);
+          }
+          const value = document.createElement('span');
+          value.textContent = `${Math.round(res.end)} ms`;
+          li.append(name, track, value);
+          return li;
+        }),
+      );
+      state.textContent = 'Red bars were render-blocking. Grey tick: FCP. Green tick: LCP.';
+      const tr = history.insertRow(0);
+      for (const text of [
+        String(history.rows.length),
+        summary,
+        `${Math.round(r.fcp)} ms`,
+        `${Math.round(r.lcp)} ms`,
+        `${Math.round(r.load)} ms`,
+      ])
+        tr.insertCell().textContent = text;
+      need<HTMLElement>(root, '[data-wf-history-wrap]').hidden = false;
+    });
+
+    need<HTMLButtonElement>(root, '[data-wf-run]').addEventListener('click', run);
+    form.addEventListener('change', run);
+    void guard(root);
+  });
+</script>

@@ -1,0 +1,308 @@
+---
+/**
+ * One sign-up form, three layers: native validation, an enhancement that validates with the shared
+ * schema and submits with fetch, and the server as the authority. Without the enhancement the form
+ * posts normally and the server's HTML response (422 or 303 → confirmation) appears in the frame.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+
+interface Props {
+  id: string;
+  title?: string;
+}
+const {
+  id,
+  title = 'Form lab: native validation, progressive enhancement, one schema on both sides',
+} = Astro.props;
+const f = (name: string): string => `${id}-${name}`;
+---
+
+<Demo title={title} badge="Live server">
+  <div class="lab" data-form-lab>
+    <ServerNotice />
+    <fieldset class="lab-toolbar fl-options">
+      <legend class="visually-hidden">Layers</legend>
+      <label class="lab-check">
+        <input type="checkbox" data-fl-enhance checked /> Enhance with JavaScript
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-fl-novalidate /> Turn off browser validation
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-fl-noclient /> Skip the client-side schema
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-fl-slow /> Slow server (1.5 s)
+      </label>
+    </fieldset>
+    <div class="lab-grid">
+      <form class="lab-panel" action="/api/signup" method="post" target={f('frame')} data-fl-form>
+        <div
+          class="callout fl-summary"
+          data-kind="warn"
+          role="alert"
+          tabindex="-1"
+          data-fl-summary
+          hidden
+        >
+          <p class="callout__label">There is a problem</p>
+          <ul data-fl-summary-list></ul>
+        </div>
+        <input type="hidden" name="idempotency" value="" />
+        <label class="lab-field" for={f('name')}>
+          <span>Name</span>
+          <input
+            id={f('name')}
+            name="name"
+            autocomplete="name"
+            required
+            maxlength="60"
+            aria-describedby={f('name-error')}
+          />
+        </label>
+        <p class="fl-error" id={f('name-error')} data-error="name" hidden></p>
+        <label class="lab-field" for={f('email')}>
+          <span>Email</span>
+          <input
+            id={f('email')}
+            name="email"
+            type="email"
+            autocomplete="email"
+            required
+            aria-describedby={f('email-error')}
+          />
+        </label>
+        <p class="fl-error" id={f('email-error')} data-error="email" hidden></p>
+        <label class="lab-field" for={f('password')}>
+          <span>Password (10 or more characters)</span>
+          <input
+            id={f('password')}
+            name="password"
+            type="password"
+            autocomplete="new-password"
+            required
+            minlength="10"
+            aria-describedby={f('password-error')}
+          />
+        </label>
+        <p class="fl-error" id={f('password-error')} data-error="password" hidden></p>
+        <label class="lab-field" for={f('plan')}>
+          <span>Plan</span>
+          <select id={f('plan')} name="plan" required aria-describedby={f('plan-error')}>
+            <option value="">Choose…</option>
+            <option>free</option>
+            <option>pro</option>
+            <option>team</option>
+          </select>
+        </label>
+        <p class="fl-error" id={f('plan-error')} data-error="plan" hidden></p>
+        <label class="lab-check" for={f('terms')}>
+          <input
+            id={f('terms')}
+            name="terms"
+            type="checkbox"
+            required
+            aria-describedby={f('terms-error')}
+          />{' '}
+          I accept the terms
+        </label>
+        <p class="fl-error" id={f('terms-error')} data-error="terms" hidden></p>
+        <div class="lab-toolbar">
+          <button class="btn btn--small" data-fl-submit>
+            Create account
+          </button>
+          <button type="button" class="btn btn--small btn--ghost" data-fl-double>
+            Double submit
+          </button>
+        </div>
+        <p class="muted" data-fl-status aria-live="polite"></p>
+      </form>
+      <section class="lab-panel" aria-labelledby={f('out')}>
+        <h4 id={f('out')}>What the server said</h4>
+        <pre
+          class="lab-pre"
+          data-fl-json
+          tabindex="0"
+          aria-label="JSON response"
+        >Submit with the enhancement on to see JSON here.</pre>
+        <iframe
+          class="lab-frame fl-frame"
+          name={f('frame')}
+          title="Server's HTML response (no-JavaScript path)"
+        ></iframe>
+        <p class="muted" data-fl-accounts>
+          Accounts on the server: –
+        </p>
+        <button type="button" class="btn btn--small btn--ghost" data-fl-reset>
+          Reset server accounts
+        </button>
+      </section>
+    </div>
+  </div>
+  <p slot="note">
+    Try: submit empty (browser bubbles), then tick “Turn off browser validation” (the schema, in the
+    page), then “Skip the client-side schema” (the same schema, on the server: 422). Register the
+    same email twice: only the server can know it's taken. Untick “Enhance” and submit: the form
+    posts like it's 1999 and the frame shows the server's HTML, with 303 on success.
+  </p>
+</Demo>
+
+<style>
+  .fl-options {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .fl-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--step-n1);
+    font-weight: 600;
+  }
+  .fl-frame {
+    block-size: 16rem;
+  }
+  .fl-summary :global(ul) {
+    margin: 0;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { FIELD_ORDER, validateSignup, type SignupErrors } from '../../lib/signup-schema.ts';
+  import { guard, pretty } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-form-lab]').forEach((root) => {
+    const form = need<HTMLFormElement>(root, '[data-fl-form]');
+    const key = need<HTMLInputElement>(form, '[name="idempotency"]');
+    const summary = need<HTMLElement>(root, '[data-fl-summary]');
+    const summaryList = need<HTMLUListElement>(root, '[data-fl-summary-list]');
+    const status = need<HTMLElement>(root, '[data-fl-status]');
+    const out = need<HTMLElement>(root, '[data-fl-json]');
+    const submit = need<HTMLButtonElement>(root, '[data-fl-submit]');
+    const enhance = need<HTMLInputElement>(root, '[data-fl-enhance]');
+    const noValidate = need<HTMLInputElement>(root, '[data-fl-novalidate]');
+    const noClient = need<HTMLInputElement>(root, '[data-fl-noclient]');
+    const slow = need<HTMLInputElement>(root, '[data-fl-slow]');
+    const accountsLine = need<HTMLElement>(root, '[data-fl-accounts]');
+    const newKey = (): void => {
+      key.value = crypto.randomUUID();
+    };
+    newKey();
+
+    const showErrors = (errors: SignupErrors): void => {
+      summaryList.replaceChildren();
+      for (const field of FIELD_ORDER) {
+        const message = errors[field];
+        const control = need<HTMLInputElement>(form, `[name="${field}"]`);
+        const slot = need<HTMLElement>(form, `[data-error="${field}"]`);
+        slot.hidden = !message;
+        slot.textContent = message ? `Error: ${message}` : '';
+        if (message) {
+          control.setAttribute('aria-invalid', 'true');
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = `#${control.id}`;
+          a.textContent = message;
+          a.addEventListener('click', (event) => {
+            event.preventDefault();
+            control.focus();
+          });
+          li.append(a);
+          summaryList.append(li);
+        } else control.removeAttribute('aria-invalid');
+      }
+      summary.hidden = summaryList.children.length === 0;
+      if (!summary.hidden) summary.focus();
+    };
+
+    const refreshAccounts = async (): Promise<void> => {
+      const res = await fetch('/api/signup/accounts');
+      const { accounts } = (await res.json()) as { accounts: { email: string }[] };
+      accountsLine.textContent = `Accounts on the server: ${accounts.length ? accounts.map((a) => a.email).join(', ') : 'none'}`;
+    };
+
+    const post = async (): Promise<Response> => {
+      const data = Object.fromEntries(new FormData(form));
+      return fetch(`/api/signup${slow.checked ? '?delay=1500' : ''}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'Idempotency-Key': key.value,
+        },
+        body: JSON.stringify(data),
+      });
+    };
+
+    const handle = async (res: Response): Promise<void> => {
+      const text = await res.text();
+      out.textContent = `${res.status} ${res.statusText}${res.headers.get('idempotency-replayed') ? '  (Idempotency-Replayed: true)' : ''}\n${pretty(text)}`;
+      if (res.status === 422) {
+        const body = JSON.parse(text) as { errors?: SignupErrors };
+        showErrors(body.errors ?? {});
+        status.textContent = 'The server rejected it (422).';
+      } else if (res.ok) {
+        showErrors({});
+        status.textContent =
+          'Created. A new idempotency key was generated for the next submission.';
+        form.reset();
+        newKey();
+      } else status.textContent = `The server answered ${res.status}.`;
+      await refreshAccounts();
+    };
+
+    noValidate.addEventListener('change', () => {
+      form.noValidate = noValidate.checked;
+    });
+
+    form.addEventListener('submit', (event) => {
+      if (!enhance.checked) {
+        status.textContent = 'Posted without JavaScript: the frame shows the HTML the server sent.';
+        setTimeout(() => void refreshAccounts(), 800);
+        return;
+      }
+      event.preventDefault();
+      if (!noClient.checked) {
+        const result = validateSignup(Object.fromEntries(new FormData(form)));
+        if (!result.ok) {
+          showErrors(result.errors);
+          status.textContent = 'Caught in the browser by the shared schema: no request was sent.';
+          return;
+        }
+      }
+      submit.disabled = true;
+      status.textContent = 'Sending…';
+      void post()
+        .then(handle)
+        .finally(() => {
+          submit.disabled = false;
+        });
+    });
+
+    need<HTMLButtonElement>(root, '[data-fl-double]').addEventListener('click', () => {
+      status.textContent = 'Two identical requests, one idempotency key…';
+      void Promise.all([post(), post()]).then(async ([a, b]) => {
+        const [ta, tb] = await Promise.all([a.text(), b.text()]);
+        out.textContent = `First:  ${a.status} ${a.headers.get('idempotency-replayed') ? '(replayed)' : ''}\n${pretty(ta)}\n\nSecond: ${b.status} ${b.headers.get('idempotency-replayed') ? '(replayed)' : ''}\n${pretty(tb)}`;
+        status.textContent =
+          "One account at most: the second request was either told the first is in flight (409) or given the first one's stored response.";
+        if (a.ok || b.ok) {
+          showErrors({});
+          form.reset();
+          newKey();
+        }
+        await refreshAccounts();
+      });
+    });
+
+    need<HTMLButtonElement>(root, '[data-fl-reset]').addEventListener('click', () => {
+      void fetch('/api/signup/reset', { method: 'POST' }).then(refreshAccounts);
+    });
+    void guard(root).then((ok) => {
+      if (ok) void refreshAccounts();
+    });
+  });
+</script>

@@ -21,6 +21,8 @@ export interface SiteConfig {
   brandHue: number;
   nav: NavLink[];
   sources: SourceFile[];
+  /** Opt-in real-user monitoring: the endpoint that receives Core Web Vitals beacons. */
+  rum?: string;
 }
 
 export interface LessonLink {

@@ -1,0 +1,279 @@
+---
+title: "The Web Platform: Standards & APIs"
+source: L18-cs-web-engineering.md
+part: 2
+tier: Core → Deep
+summary: HTML as semantics, forms as a full platform feature, the DOM and events, CSS from an engineering perspective, web components, networking APIs and streams, service workers and the Cache API, device capabilities, WebAssembly and graphics, Web Crypto and WebAuthn, Intl, and how the platform evolves (Baseline).
+anchors:
+  - "The platform has already solved most of what teams rebuild: validation, focus management, dialogs, lazy loading, date formatting, caching. Reaching for a library first is how a codebase gets heavy."
+  - "Semantic HTML is the accessibility, SEO and resilience layer all at once. It is the highest-leverage thing on this entire page."
+checks:
+  - q: "Explain everything a `<button>` gives you that a `<div onClick>` does not."
+    a: "Focusability and a place in the tab order; activation with Enter and Space (the div only gets clicks); the `button` role and its accessible name from content, so screen readers announce 'Create account, button'; `disabled` that really disables (no focus, no events) and is announced; form participation (`type=submit` submits its form, with its own name/value, and triggers native validation); `:focus-visible` and `:disabled` styling hooks; forced-colours and high-contrast styling; and correct behaviour in voice control ('click Create account'). Recreating it on a div needs `role`, `tabindex=0`, key handlers for Enter and Space, `aria-disabled` logic and form wiring, and it's usually still wrong."
+  - q: "Explain the service-worker update lifecycle and how a user ends up stuck on a stale build."
+    a: "The browser re-fetches the worker script on navigation (at most once per 24 h from HTTP cache, or when `update()` is called). If its bytes differ, the new worker installs (precaching the new shell) and then waits, because the old worker still controls open tabs. It activates only when every controlled tab has closed, or when it calls `skipWaiting()`. Users get stuck when: the app never prompts or reloads, so a tab left open for weeks keeps the old worker; the worker script itself is served with a long `Cache-Control` so the update is never seen; precaching uses unversioned cache names, so the new worker serves old files; or the activate step never deletes old caches. The fix is to serve `sw.js` with `no-cache`, version cache names, delete old caches on activate, and show an update prompt that calls `skipWaiting` and reloads on `controllerchange`. The service-worker lab above shows the whole flow."
+  - q: "Explain when you'd choose SSE over WebSocket over polling, with the failure mode of each."
+    a: "SSE (EventSource) for one-way server→client streams over plain HTTP: notifications, progress, live scores. It has automatic reconnect and `Last-Event-ID` resume. Failure modes: HTTP/1.1's six-connections-per-origin limit across tabs, and proxies that buffer responses. WebSocket for low-latency two-way traffic (chat, collaboration, games). Failure modes: you own reconnection, backoff, heartbeats, auth on connect, ordering and back-pressure, and some corporate proxies break it. Polling when updates are rare or infrastructure is hostile. It's simple and cache-friendly, but either wastes requests or adds latency equal to the interval, and it can stampede the server if every client polls in sync (add jitter)."
+  - q: "Explain what Baseline 'widely available' means and how you'd decide whether to ship `:has()` without a fallback."
+    a: "Baseline 'newly available' means the feature works in the latest stable versions of Chrome, Edge, Firefox and Safari. 'Widely available' means it has been newly available for 30 months, so almost everyone's browser supports it. `:has()` has been Baseline since December 2023, so it has been widely available since mid-2026. Decide with your own analytics (what share of your traffic is on older browsers?) and with the failure mode: if `:has()` only adds a nicety (styling a card whose checkbox is checked), ship it without a fallback because older browsers just miss the nicety. If it gates something essential (showing a required field), keep a fallback path or use `@supports selector(:has(a))`."
+build: "A no-framework application using only platform APIs: routing with the History and Navigation APIs, a form with native validation and progressive enhancement, IntersectionObserver-driven lazy loading, an IndexedDB store, a service worker with a stale-while-revalidate strategy and a correct update flow, and one custom element. Then read the whole thing back and note what your framework of choice actually buys you."
+steps:
+  - "Scaffold `index.html`, `app.js` (a module) and `sw.js`, served by a tiny static server that falls back to `index.html` for unknown paths (deep links)."
+  - "Router: intercept same-origin link clicks, `history.pushState`, render the view, move focus to the new `<h1>` and announce it; handle `popstate`; restore scroll."
+  - "Form: native `required`/`type`/`pattern`, a custom error summary on `invalid` events, and a plain POST that works with JavaScript off."
+  - "Lists: `IntersectionObserver` to lazy-load the next page, with `?page=` kept in the URL."
+  - "IndexedDB store for drafts; service worker with stale-while-revalidate for the API and a prompted update flow (copy the lab's `sw.js`)."
+  - "One custom element (a `<rating-stars>` with shadow DOM, slots and `::part`); then write the 'what the framework buys me' page."
+taste: "Use the platform first, a library when the platform is genuinely insufficient, and a framework when the application's scale earns it. The dependency you don't add can never break, bloat or be abandoned."
+quiz:
+  - q: "A form's POST fails to submit when JavaScript is off. What was most likely missing?"
+    options: ["A method and action on the form (it relied on a fetch handler)", "A CSS reset", "ARIA labels"]
+    answer: 0
+    why: "Progressive enhancement starts from a form that works on its own: action + method + named fields."
+  - q: "Which event phase runs first for a click on a nested button?"
+    options: ["Bubble at the button", "Capture, from window down to the target", "Bubble at document"]
+    answer: 1
+    why: "Capture listeners run from the window down, then the target, then bubbling back up."
+  - q: "What does `transfer` do in `worker.postMessage(msg, [buffer])`?"
+    options: ["Copies the buffer faster", "Moves ownership of the buffer to the worker; the sender's copy becomes empty", "Shares the buffer between both"]
+    answer: 1
+    why: "Transferables are moved, not copied, which is constant-time for any size."
+---
+
+import Playground from '@learn/shared/components/Playground.astro';
+import FormLab from '../../components/demos/FormLab.astro';
+import FetchStreamLab from '../../components/demos/FetchStreamLab.astro';
+import SwLab from '../../components/demos/SwLab.astro';
+import PermissionsLab from '../../components/demos/PermissionsLab.astro';
+
+## HTML as semantics, not markup soup
+
+HTML carries meaning, and each element brings behaviour for free:
+
+- **Document structure**: landmarks (`header`, `nav`, `main`, `aside`, `footer`), headings as an outline, lists as lists, tables with real headers.
+- **Actions and navigation**: `<button>` versus a clickable `<div>` (focus, keyboard, role, form participation come free with the former); links for navigation, buttons for actions.
+- **Built-in widgets**: `<dialog>` (modal focus handling and `Esc`), `<details>`, and the **`popover`** attribute (top layer, light dismiss).
+- **Forms**: `<form>` with native validation; **input types** that drive mobile keyboards and pickers; **`autocomplete` tokens** that drive autofill.
+- **Media**: images with `alt`, `<picture>` and responsive images, `<video>` and `<audio>`.
+- **`<template>`**, and metadata in `<head>`.
+
+<Playground
+  id="p02-semantics"
+  title="Two 'buttons': one is HTML, one is a div"
+  task="Use only the keyboard: Tab to each control and press Enter, then Space. Then make the div behave like a button and count how much code that takes (or replace it with a real button)."
+  html={`<div class="fake" onclick="log('div clicked')">Save draft (div)</div>\n<button type="button" onclick="log('button clicked')">Save draft (button)</button>\n<p id="out" role="status"></p>`}
+  css={`.fake, button { display: inline-block; padding: .5rem 1rem; margin: .25rem; border-radius: .4rem; font: inherit; background: #0e7490; color: #fff; border: 0; cursor: pointer; }`}
+  js={`function log(text) { document.getElementById('out').textContent = text; console.log(text); }`}
+  solution={{ html: `<button type="button" onclick="log('div clicked')">Save draft (was a div)</button>\n<button type="button" onclick="log('button clicked')">Save draft (button)</button>\n<p id="out" role="status"></p>` }}
+/>
+
+## Forms as a full platform feature
+
+A form is a complete client–server protocol:
+
+- **Submission with and without JavaScript**: `action`, `method` and named fields.
+- **`FormData`** to read it all in one line.
+- **Native validation**: `required`, `type`, `min`/`max`, `pattern`, with messages and `:user-invalid` styling.
+- **Progressive enhancement**: the same form submitted with `fetch` when JavaScript is available.
+- **Harder cases**: multi-step flows, and file inputs with `accept` and `multiple`.
+
+Native form semantics are the difference between accessible and not: labels, fieldsets, error association and autofill all hang off real form controls.
+
+<FormLab id="fl-02" />
+
+## The DOM and events
+
+The DOM is a tree of nodes (elements, text, comments) you traverse with `closest`, `querySelector` and `children`. **Mutation has a cost**: batch it with a `DocumentFragment` or `replaceChildren`.
+
+**Events flow** in three phases: **capture** (window down to the target), **target**, then **bubble** back up. That is what makes **delegation** work: one listener on a list instead of one per item.
+
+The rest of the event toolbox:
+
+- **`{ passive: true }`** tells the browser a touch or wheel handler won't call `preventDefault`, so scrolling doesn't wait for it.
+- **`AbortController`** removes many listeners (and cancels fetches) with one `abort()`.
+- **`CustomEvent`** lets components announce things.
+- **`MutationObserver`** watches the tree.
+- **`IntersectionObserver`** drives lazy loading, analytics impressions and infinite scroll without scroll listeners.
+- **`ResizeObserver`** watches element sizes.
+
+<Playground
+  id="p02-events"
+  title="Capture, bubble, delegate, abort, observe"
+  task="Click an item and read the console: which listener ran first? Then press 'Remove all listeners' (one abort() call) and click again. Scroll the box to watch IntersectionObserver report items."
+  html={`<ul id="list"><li><button>Alpha</button></li><li><button>Beta</button></li><li><button>Gamma</button></li></ul>\n<button id="stop">Remove all listeners</button>\n<div id="scroller"><p>Scroll me</p><p class="watch">Item 1</p><p class="watch">Item 2</p><p class="watch">Item 3</p></div>`}
+  css={`#scroller { height: 6rem; overflow: auto; border: 1px solid #999; padding: .5rem; } #scroller p { margin: 0 0 5rem; } button { font: inherit; }`}
+  js={`const controller = new AbortController();\nconst { signal } = controller;\nwindow.addEventListener('click', () => console.log('1. capture at window'), { capture: true, signal });\ndocument.getElementById('list').addEventListener('click', (e) => {\n  const button = e.target.closest('button');\n  if (button) console.log('3. bubbled to the list (delegation): ' + button.textContent);\n}, { signal });\ndocument.querySelectorAll('#list button').forEach((b) => b.addEventListener('click', () => console.log('2. target: ' + b.textContent), { signal }));\ndocument.getElementById('stop').addEventListener('click', () => { controller.abort(); console.log('All listeners removed with one abort()'); });\nconst io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) console.log('Visible: ' + e.target.textContent); }), { root: document.getElementById('scroller'), threshold: 1 });\ndocument.querySelectorAll('.watch').forEach((p) => io.observe(p));`}
+/>
+
+## CSS from an engineering perspective
+
+The engineering side of CSS:
+
+- **The cascade and specificity**, tamed with **`@layer`**, plus inheritance.
+- **Custom properties** as a runtime API: JavaScript and media queries can change a single value that everything reads.
+- **Layout algorithms**: the box model, normal flow, flexbox, grid and subgrid.
+- **Stacking contexts** and z-index.
+- **Logical properties** (`margin-inline-start`) for right-to-left languages.
+- **Container queries** and **`:has()`**.
+- **Media queries** for preferences: `prefers-reduced-motion`, `prefers-color-scheme`, `forced-colors`.
+- **Containment** and `content-visibility` as rendering-cost controls.
+- **Transitions, animations and view transitions**, each with a performance profile (Part 1: only `transform` and `opacity` skip layout and paint).
+
+<Playground
+  id="p02-css"
+  title="Container queries, :has() and @layer, no JavaScript"
+  task="Drag the handle to resize the card's container: the layout switches at 28rem of *container* width, not viewport width. Tick the checkbox: :has() styles the card. Then move the 'overrides' layer above 'base' in the @layer list and predict the result."
+  html={`<div class="wrap"><article class="card"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%230e7490'/%3E%3C/svg%3E"><div><h2>Trail Runner 3</h2><label><input type="checkbox"> Add to compare</label></div></article></div>`}
+  css={`@layer overrides, base;\n@layer base { .card { background: #f4f4f5; color: #1d1a19; } }\n@layer overrides { .card { border: 2px solid #0e7490; } }\n.wrap { container-type: inline-size; resize: horizontal; overflow: auto; border: 1px dashed #999; padding: .5rem; max-width: 100%; }\n.card { display: grid; gap: .75rem; padding: .75rem; border-radius: .6rem; }\n.card img { width: 100%; border-radius: .4rem; }\n@container (min-width: 28rem) { .card { grid-template-columns: 10rem 1fr; } }\n.card:has(input:checked) { outline: 4px solid #f59e0b; }\nh2 { margin: 0 0 .5rem; font-size: 1.2rem; }`}
+/>
+
+## Web components and the shadow DOM
+
+The pieces:
+
+- **Custom elements**: a class registered with `customElements.define`.
+- **Shadow roots**: encapsulated DOM and styles.
+- **Slots**: the light DOM projected into the shadow tree.
+- **Declarative shadow DOM**: `<template shadowrootmode>` renders on the server with no JavaScript.
+- **Styling across the boundary**: `::part()`, `::slotted()`, and custom properties, which inherit through it.
+- **Form participation**: `ElementInternals` with `static formAssociated = true`.
+
+The honest assessment: they beat a framework for **design systems consumed by several frameworks** and **long-lived widgets**. For application state, rendering lists and routing, frameworks still carry more.
+
+<Playground
+  id="p02-wc"
+  title="A form-associated custom element with shadow DOM, a slot and a part"
+  task="Submit the form and read the console: the rating is part of FormData although it lives in a shadow root. Style the stars from outside using ::part(star). Then add a 'required' check with this.internals.setValidity."
+  html={`<form id="f">\n  <rating-stars name="rating"><span>How was it?</span></rating-stars>\n  <button>Send</button>\n</form>`}
+  css={`rating-stars::part(star) { font-size: 1.6rem; }\nbutton { font: inherit; margin-top: .5rem; }`}
+  js={`class RatingStars extends HTMLElement {\n  static formAssociated = true;\n  #value = 0;\n  constructor() {\n    super();\n    this.internals = this.attachInternals();\n    const root = this.attachShadow({ mode: 'open' });\n    root.innerHTML = '<slot></slot> <span role="radiogroup" aria-label="Rating"></span><style>button{border:0;background:none;cursor:pointer;color:#b45309}</style>';\n    const group = root.querySelector('[role=radiogroup]');\n    for (let i = 1; i <= 5; i++) {\n      const b = document.createElement('button');\n      b.type = 'button'; b.part = 'star'; b.textContent = '☆'; b.setAttribute('aria-label', i + ' stars');\n      b.addEventListener('click', () => this.value = i);\n      group.append(b);\n    }\n  }\n  get value() { return this.#value; }\n  set value(v) {\n    this.#value = v;\n    this.internals.setFormValue(String(v));\n    this.shadowRoot.querySelectorAll('button').forEach((b, i) => { b.textContent = i < v ? '★' : '☆'; b.setAttribute('aria-pressed', String(i < v)); });\n  }\n}\ncustomElements.define('rating-stars', RatingStars);\ndocument.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); console.log('FormData:', JSON.stringify(Object.fromEntries(new FormData(e.target)))); });`}
+/>
+
+## Networking APIs
+
+The client's networking toolbox:
+
+- **`fetch`**: requests and responses, bodies as **streams**, cancellation with `AbortSignal` (and `AbortSignal.timeout(ms)`), `credentials` modes (`omit`, `same-origin`, `include`), and `keepalive` so a request can outlive the page.
+- **Streams**: readable, writable and transform streams, the basis of streaming SSR and progressive rendering.
+- **`WebSocket`**: two-way.
+- **Server-Sent Events** (`EventSource`): one-way, with auto-reconnect.
+- **`WebTransport`** **[Frontier]**: datagrams and streams over HTTP/3.
+- **`navigator.sendBeacon`**: fire-and-forget analytics on page hide. This site's RUM uses it.
+
+Choosing between polling, SSE and sockets is a design decision; Part 4 builds all three.
+
+<FetchStreamLab />
+
+## Service workers and the Cache API
+
+A service worker is a script the browser runs between your pages and the network, for its **scope**.
+
+- **Lifecycle**: `install` (precache), `activate` (clean up, `clients.claim()`), then `fetch` interception. A new version **waits** until old tabs close, unless it calls `skipWaiting()`.
+- **Caching strategies**: cache-first, network-first, stale-while-revalidate, and cache-then-network. **Precaching** is at install; **runtime caching** is on demand.
+- **Update semantics**: the "stuck on an old version" failure comes from unversioned caches, a cached `sw.js`, or never prompting.
+- **Debugging**: DevTools → Application → Service Workers, with "Update on reload" and "Bypass for network".
+
+The lab below is a real app with a real worker, and a server you can deploy to or switch off:
+
+<SwLab id="sw-02" focus="strategies" />
+
+```js
+// The heart of stale-while-revalidate (from this lab's sw.js)
+const cached = await cache.match(request);
+const refresh = fetch(request).then(async (response) => {
+  if (response.ok) await cache.put(request, response.clone());
+  return response;
+});
+if (cached) { event.waitUntil(refresh); return cached; }  // instant, refreshed for next time
+return refresh;                                              // first visit: wait for the network
+```
+
+## Device and capability APIs
+
+The capability APIs include:
+
+- geolocation;
+- permissions, notifications and push;
+- **Web Share**;
+- the async **clipboard**;
+- media capture;
+- **Web Bluetooth, USB and Serial** **[Frontier]**, Chromium only;
+- **Screen Wake Lock**;
+- the **visual viewport**.
+
+The **Permissions API** is the pattern for all of them: query the state, feature-detect, ask only in response to a user gesture, and design the "denied" and "unsupported" paths. **`Permissions-Policy`** decides what a document (and its iframes) may even ask for.
+
+<PermissionsLab />
+
+## Computation and graphics
+
+For computation and graphics, the platform offers:
+
+- **WebAssembly**: a compact bytecode that runs near native speed. It wins for ported C, C++ and Rust code (codecs, SQLite, physics), SIMD-heavy maths and predictable performance. It doesn't win for code the JIT already optimises: crossing the JS boundary has a cost, and threads need cross-origin isolation.
+- **Canvas 2D** and **WebGL**.
+- **WebGPU** **[Frontier]**: compute shaders and modern GPU access.
+- **OffscreenCanvas**: rendering from a worker.
+- **Web Audio** and **WebCodecs**: frame-level media.
+
+<Playground
+  id="p02-wasm"
+  title="A WebAssembly module written by hand, byte by byte"
+  task="Run it: the 68-byte module exports sum(n). Is it faster than the JavaScript loop? Explain the result, then change n and see if the ratio moves."
+  html={`<p>Open the console below.</p>`}
+  js={`// (module (func (export "sum") (param $n i32) (result i32) ... a loop adding 0..n-1 ...))\nconst bytes = new Uint8Array([0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00, 0x01,0x06,0x01,0x60,0x01,0x7f,0x01,0x7f, 0x03,0x02,0x01,0x00, 0x07,0x07,0x01,0x03,0x73,0x75,0x6d,0x00,0x00, 0x0a,0x25,0x01,0x23,0x01,0x02,0x7f,0x02,0x40,0x03,0x40,0x20,0x01,0x20,0x00,0x4e,0x0d,0x01,0x20,0x02,0x20,0x01,0x6a,0x21,0x02,0x20,0x01,0x41,0x01,0x6a,0x21,0x01,0x0c,0x00,0x0b,0x0b,0x20,0x02,0x0b]);\nconst n = 50000000;\nWebAssembly.instantiate(bytes).then(({ instance }) => {\n  let t = performance.now();\n  const w = instance.exports.sum(n);\n  console.log('wasm: ' + w + ' in ' + (performance.now() - t).toFixed(0) + ' ms (' + bytes.length + ' bytes of module)');\n  t = performance.now();\n  let a = 0; for (let i = 0; i < n; i++) a = (a + i) | 0;\n  console.log('JS:   ' + a + ' in ' + (performance.now() - t).toFixed(0) + ' ms');\n  console.log('OffscreenCanvas: ' + (typeof OffscreenCanvas) + ', WebGPU: ' + ('gpu' in navigator));\n});`}
+/>
+
+## Security and identity APIs
+
+- **Web Crypto** (`crypto.subtle`): digests, HMAC, AES-GCM, ECDSA and key derivation, native and constant-time. Never ship a JavaScript crypto library for these.
+- **WebAuthn/passkeys**: public-key credentials bound to the origin, so phishing can't replay them (Parts 4 and 7 build the server side).
+- **Credential Management**: stored credentials and federated sign-in.
+- **Trusted Types**: typed DOM sinks, so strings can't reach `innerHTML` unvetted (Part 7).
+
+<Playground
+  id="p02-crypto"
+  title="Web Crypto: hash, sign, verify, encrypt"
+  task="Run it and read the console. Then change one character of the message before verifying: what happens to the signature check and why?"
+  html={`<p>Open the console below.</p>`}
+  js={`const text = new TextEncoder().encode('Transfer 100 EUR to Chidi');\nconst hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');\n(async () => {\n  console.log('SHA-256: ' + hex(await crypto.subtle.digest('SHA-256', text)));\n  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);\n  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, text);\n  console.log('ECDSA signature: ' + hex(sig).slice(0, 32) + '…');\n  console.log('Verifies: ' + await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, keys.publicKey, sig, text));\n  const aes = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);\n  const iv = crypto.getRandomValues(new Uint8Array(12));\n  const box = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, text);\n  console.log('AES-GCM ciphertext: ' + hex(box).slice(0, 32) + '…');\n  console.log('Decrypted: ' + new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aes, box)));\n  console.log('Passkeys possible here: ' + (typeof PublicKeyCredential !== 'undefined'));\n})();`}
+/>
+
+## Internationalisation
+
+**`Intl`** does locale-aware formatting natively:
+
+- `NumberFormat`: currency, units, compact notation;
+- `DateTimeFormat` and `RelativeTimeFormat`;
+- `ListFormat` and `PluralRules`;
+- `Collator`: sorting by locale rules;
+- **`Segmenter`**: graphemes, words and sentences, for languages without spaces and for emoji.
+
+Pair it with **`lang`** and **`dir`** attributes, **logical properties**, locale negotiation (`Accept-Language` on the server, `navigator.languages` on the client, Part 8) and a translation pipeline for the strings themselves.
+
+<Playground
+  id="p02-intl"
+  title="One set of values, five locales"
+  task="Change the locale list. Which locale sorts 'ä' after 'z'? Which uses a different plural category for 2 items? Count the graphemes in the family emoji."
+  html={`<p>Open the console below.</p>`}
+  js={`const locales = ['en-GB', 'de-DE', 'ar-EG', 'hi-IN', 'ja-JP'];\nfor (const l of locales) {\n  console.log(l + ' | ' + new Intl.NumberFormat(l, { style: 'currency', currency: 'EUR' }).format(1234567.891)\n    + ' | ' + new Intl.DateTimeFormat(l, { dateStyle: 'full' }).format(new Date(2026, 8, 29))\n    + ' | ' + new Intl.RelativeTimeFormat(l, { numeric: 'auto' }).format(-1, 'day')\n    + ' | ' + new Intl.ListFormat(l).format(['HTML', 'CSS', 'JS'])\n    + ' | plural(2)=' + new Intl.PluralRules(l).select(2));\n}\nconsole.log('sv sort: ' + ['z', 'ä', 'a'].sort(new Intl.Collator('sv').compare).join(' ') + ' · de sort: ' + ['z', 'ä', 'a'].sort(new Intl.Collator('de').compare).join(' '));\nconst family = '👨‍👩‍👧‍👦';\nconsole.log('Family emoji: length ' + family.length + ', graphemes ' + [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(family)].length);`}
+/>
+
+## How the platform evolves
+
+How features arrive:
+
+- **WHATWG living standards**: HTML, DOM, Fetch, URL.
+- **W3C specs**: CSS, WCAG and more.
+- **TC39 stages 0–4** for JavaScript.
+- **Standards positions**: published by Mozilla and WebKit.
+- **Origin trials**: early features on real sites.
+
+**Baseline** is the practical shipping signal: *newly available* when a feature works in all core browsers, and *widely available* 30 months later. Ship with **feature detection** (`CSS.supports`, `'x' in obj`, `@supports`), never user-agent sniffing. Polyfill only when the cost (bytes and maintenance) is worth it, and remove polyfills on a schedule.
+
+<Playground
+  id="p02-baseline"
+  title="Feature-detect this browser"
+  task="Add two features you want to use (for example 'Temporal' or 'CSS anchor positioning') and write the fallback you'd ship for each missing one."
+  html={`<p>Open the console below.</p>`}
+  js={`const checks = {\n  ':has()': () => CSS.supports('selector(:has(a))'),\n  'container queries': () => CSS.supports('container-type: inline-size'),\n  'CSS nesting': () => CSS.supports('selector(&)'),\n  'popover': () => 'showPopover' in HTMLElement.prototype,\n  'View Transitions': () => 'startViewTransition' in document,\n  'anchor positioning': () => CSS.supports('anchor-name: --a'),\n  'Navigation API': () => 'navigation' in window,\n  'scheduler.yield': () => !!(globalThis.scheduler && scheduler.yield),\n  'Temporal': () => typeof globalThis.Temporal === 'object',\n  'URL.parse': () => typeof URL.parse === 'function',\n};\nfor (const [name, test] of Object.entries(checks)) {\n  let ok = false; try { ok = test(); } catch {}\n  console.log((ok ? 'yes  ' : 'no   ') + name);\n}`}
+/>
