@@ -12,7 +12,9 @@ const read = (file: string): string => readFileSync(new URL(file, root), 'utf8')
 
 describe('escaping', () => {
   it('escapes all five HTML-significant characters', () => {
-    expect(escapeHtml(`<a href="x" title='y'>&</a>`)).toBe('&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;');
+    expect(escapeHtml(`<a href="x" title='y'>&</a>`)).toBe(
+      '&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;',
+    );
   });
   it('neutralises javascript: and data: URLs', () => {
     expect(safeUrl('javascript:alert(1)')).toBe('#');
@@ -42,7 +44,9 @@ describe('inline markdown', () => {
 
 describe('block parser', () => {
   it('parses tables, nested lists, labels and fenced code (headings inside fences stay code)', () => {
-    const blocks = parseBlocks('**Label**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- one\n  - nested\n- two\n\n```\n## not a heading\n```');
+    const blocks = parseBlocks(
+      '**Label**\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- one\n  - nested\n- two\n\n```\n## not a heading\n```',
+    );
     expect(blocks.map((b) => b.type)).toEqual(['label', 'table', 'list', 'code']);
     const list = blocks[2];
     expect(list?.type === 'list' && list.items[0]?.children[0]?.text).toBe('nested');
@@ -59,7 +63,12 @@ describe('curriculum outlines from the real source files', () => {
     expect(c.kind).toBe('learning');
     expect(c.parts).toHaveLength(28);
     expect(c.parts[8]?.title).toMatch(/Cascade/);
-    expect(c.parts[8]?.groups.map((g) => g.label)).toEqual(['Intuition anchors', 'Mastery checks', 'Build', 'Taste']);
+    expect(c.parts[8]?.groups.map((g) => g.label)).toEqual([
+      'Intuition anchors',
+      'Mastery checks',
+      'Build',
+      'Taste',
+    ]);
     expect(topicLead(c.parts[8]!.topics[1]!)).toBe('The cascade, in order');
   });
   it('finds the 15 sections of the HTML & CSS training file', () => {

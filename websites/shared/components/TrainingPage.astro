@@ -24,52 +24,94 @@ const sections = renderDojo(curriculum.sections, key);
   <aside>
     <nav class="toc stack stack-sm" aria-label="Training sections" data-toc>
       <h2 class="kicker">Programme</h2>
-      <ol>{sections.map((s) => <li><a href={`#${s.id}`}>{s.title}</a></li>)}</ol>
+      <ol>
+        {sections.map((s) => (
+          <li>
+            <a href={`#${s.id}`}>{s.title}</a>
+          </li>
+        ))}
+      </ol>
     </nav>
   </aside>
   <div>
     <div class="callout" data-kind="note">
       <p class="callout__label">How this page works</p>
       <p>
-        Every table and list below is rendered from <code>{file}</code>. Timers log your drill times,
-        belt rows record passing gates (two passes on separate days earn the belt), probes track your
-        prediction hit-rate, and ticks are remembered on this device. Nothing leaves your browser.
+        Every table and list below is rendered from <code>{file}</code>. Timers log your drill
+        times, belt rows record passing gates (two passes on separate days earn the belt), probes
+        track your prediction hit-rate, and ticks are remembered on this device. Nothing leaves your
+        browser.
       </p>
     </div>
-    {
-      sections.map((s) => (
-        <section class="dojo-section" id={s.id} aria-labelledby={`${s.id}-h`}>
-          <h2 id={`${s.id}-h`} set:html={renderInline(s.title)} />
-          <Fragment set:html={s.html} />
-          {s.hasLogbook && (
-            <div class="stack">
-              <h3>Your logbook</h3>
-              <form class="logbook-form" data-logbook hidden>
-                <label class="control">Date<input name="date" type="date" required /></label>
-                <label class="control">
-                  Session
-                  <select name="shape">
-                    {['Drill', 'Prediction set', 'Exercise', 'Sprint', 'Copywork', 'Screen rep', 'Brief', 'Hunt', 'Trial', 'Build', 'Study', 'Probe', 'Forge'].map((o) => (
-                      <option>{o}</option>
-                    ))}
-                  </select>
-                </label>
-                <label class="control">Minutes<input name="minutes" type="number" min="1" inputmode="numeric" required /></label>
-                <label class="control span-all">What<input name="what" required /></label>
-                <label class="control span-all">Target vs actual<input name="targetActual" /></label>
-                <label class="control span-all">Mechanism of any miss<input name="mechanism" /></label>
-                <label class="control span-all">Rule extracted<input name="rule" /></label>
-                <label class="control span-all">Prediction hit or miss<input name="prediction" /></label>
-                <div class="cluster span-all">
-                  <button class="btn">Save entry</button>
-                  <button type="button" class="btn btn--ghost" data-log-export hidden>Export LOG.md</button>
-                </div>
-              </form>
-              <div class="logbook-entries" aria-live="polite"></div>
-            </div>
-          )}
-        </section>
-      ))
-    }
+    {sections.map((s) => (
+      <section class="dojo-section" id={s.id} aria-labelledby={`${s.id}-h`}>
+        <h2 id={`${s.id}-h`} set:html={renderInline(s.title)} />
+        <Fragment set:html={s.html} />
+        {s.hasLogbook && (
+          <div class="stack">
+            <h3>Your logbook</h3>
+            <form class="logbook-form" data-logbook hidden>
+              <label class="control">
+                Date
+                <input name="date" type="date" required />
+              </label>
+              <label class="control">
+                Session
+                <select name="shape">
+                  {[
+                    'Drill',
+                    'Prediction set',
+                    'Exercise',
+                    'Sprint',
+                    'Copywork',
+                    'Screen rep',
+                    'Brief',
+                    'Hunt',
+                    'Trial',
+                    'Build',
+                    'Study',
+                    'Probe',
+                    'Forge',
+                  ].map((o) => (
+                    <option>{o}</option>
+                  ))}
+                </select>
+              </label>
+              <label class="control">
+                Minutes
+                <input name="minutes" type="number" min="1" inputmode="numeric" required />
+              </label>
+              <label class="control span-all">
+                What
+                <input name="what" required />
+              </label>
+              <label class="control span-all">
+                Target vs actual
+                <input name="targetActual" />
+              </label>
+              <label class="control span-all">
+                Mechanism of any miss
+                <input name="mechanism" />
+              </label>
+              <label class="control span-all">
+                Rule extracted
+                <input name="rule" />
+              </label>
+              <label class="control span-all">
+                Prediction hit or miss
+                <input name="prediction" />
+              </label>
+              <div class="cluster span-all">
+                <button class="btn">Save entry</button>
+                <button type="button" class="btn btn--ghost" data-log-export hidden>
+                  Export LOG.md
+                </button>
+              </div>
+            </form>
+            <div class="logbook-entries" aria-live="polite"></div>
+          </div>
+        )}
+      </section>
+    ))}
   </div>
 </div>

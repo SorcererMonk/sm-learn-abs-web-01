@@ -84,7 +84,9 @@ describe('token contrast (WCAG AA) for every site', () => {
       for (const [fg, bgs, min] of pairs) {
         for (const bg of bgs) {
           it(`hue ${hue} ${mode}: ${fg} on ${bg} ≥ ${min}:1`, () => {
-            expect(contrastRatio(resolve(fg, mode, hue), resolve(bg, mode, hue))).toBeGreaterThanOrEqual(min);
+            expect(
+              contrastRatio(resolve(fg, mode, hue), resolve(bg, mode, hue)),
+            ).toBeGreaterThanOrEqual(min);
           });
         }
       }

@@ -20,7 +20,8 @@ const presets = [
   ['button in link', '<a href="#">Go <button>now</button></a>'],
   ['boolean false', '<input disabled="false">'],
 ] as const;
-const { title = 'Parser museum: what the HTML parser really builds', initial = presets[0][1] } = Astro.props;
+const { title = 'Parser museum: what the HTML parser really builds', initial = presets[0][1] } =
+  Astro.props;
 ---
 
 <Demo title={title}>
@@ -31,7 +32,9 @@ const { title = 'Parser museum: what the HTML parser really builds', initial = p
     </label>
     <div class="cluster" role="group" aria-label="Malformed presets">
       {presets.map(([label, code]) => (
-        <button type="button" class="chip" data-preset={code}>{label}</button>
+        <button type="button" class="chip" data-preset={code}>
+          {label}
+        </button>
       ))}
     </div>
     <div class="switcher" style="--switcher-threshold: 34rem">
@@ -46,8 +49,9 @@ const { title = 'Parser museum: what the HTML parser really builds', initial = p
     </div>
   </div>
   <p slot="note">
-    Uses the browser's own parser via <code>DOMParser</code>, so what you see is exactly what every CSS selector,
-    script and screen reader sees. Nothing you type is executed: parsed documents are inert.
+    Uses the browser's own parser via <code>DOMParser</code>, so what you see is exactly what every
+    CSS selector, script and screen reader sees. Nothing you type is executed: parsed documents are
+    inert.
   </p>
 </Demo>
 
@@ -68,7 +72,9 @@ const { title = 'Parser museum: what the HTML parser really builds', initial = p
       lines.push(`${pad}<${node.localName}${attrs}>`);
       const kids = node instanceof HTMLTemplateElement ? node.content.childNodes : node.childNodes;
       if (node instanceof HTMLTemplateElement) lines.push(`${pad}  #document-fragment (inert)`);
-      kids.forEach((child) => describe(child, depth + (node instanceof HTMLTemplateElement ? 2 : 1), lines));
+      kids.forEach((child) =>
+        describe(child, depth + (node instanceof HTMLTemplateElement ? 2 : 1), lines),
+      );
     }
   }
 
@@ -78,7 +84,10 @@ const { title = 'Parser museum: what the HTML parser really builds', initial = p
     const out = root.querySelector<HTMLElement>('[data-parser-out]');
     if (!input || !tree || !out) return;
     const run = (): void => {
-      const doc = new DOMParser().parseFromString(`<!doctype html><body>${input.value}`, 'text/html');
+      const doc = new DOMParser().parseFromString(
+        `<!doctype html><body>${input.value}`,
+        'text/html',
+      );
       const lines: string[] = [];
       doc.body.childNodes.forEach((n) => describe(n, 0, lines));
       tree.textContent = lines.join('\n') || '(empty)';

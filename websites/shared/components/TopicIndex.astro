@@ -21,7 +21,10 @@ interface Props {
 }
 const { items, label = 'Every part' } = Astro.props;
 const tierKeys = (tier: string): string =>
-  ['Core', 'Deep', 'Frontier', 'Lifelong'].filter((t) => tier.includes(t)).map((t) => t.toLowerCase()).join(' ');
+  ['Core', 'Deep', 'Frontier', 'Lifelong']
+    .filter((t) => tier.includes(t))
+    .map((t) => t.toLowerCase())
+    .join(' ');
 const groups = [...new Map(items.map((i) => [i.group, i.groupLabel])).entries()];
 ---
 
@@ -30,49 +33,63 @@ const groups = [...new Map(items.map((i) => [i.group, i.groupLabel])).entries()]
   <div class="index-controls" hidden>
     <label class="control" for="index-search">
       <span>Search parts and topics</span>
-      <input id="index-search" type="search" placeholder="e.g. cascade, grid, dialog" autocomplete="off" />
+      <input
+        id="index-search"
+        type="search"
+        placeholder="e.g. cascade, grid, dialog"
+        autocomplete="off"
+      />
     </label>
     <div class="cluster" role="group" aria-label="Filter by tier">
       {['Core', 'Deep', 'Frontier', 'Lifelong'].map((t) => (
-        <button type="button" class="chip" aria-pressed="false" data-filter={`tier:${t.toLowerCase()}`}>{t}</button>
+        <button
+          type="button"
+          class="chip"
+          aria-pressed="false"
+          data-filter={`tier:${t.toLowerCase()}`}
+        >
+          {t}
+        </button>
       ))}
     </div>
-    {
-      groups.length > 1 && (
-        <div class="cluster" role="group" aria-label="Filter by source">
-          {groups.map(([key, text]) => (
-            <button type="button" class="chip" aria-pressed="false" data-filter={`group:${key}`}>{text}</button>
-          ))}
-        </div>
-      )
-    }
+    {groups.length > 1 && (
+      <div class="cluster" role="group" aria-label="Filter by source">
+        {groups.map(([key, text]) => (
+          <button type="button" class="chip" aria-pressed="false" data-filter={`group:${key}`}>
+            {text}
+          </button>
+        ))}
+      </div>
+    )}
     <p class="muted" data-index-status aria-live="polite"></p>
   </div>
   <ol class="index-list" role="list">
-    {
-      items.map((item) => (
-        <li
-          class="index-row"
-          data-lesson-row={item.id}
-          data-tier={tierKeys(item.tier)}
-          data-group={item.group}
-          data-search={`${item.title} ${item.summary} ${item.keywords}`.toLowerCase()}
-        >
-          <span class="index-row__num" aria-hidden="true">{String(item.part).padStart(2, '0')}</span>
-          <h3 class="index-row__title">
-            <a href={item.href}>
-              <span class="visually-hidden">Part {item.part}: </span>
-              {item.title}
-            </a>
-          </h3>
-          <span class="tier" data-tier={item.tier}>{item.tier}</span>
-          <p class="index-row__meta">
-            <span>{item.groupLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span>{item.summary}</span>
-          </p>
-        </li>
-      ))
-    }
+    {items.map((item) => (
+      <li
+        class="index-row"
+        data-lesson-row={item.id}
+        data-tier={tierKeys(item.tier)}
+        data-group={item.group}
+        data-search={`${item.title} ${item.summary} ${item.keywords}`.toLowerCase()}
+      >
+        <span class="index-row__num" aria-hidden="true">
+          {String(item.part).padStart(2, '0')}
+        </span>
+        <h3 class="index-row__title">
+          <a href={item.href}>
+            <span class="visually-hidden">Part {item.part}: </span>
+            {item.title}
+          </a>
+        </h3>
+        <span class="tier" data-tier={item.tier}>
+          {item.tier}
+        </span>
+        <p class="index-row__meta">
+          <span>{item.groupLabel}</span>
+          <span aria-hidden="true">·</span>
+          <span>{item.summary}</span>
+        </p>
+      </li>
+    ))}
   </ol>
 </section>

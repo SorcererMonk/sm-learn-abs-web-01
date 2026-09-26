@@ -1,0 +1,154 @@
+---
+title: HTML Semantics & the Content Model
+source: L1-coding-html-css.md
+part: 2
+tier: Core
+summary: Content categories and models, landmarks, headings as the real outline, text-level and grouping semantics, links, data tables, page shells and machine-readable meaning.
+anchors:
+  - "Choose elements by *meaning*, then style them freely. Every semantic element is a promise to browsers, assistive technology, search engines, reader modes, and translation tools, and each of them rewards the promise."
+  - "`<div>` and `<span>` are not bad. They are honest about having no meaning. Where meaning exists, they hide it."
+checks:
+  - q: "Mark up a news article page (site header, primary navigation, article with byline and publication time, pull quote, figure with caption, related links aside, comments section, footer), explain every element choice, and list the resulting landmarks."
+    a: "`<header>` (banner) containing the logo and `<nav aria-label=\"Primary\">` (navigation); `<main>` (main) containing `<article>` (article) with `<h1>`, a byline in `<address>` or a `<p>` with the author link, `<time datetime=\"2026-09-26T09:00\">`; the pull quote as `<blockquote>` (or an `<aside>` inside the article if it repeats body text); `<figure>` + `<figcaption>`; related links in `<aside aria-label=\"Related\">` (complementary); comments as a `<section aria-labelledby=\"comments-h\">` (region, because it's named) with each comment an `<article>`; `<footer>` (contentinfo). Landmarks: banner, navigation, main, (article), complementary, region, contentinfo."
+  - q: "Explain `<em>` vs `<i>` vs `<strong>` vs `<b>` with a sentence where each is correct."
+    a: "`<em>` is stress emphasis that changes meaning: \"I *didn't* say that.\" `<i>` is an alternate voice without emphasis: a term, a ship name, a foreign phrase (`<i lang=\"fr\">je ne sais quoi</i>`). `<strong>` is importance or urgency: \"<strong>Do not</strong> unplug during the update.\" `<b>` draws attention without importance: product names in a review, the lead-in words of a paragraph."
+  - q: "Mark up a pricing comparison table with row and column headers that a screen reader announces correctly, and verify it with one."
+    a: "Use `<table>` with a `<caption>`, a `<thead>` row of `<th scope=\"col\">` plan names, and in each body row a `<th scope=\"row\">` feature name followed by `<td>` cells. Put prices as `<td>` with text (not only a tick icon: give icons an accessible name like \"Included\"). In VoiceOver or NVDA, moving across a row should announce \"Pro, Storage, 1 TB\": the column header and the row header with each cell."
+  - q: "Explain why a `<button>` inside an `<a>` is invalid and what users experience."
+    a: "Both are interactive content, and interactive content may not contain interactive descendants. Users get two overlapping targets with unclear behaviour: click events may fire on both, keyboard users land on two tab stops for one control, and screen readers announce a link containing a button. Choose one: navigation is a link, actions are buttons."
+build: "\"Semantics without style\": five pages (blog post, recipe, product page, documentation page, dashboard) written in HTML only, validated, navigated with a screen reader by headings and landmarks, then printed with browser default styles. Each must be fully usable unstyled."
+steps:
+  - "Write the blog post and recipe first: headings, lists, `<time>`, `<figure>`."
+  - "Write the product page with a proper pricing table and a real `<form>`."
+  - "Write the documentation page with a breadcrumb `<nav>` and an on-page table of contents."
+  - "Write the dashboard with sections named by their headings and data tables."
+  - "Validate all five, navigate each by landmarks and headings with a screen reader, and print them with no CSS."
+taste: "If you can't name what a piece of content *is*, the design isn't finished. Semantic markup forces clarity of content structure, and that clarity shows up in the visual design too."
+quiz:
+  - q: "When does `<section>` become a region landmark?"
+    options: ["Always", "Only when it has an accessible name (e.g. aria-labelledby its heading)", "Only inside `<main>`"]
+    answer: 1
+    why: "An unnamed section maps to a generic role; naming it makes it a `region` landmark."
+  - q: "Which is a correct use of `<address>`?"
+    options: ["Any postal address on the page", "Contact information for the nearest article or the page", "A list of office locations"]
+    answer: 1
+    why: "`<address>` is for contact information of its nearest `<article>` or `<body>`, not postal addresses in general."
+  - q: "What is a text fragment link?"
+    options: ["`#section-id`", "`#:~:text=cycle%20lanes`, which scrolls to and highlights matching text", "A link to a .txt file"]
+    answer: 1
+    why: "Text fragments let you link to any text on a page even without an id."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import TreesLab from '../../components/demos/TreesLab.astro';
+import HeadingOutline from '../../components/demos/HeadingOutline.astro';
+import ParserLab from '../../components/demos/ParserLab.astro';
+
+## Content categories and content models
+
+Every element belongs to **content categories** (metadata, flow, sectioning, heading, phrasing, embedded, interactive, palpable) and has a **content model**: the categories its children may belong to. `<p>` accepts phrasing content only; `<ul>` accepts only `<li>` (and script-supporting elements). Some elements are **transparent** (`<a>`, `<ins>`, `<del>`, `<map>`): their model is their parent's, which is why `<a>` can wrap a whole card in a flow context. And **interactive content cannot nest**: no `<button>` in an `<a>`, no `<a>` in an `<a>`.
+
+<ParserLab title="Interactive content can't nest: watch the parser split them" initial={'<a href="/a">Card <a href="/b">inner link</a> text</a>\n<a href="/c">Block link <div>div inside a is fine (transparent)</div></a>'} />
+
+<Try task="Which categories is `<img>` in? And `<button>`? Check the 'Categories' row of each element in the spec or on MDN.">
+  `<img>`: flow, phrasing, embedded, palpable; *interactive* only if it has `usemap`. `<button>`: flow, phrasing, interactive, listed/labelable/submittable/form-associated, palpable. Its content model is phrasing content with **no interactive descendants**.
+</Try>
+
+## Document structure and landmarks
+
+`<header>`, `<nav>`, `<main>` (one visible per page), `<aside>`, `<footer>`, `<section>` (needs a heading, and becomes a *region* landmark only when named), `<article>` (self-contained, syndicatable), `<search>` and `<address>` (contact information, not postal addresses in general). Each maps to an ARIA landmark role, and screen-reader users jump between landmarks like chapters.
+
+<TreesLab
+  title="Page shell → landmarks"
+  html={`<header><a href="/">Logo</a><nav aria-label="Primary"><a href="/docs">Docs</a></nav></header>\n<main>\n  <article><h1>Guide</h1><p>Body text.</p></article>\n  <section aria-labelledby="faq"><h2 id="faq">FAQ</h2></section>\n  <section><h2>Unnamed section</h2></section>\n</main>\n<aside><h2>Related</h2></aside>\n<search><form><label>Search <input type="search"></label></form></search>\n<footer><p>© 2026</p></footer>`}
+  css={``}
+/>
+
+## Headings are the real outline
+
+`<h1>`–`<h6>` levels **are** the document's structure. The "document outline algorithm" that would have derived levels from nested `<section>`s was never implemented and has been removed from the spec. So: one `<h1>` per page is a sound convention, don't skip levels, use `<hgroup>` to group a heading with its subtitle, and **never choose a level for its size**: style is CSS's job.
+
+<HeadingOutline />
+
+## Text-level semantics
+
+Each element has a real meaning: `<em>` (stress) vs `<i>` (alternate voice), `<strong>` (importance) vs `<b>` (attention), `<small>` (side comments, fine print), `<s>` (no longer accurate) vs `<del>`/`<ins>` (edits, with `datetime`), `<u>` (rarely right), `<mark>` (relevance highlight), `<q>` and `<blockquote cite>` with `<cite>` (the *title of a work*), `<abbr title>`, `<dfn>`, `<code>`, `<kbd>`, `<samp>`, `<var>`, `<pre>`, **`<time datetime>`**, `<data value>`, `<sub>`/`<sup>`, `<br>` (line breaks that belong to the content: poems, addresses), `<wbr>`, `<bdi>`/`<bdo>`, and `<ruby>`/`<rt>`/`<rp>`.
+
+<Playground
+  id="p2-text"
+  title="Text-level semantics, each doing its real job"
+  task="Add a <data value> element for a product ID and a <bdi> around a user name that could be Arabic."
+  html={`<p>I <em>didn't</em> say that.</p>\n<p>The ship <i>HMS Beagle</i> sailed in 1831.</p>\n<p><strong>Do not</strong> unplug during the update.</p>\n<p>Was <s>₹999</s> now ₹499. <small>Offer ends Sunday.</small></p>\n<p>Press <kbd>Ctrl</kbd> + <kbd>S</kbd> to save; the terminal prints <samp>Saved</samp>.</p>\n<p>Published <time datetime="2026-09-26T09:30+05:30">26 September, 9:30</time>.</p>\n<p><abbr title="Web Content Accessibility Guidelines">WCAG</abbr> 2.2, H<sub>2</sub>O, E = mc<sup>2</sup>.</p>\n<p>Search results for <mark>grid</mark>.</p>\n<ruby>漢<rp>(</rp><rt>kan</rt><rp>)</rp>字<rp>(</rp><rt>ji</rt><rp>)</rp></ruby>`}
+  css={`kbd { border: 1px solid #999; border-radius: 4px; padding: 0 .3em; }\nmark { background: #ffe9a8; }`}
+/>
+
+## Grouping content
+
+`<ul>`, `<ol>` (with `start`, `reversed`, `type`), `<li value>`, `<dl>`/`<dt>`/`<dd>` for key–value groups (you may wrap each group in a `<div>`), `<figure>`/`<figcaption>` (any self-contained content with a caption, not only images), `<hr>` (a *thematic* break, not a line), `<div>` (the element of last resort, fine when nothing else applies) and `<menu>` (a list of commands, semantically a `<ul>`).
+
+<Playground
+  id="p2-grouping"
+  title="Lists, description lists and figures"
+  task="Make the countdown list reversed, and wrap each dt/dd pair in a div so you can style them as rows."
+  html={`<ol start="3">\n  <li>Bronze</li>\n  <li>Silver</li>\n  <li>Gold</li>\n</ol>\n<dl>\n  <dt>Plan</dt><dd>Pro</dd>\n  <dt>Renews</dt><dd><time datetime="2027-01-01">1 Jan 2027</time></dd>\n</dl>\n<figure>\n  <pre><code>display: grid;</code></pre>\n  <figcaption>A figure can hold code, not just images.</figcaption>\n</figure>`}
+  css={`dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }\ndd { margin: 0; }\nfigure { margin: 1rem 0; }`}
+  solution={{ html: `<ol reversed>\n  <li>Bronze</li>\n  <li>Silver</li>\n  <li>Gold</li>\n</ol>\n<dl>\n  <div><dt>Plan</dt><dd>Pro</dd></div>\n  <div><dt>Renews</dt><dd><time datetime="2027-01-01">1 Jan 2027</time></dd></div>\n</dl>`, css: `dl div { display: flex; gap: 1rem; }\ndd { margin: 0; }` }}
+/>
+
+## Links
+
+`href` can be absolute, relative, root-relative, `mailto:`, `tel:`, `sms:`, a fragment `#id` or a **text fragment** `#:~:text=…`. `target="_blank"` now implies `noopener`. `rel` values carry meaning: `noopener`, `noreferrer`, `nofollow`, `ugc`, `sponsored`, `me`, `external`, `author`, `license`, `prev`/`next`. Also `download`, `hreflang`, `type`, `ping`, `referrerpolicy`. And the rule that matters most: **a link goes somewhere and changes the URL; a button does something.** Link text must make sense out of context: "Read the pricing guide", never "click here".
+
+```html
+<a href="/guides/pricing">Read the pricing guide</a>
+<a href="tel:+919876543210">Call +91 98765 43210</a>
+<a href="https://example.com/article#:~:text=cycle%20lanes">Jump to the cycle lanes quote</a>
+<a href="/report.pdf" download>Download the report (PDF, 2 MB)</a>
+<a href="https://sponsor.example" rel="sponsored noopener" target="_blank">Our sponsor (opens in a new tab)</a>
+```
+
+<Try task="Screen readers can list all links on a page out of context. Rewrite these link texts: 'Click here', 'Read more', 'Link', 'https://example.com/a/b?c=d'.">
+  Describe the destination: "Download the 2026 annual report (PDF)", "Read more about cycle lanes", "Contact support", "Example's pricing page". If a design insists on repeated "Read more", add visually hidden text so each link's accessible name is unique.
+</Try>
+
+## Tables for tabular data
+
+Use `<caption>`, `<thead>`/`<tbody>`/`<tfoot>`, `<th scope="col|row|colgroup|rowgroup">`, `headers`/`id` for complex tables, `<colgroup>`/`<col>` for column styling, `abbr` on headers, and `aria-sort` on sortable headers. On small screens: horizontal scroll inside a labelled, focusable region; reflow to cards; or prioritised columns. Never tables for layout (except in email, Part 23).
+
+<Playground
+  id="p2-table"
+  title="A pricing table a screen reader can announce"
+  task="Add a 'Support' row with a row header, and a tfoot row for the monthly price."
+  html={`<div class="scroll" role="region" aria-label="Plan comparison" tabindex="0">\n<table>\n  <caption>Compare plans</caption>\n  <thead>\n    <tr><td></td><th scope="col">Free</th><th scope="col">Pro</th></tr>\n  </thead>\n  <tbody>\n    <tr><th scope="row">Storage</th><td>5 GB</td><td>1 TB</td></tr>\n    <tr><th scope="row">Custom domain</th><td>No</td><td>Yes</td></tr>\n  </tbody>\n</table>\n</div>`}
+  css={`.scroll { overflow-x: auto; }\ntable { border-collapse: collapse; min-width: 20rem; font-variant-numeric: tabular-nums; }\nth, td { padding: .5rem 1rem; border-bottom: 1px solid #ddd; text-align: left; }\ncaption { font-weight: 700; text-align: left; padding-bottom: .5rem; }`}
+/>
+
+## Sectioning in practice
+
+A **page shell** (header, nav, main, footer). **Article cards** with the heading inside and *one* primary link, extended to cover the card with the "block link" pattern (a pseudo-element on the link, not a link wrapping everything, so text stays selectable and the accessible name stays short). Repeated components named with `aria-labelledby`. **Breadcrumbs** as `<nav aria-label="Breadcrumb">` with an `<ol>` and `aria-current="page"` on the last item.
+
+<Playground
+  id="p2-cards"
+  title="Block-link cards and breadcrumbs"
+  task="Tab through: each card is one tab stop whose name is just the title. Now try selecting the card text with the mouse: it still works."
+  html={`<nav aria-label="Breadcrumb">\n  <ol class="crumbs">\n    <li><a href="#">Home</a></li>\n    <li><a href="#">Guides</a></li>\n    <li><a href="#" aria-current="page">Grid</a></li>\n  </ol>\n</nav>\n<ul class="cards">\n  <li class="card">\n    <h3><a href="#grid">Grid in 10 minutes</a></h3>\n    <p>Tracks, lines and areas without the jargon.</p>\n  </li>\n  <li class="card">\n    <h3><a href="#flex">Flexbox, finally</a></h3>\n    <p>How grow and shrink really share space.</p>\n  </li>\n</ul>`}
+  css={`.crumbs { display: flex; gap: .5rem; list-style: none; padding: 0; }\n.crumbs li + li::before { content: "/"; margin-right: .5rem; color: #888; }\n[aria-current="page"] { font-weight: 700; color: inherit; text-decoration: none; }\n.cards { list-style: none; padding: 0; display: grid; gap: 1rem; }\n.card { position: relative; padding: 1rem; border: 1px solid #ccc; border-radius: .75rem; }\n.card a::after { content: ""; position: absolute; inset: 0; }\n.card:focus-within { outline: 3px solid #c2410c; }\n.card a:focus-visible { outline: none; }\n.card p { position: relative; z-index: 1; pointer-events: none; }`}
+/>
+
+## Microformats and machine-readable semantics
+
+Machines read meaning two ways: **microformats** (`h-card`, `h-entry` classes, used across the IndieWeb) and **JSON-LD** (Part 6). Microformats reuse your visible markup; JSON-LD is a separate data island that must match the visible content.
+
+```html
+<article class="h-entry">
+  <h1 class="p-name">Cycle lanes approved</h1>
+  <p>By <a class="p-author h-card" href="/staff/asha">Asha Rao</a>,
+     <time class="dt-published" datetime="2026-09-26">26 Sep 2026</time></p>
+  <div class="e-content"><p>The council voted…</p></div>
+</article>
+```
+
+<Try task="Add microformats to a contact card: name, organisation, email and URL (h-card with p-name, p-org, u-email, u-url).">
+  `<div class="h-card"><a class="p-name u-url" href="https://asha.dev">Asha Rao</a>, <span class="p-org">Daily Planet</span>, <a class="u-email" href="mailto:asha@example.com">asha@example.com</a></div>`
+</Try>

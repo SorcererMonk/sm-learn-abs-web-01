@@ -12,7 +12,10 @@ export function initQuiz(form: HTMLFormElement): void {
     const results = read<Scores>('quiz', {})[id] ?? {};
     const correct = Object.values(results).filter(Boolean).length;
     const answered = Object.keys(results).length;
-    if (score) score.textContent = answered ? `Score: ${correct} of ${total} correct (${answered} answered).` : '';
+    if (score)
+      score.textContent = answered
+        ? `Score: ${correct} of ${total} correct (${answered} answered).`
+        : '';
   };
 
   form.querySelectorAll<HTMLFieldSetElement>('.quiz__question').forEach((set, index) => {

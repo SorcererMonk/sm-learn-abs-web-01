@@ -25,8 +25,18 @@ interface Props {
   dojoHref?: string;
 }
 
-const { site, lesson, slug, headings, prev, next, totalParts, sourceLabel, exerciseLabel = 'Build', dojoHref } =
-  Astro.props;
+const {
+  site,
+  lesson,
+  slug,
+  headings,
+  prev,
+  next,
+  totalParts,
+  sourceLabel,
+  exerciseLabel = 'Build',
+  dojoHref,
+} = Astro.props;
 const topics = headings.filter((h) => h.depth === 2);
 const lessonId = `${lesson.source}:${lesson.part}`;
 const html = (text: string): string => renderInline(text);
@@ -48,13 +58,22 @@ const fixed = [
 >
   <div class="page-grid" style="--page-row-gap: 0">
     <header class="lesson-hero stack">
-      <p class="kicker">{sourceLabel}{lesson.track ? ` · ${lesson.track}` : ''} · Part {lesson.part}</p>
-      <span class="lesson-hero__num" aria-hidden="true">{String(lesson.part).padStart(2, '0')}</span>
+      <p class="kicker">
+        {sourceLabel}
+        {lesson.track ? ` · ${lesson.track}` : ''} · Part {lesson.part}
+      </p>
+      <span class="lesson-hero__num" aria-hidden="true">
+        {String(lesson.part).padStart(2, '0')}
+      </span>
       <h1 style={`view-transition-name: lesson-${slug}`}>{lesson.title}</h1>
       <p class="lede">{lesson.summary}</p>
       <p class="cluster">
-        <span class="tier" data-tier={lesson.tier}>{lesson.tier}</span>
-        <span class="muted">{topics.length} topics · source: <code>{lesson.source}</code> PART {lesson.part}</span>
+        <span class="tier" data-tier={lesson.tier}>
+          {lesson.tier}
+        </span>
+        <span class="muted">
+          {topics.length} topics · source: <code>{lesson.source}</code> PART {lesson.part}
+        </span>
       </p>
     </header>
 
@@ -63,8 +82,16 @@ const fixed = [
         <nav class="toc stack stack-sm" aria-label="In this part" data-toc>
           <h2 class="kicker">In this part</h2>
           <ol>
-            {topics.map((h) => <li><a href={`#${h.slug}`}>{h.text}</a></li>)}
-            {fixed.map((h) => <li><a href={`#${h.slug}`}>{h.text}</a></li>)}
+            {topics.map((h) => (
+              <li>
+                <a href={`#${h.slug}`}>{h.text}</a>
+              </li>
+            ))}
+            {fixed.map((h) => (
+              <li>
+                <a href={`#${h.slug}`}>{h.text}</a>
+              </li>
+            ))}
           </ol>
         </nav>
       </aside>
@@ -73,66 +100,70 @@ const fixed = [
         <slot />
 
         <section id="anchors" class="lesson-extra stack" aria-labelledby="anchors-title">
-          <h2 id="anchors-title" class="lesson-section-title">Intuition anchors</h2>
-          {
-            lesson.anchors.map((a) => (
-              <div class="callout" data-kind="anchor">
-                <p class="callout__label">Anchor</p>
-                <p set:html={html(a)} />
-              </div>
-            ))
-          }
+          <h2 id="anchors-title" class="lesson-section-title">
+            Intuition anchors
+          </h2>
+          {lesson.anchors.map((a) => (
+            <div class="callout" data-kind="anchor">
+              <p class="callout__label">Anchor</p>
+              <p set:html={html(a)} />
+            </div>
+          ))}
         </section>
 
         <section id="checks" class="lesson-extra stack" aria-labelledby="checks-title">
-          <h2 id="checks-title" class="lesson-section-title">Mastery checks</h2>
+          <h2 id="checks-title" class="lesson-section-title">
+            Mastery checks
+          </h2>
           <p class="muted">Answer out loud or on paper first, then open the model answer.</p>
           <div class="checks">
-            {
-              lesson.checks.map((c) => (
-                <details>
-                  <summary set:html={html(c.q)} />
-                  <div>
-                    {c.a.split('\n\n').map((para) => (
-                      <p set:html={html(para)} />
-                    ))}
-                  </div>
-                </details>
-              ))
-            }
+            {lesson.checks.map((c) => (
+              <details>
+                <summary set:html={html(c.q)} />
+                <div>
+                  {c.a.split('\n\n').map((para) => (
+                    <p set:html={html(para)} />
+                  ))}
+                </div>
+              </details>
+            ))}
           </div>
         </section>
 
-        {
-          lesson.quiz.length > 0 && (
-            <div id="quiz" class="lesson-extra" set:html={renderQuiz(`quiz-${slug}`, lesson.quiz, 'Quick quiz')} />
-          )
-        }
+        {lesson.quiz.length > 0 && (
+          <div
+            id="quiz"
+            class="lesson-extra"
+            set:html={renderQuiz(`quiz-${slug}`, lesson.quiz, 'Quick quiz')}
+          />
+        )}
 
         <section id="exercise" class="lesson-extra stack" aria-labelledby="exercise-title">
-          <h2 id="exercise-title" class="lesson-section-title">{exerciseLabel}</h2>
+          <h2 id="exercise-title" class="lesson-section-title">
+            {exerciseLabel}
+          </h2>
           <div class="callout" data-kind="try">
             <p class="callout__label">Project</p>
             <p set:html={html(lesson.build)} />
           </div>
-          {
-            lesson.steps.length > 0 && (
-              <ul class="checklist" role="list">
-                {lesson.steps.map((step) => (
-                  <li>
-                    <label class="check">
-                      <input type="checkbox" data-progress-id={`${lessonId}:step:${hashId(step)}`} />
-                      <span set:html={html(step)} />
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
+          {lesson.steps.length > 0 && (
+            <ul class="checklist" role="list">
+              {lesson.steps.map((step) => (
+                <li>
+                  <label class="check">
+                    <input type="checkbox" data-progress-id={`${lessonId}:step:${hashId(step)}`} />
+                    <span set:html={html(step)} />
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section id="taste" class="lesson-extra stack" aria-labelledby="taste-title">
-          <h2 id="taste-title" class="lesson-section-title">Taste</h2>
+          <h2 id="taste-title" class="lesson-section-title">
+            Taste
+          </h2>
           <div class="callout" data-kind="taste">
             <p class="callout__label">Taste</p>
             <p set:html={html(lesson.taste)} />
@@ -143,26 +174,26 @@ const fixed = [
           <button type="button" class="btn" data-lesson-done data-lesson-id={lessonId} hidden>
             Mark this part as complete
           </button>
-          {dojoHref && <a class="btn btn--ghost" href={dojoHref}>Practise in the dojo</a>}
+          {dojoHref && (
+            <a class="btn btn--ghost" href={dojoHref}>
+              Practise in the dojo
+            </a>
+          )}
         </div>
 
         <nav class="pager lesson-extra" aria-label="Previous and next part">
-          {
-            prev && (
-              <a href={prev.href} rel="prev">
-                <small>← Part {prev.part}</small>
-                {prev.title}
-              </a>
-            )
-          }
-          {
-            next && (
-              <a href={next.href} rel="next">
-                <small>Part {next.part} →</small>
-                {next.title}
-              </a>
-            )
-          }
+          {prev && (
+            <a href={prev.href} rel="prev">
+              <small>← Part {prev.part}</small>
+              {prev.title}
+            </a>
+          )}
+          {next && (
+            <a href={next.href} rel="next">
+              <small>Part {next.part} →</small>
+              {next.title}
+            </a>
+          )}
         </nav>
       </article>
     </div>

@@ -20,29 +20,37 @@ const complete = coverage.topics.filter((t) => t.status === 'Complete').length;
       <p class="kicker">Traceability</p>
       <h1>Coverage matrix</h1>
       <p class="lede">
-        {complete} of {coverage.topics.length} topics complete. Every topic of every source file maps to a page
-        section with an explanation and a demo or exercise. Computed from the source Markdown at build time.
+        {complete} of {coverage.topics.length} topics complete. Every topic of every source file
+        maps to a page section with an explanation and a demo or exercise. Computed from the source
+        Markdown at build time.
       </p>
     </header>
     <div class="table-scroll" role="region" tabindex="0" aria-label="Coverage by topic">
       <table>
         <caption class="visually-hidden">Coverage by topic</caption>
         <thead>
-          <tr><th scope="col">Topic</th><th scope="col">Source MD</th><th scope="col">Website</th><th scope="col">Page / component</th><th scope="col">Demo / exercise</th><th scope="col">Status</th></tr>
+          <tr>
+            <th scope="col">Topic</th>
+            <th scope="col">Source MD</th>
+            <th scope="col">Website</th>
+            <th scope="col">Page / component</th>
+            <th scope="col">Demo / exercise</th>
+            <th scope="col">Status</th>
+          </tr>
         </thead>
         <tbody>
-          {
-            coverage.topics.map((t) => (
-              <tr>
-                <th scope="row">{t.topic}</th>
-                <td><code>{t.source}</code> {t.location}</td>
-                <td>{site.name}</td>
-                <td>{t.page.startsWith('/') ? <a href={withBase(t.page)}>{t.page}</a> : t.page}</td>
-                <td>{t.demo}</td>
-                <td>{t.status}</td>
-              </tr>
-            ))
-          }
+          {coverage.topics.map((t) => (
+            <tr>
+              <th scope="row">{t.topic}</th>
+              <td>
+                <code>{t.source}</code> {t.location}
+              </td>
+              <td>{site.name}</td>
+              <td>{t.page.startsWith('/') ? <a href={withBase(t.page)}>{t.page}</a> : t.page}</td>
+              <td>{t.demo}</td>
+              <td>{t.status}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

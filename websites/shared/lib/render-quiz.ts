@@ -14,7 +14,11 @@ export interface QuizQuestion {
   why: string;
 }
 
-export function renderQuiz(id: string, questions: QuizQuestion[], title = 'Check yourself'): string {
+export function renderQuiz(
+  id: string,
+  questions: QuizQuestion[],
+  title = 'Check yourself',
+): string {
   const items = questions
     .map((question, qi) => {
       const name = `${id}-q${qi}`;

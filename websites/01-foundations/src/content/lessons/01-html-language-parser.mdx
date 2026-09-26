@@ -1,0 +1,172 @@
+---
+title: "HTML: The Language, the Parser & the Document"
+source: L1-coding-html-css.md
+part: 1
+tier: Core → Deep
+summary: Document anatomy and rendering modes, exact syntax, the parsing algorithm and its recoveries, the DOM it builds, encoding, global attributes, how scripts and styles load, and conformance.
+anchors:
+  - "The HTML parser never fails. It always produces *a* DOM. Invalid markup doesn't error, it silently becomes a different document than the one you meant, and that document is what screen readers, CSS selectors, and JavaScript see."
+  - "Boolean attributes are about presence. `disabled=\"false\"` disables."
+checks:
+  - q: "Predict the DOM for `<p>Hello <div>world</div></p>` and explain the result."
+    a: "`<p>Hello </p><div>world</div><p></p>`. A `<p>` may contain only phrasing content; `<div>` is flow content, so the tree builder generates an implied `</p>` before it. The stray `</p>` at the end has no open `<p>` to close, and the spec says to insert an empty `<p>` and close it. Selectors such as `p > div` never match."
+  - q: "Predict what happens to text written directly inside `<table>` before the first `<tr>`, and name the algorithm."
+    a: "It is **foster-parented**: the parser moves the text (and any non-table elements) out of the table and inserts it immediately *before* the `<table>` element. This is part of tree construction's \"in table\" insertion mode. The source order and the DOM order now differ."
+  - q: "Explain why there's a gap between two `inline-block` elements and four ways to remove it, with the trade-off of each."
+    a: "The newline/spaces between the tags become a whitespace text node, rendered as a space in the inline formatting context. Fixes: (1) remove the whitespace in the markup (fragile, hurts readability); (2) `font-size: 0` on the parent and reset on children (breaks `em` units and user font scaling); (3) negative margins (magic numbers depending on font); (4) stop using inline-block: make the parent `display: flex` or `grid` with `gap`. The last one is the modern answer: whitespace text nodes are not flex items."
+  - q: "Name ten void elements and explain what the parser does with `<br></br>`."
+    a: "`area, base, br, col, embed, hr, img, input, link, meta, source, track, wbr`. Void elements have no end tag and no content. `</br>` is a special parse error that the parser treats as `<br>`, so `<br></br>` produces **two** line breaks. (For other void elements, a stray end tag is simply ignored.)"
+build: "A \"parser museum\": twenty malformed snippets, each with your predicted DOM, the actual DOM from DevTools, and the spec step that explains the difference. Run each through the Nu checker."
+steps:
+  - "Collect 20 snippets: misnested inline tags, block inside `<p>`, text inside `<table>`, `<br></br>`, unclosed `<li>`, `<div/>`, attributes without quotes, duplicate attributes, stray `</div>`, `<template>` contents, `<a>` inside `<a>`, `<button>` inside `<a>`."
+  - "For each, write your prediction *before* pasting it into the parser museum demo above."
+  - "Record the actual DOM and find the spec step (insertion mode, adoption agency, implied end tags, foster parenting)."
+  - "Validate each with the Nu HTML Checker and note which errors it names."
+taste: "Write HTML that would pass validation even though browsers don't require it. Conformance is cheap and makes the document predictable for every consumer: parsers, crawlers, assistive technology, and the next developer."
+quiz:
+  - q: "What does `<input disabled=\"false\">` render?"
+    options: ["An enabled input", "A disabled input", "A validation error and an enabled input"]
+    answer: 1
+    why: "Boolean attributes are true when present, whatever their value. Remove the attribute to enable."
+  - q: "A `<link rel=\"stylesheet\" media=\"print\">` on a normal page load…"
+    options: ["is never downloaded", "is downloaded but does not block rendering", "blocks rendering until it arrives"]
+    answer: 1
+    why: "Non-matching media still downloads (at low priority) but the browser doesn't wait for it before painting."
+  - q: "Which script type is deferred by default?"
+    options: ["`<script src>`", "`<script async>`", "`<script type=\"module\">`"]
+    answer: 2
+    why: "Module scripts behave like `defer` unless you add `async`."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import ParserLab from '../../components/demos/ParserLab.astro';
+import ScriptTimeline from '../../components/demos/ScriptTimeline.astro';
+
+## Document anatomy
+
+A minimal document is `<!doctype html>`, then `<html lang>`, `<head>` and `<body>`. The doctype is not decoration: it switches the browser into **standards mode**. Without it you get **quirks mode**, which emulates 1990s browsers (percentage heights resolve differently, tables don't inherit font sizes, the box model can change); certain old doctypes give **limited-quirks** mode (only the line-height quirk for images in table cells).
+
+`<html>`, `<head>`, `<body>` and `<tbody>` tags, and closing `</p>` and `</li>` tags, are **optional**: the parser infers them. A document that omits them still gets them in the DOM.
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Minimal and complete</title>
+  </head>
+  <body>
+    <p>Content.</p>
+  </body>
+</html>
+```
+
+<Try task="Open DevTools on any page and run `document.compatMode`. What does it return, and what would a page without a doctype return?">
+  `"CSS1Compat"` means standards mode. A page without a doctype returns `"BackCompat"`, meaning quirks mode. Always start with `<!doctype html>`.
+</Try>
+
+## Syntax precisely
+
+- **Elements vs tags**: `<p>` is a start tag, `</p>` an end tag, and the element is the node they produce.
+- **Attributes** may be double-quoted, single-quoted or (without spaces and certain characters) unquoted. **Boolean attributes** are true when present: `disabled="false"` still disables.
+- **Character references**: `&amp;`, `&lt;`, `&nbsp;`, `&#8212;`. Needed for `<` and `&` in text, and for quotes inside attribute values.
+- **Void elements** have no content and no end tag: `img, input, br, meta, link, source, hr, wbr, area, col, embed, track, base`.
+- **`<div />` is not self-closing.** On non-void elements the slash is ignored, so the div swallows everything after it.
+
+<ParserLab title="Syntax traps: boolean attributes, self-closing divs, br end tags" initial={'<div/>This text ends up inside the div\n<input disabled="false">\n<p>one</br>two</p>'} />
+
+## The parsing algorithm
+
+The spec defines a **tokeniser** (a state machine over characters) and **tree construction** (insertion modes that decide where each token goes). Its famous recoveries:
+
+- **Implied end tags**: `<p><div>` closes the `<p>`; a new `<li>` closes the previous one.
+- **The adoption agency algorithm** repairs misnested formatting tags such as `<b><i></b></i>` by cloning elements.
+- **Foster parenting** moves stray content inside `<table>` to *before* the table.
+- **`<template>` content** is parsed into an inert document fragment: nothing runs or loads until you clone it.
+- **Raw text elements** (`script`, `style`) and **escapable raw text** (`textarea`, `title`) are not parsed as markup at all.
+
+This is why `innerHTML` can produce DOMs you didn't write: the same parser runs, with the same recoveries.
+
+<ParserLab title="Recovery in action: foster parenting and the adoption agency" initial={'<table>Before<tr><td>cell</td></tr></table>\n<b>bold <i>both</b> italic?</i>'} />
+
+<Try task="Predict the DOM for `<a href='/a'>one <a href='/b'>two</a></a>` and then check it in the museum.">
+  Two sibling links: `<a href="/a">one </a><a href="/b">two</a>`. Interactive content can't nest in `<a>`, so the second `<a>` start tag closes the first (adoption agency), and the final `</a>` is ignored.
+</Try>
+
+## The DOM that results
+
+The DOM contains **element, text, comment, document and fragment nodes**. Whitespace between tags becomes **text nodes**, which is why inline-block items have gaps between them. **Attributes are not properties**: `value` the attribute is the *default*, `.value` the property is the *current* value; `class` the attribute is `className` the property. And every element with an `id` becomes a global variable on `window` (a historical feature: never rely on it).
+
+<Playground
+  id="p1-gap"
+  title="The inline-block gap is a whitespace text node"
+  task="See the gap between the boxes? Fix it by changing .row to display: flex with gap: 0. Then compare the value attribute and property in the console."
+  html={`<div class="row">\n  <span class="box">A</span>\n  <span class="box">B</span>\n  <span class="box">C</span>\n</div>\n<input id="name" value="default">`}
+  css={`.row { background: #fde7dc; }\n.box {\n  display: inline-block;\n  padding: .75rem 1rem;\n  background: #c2410c;\n  color: #fff;\n}`}
+  js={`const input = document.querySelector('#name');\ninput.value = 'typed by the user';\nconsole.log('attribute:', input.getAttribute('value'));\nconsole.log('property:', input.value);\nconsole.log('whitespace nodes:', document.querySelector('.row').childNodes.length);`}
+  solution={{ css: `.row { background: #fde7dc; display: flex; gap: 0; }\n.box {\n  padding: .75rem 1rem;\n  background: #c2410c;\n  color: #fff;\n}` }}
+/>
+
+## Encoding
+
+Use **UTF-8, always**, and declare it with `<meta charset="utf-8">` **within the first 1024 bytes** (the browser's prescan looks no further). A byte-order mark also works. "Mojibake" (garbled characters such as `cafÃ©`) happens when bytes written as UTF-8 are decoded as something else, which is usually a server `Content-Type` header problem, not an HTML one.
+
+<Playground
+  id="p1-mojibake"
+  title="Make mojibake on purpose"
+  task="Run it: the same bytes decoded two ways. Change the text to include ₹ and an emoji."
+  html={`<p>Open the console below the preview.</p>`}
+  js={`const bytes = new TextEncoder().encode('café résumé');\nconsole.log('as UTF-8:', new TextDecoder('utf-8').decode(bytes));\nconsole.log('as windows-1252:', new TextDecoder('windows-1252').decode(bytes));`}
+/>
+
+## Global attributes you must know cold
+
+`id`, `class`, `lang`, `dir`, `title` (a poor accessibility tool: invisible to touch and keyboard users), `hidden` (and `hidden="until-found"`, revealed by find-in-page), **`inert`** (removes a subtree from focus and the accessibility tree), `tabindex`, `contenteditable`, `draggable`, `spellcheck`, `translate`, `autofocus`, `inputmode`, `enterkeyhint`, `autocapitalize`, `popover`, `data-*` (read via `dataset`), `nonce`, `part`, `slot`, `accesskey` (avoid: conflicts with assistive-technology shortcuts) and `style` (rarely: it blocks strict CSP and fights the cascade).
+
+<Playground
+  id="p1-globals"
+  title="Global attributes doing real work"
+  task="Use the browser's find-in-page (Ctrl/Cmd+F) inside the preview for 'secret'. Then tab through: the inert form is skipped."
+  html={`<div hidden="until-found">The secret answer is 42.</div>\n<p contenteditable="true" spellcheck="true">Edit me, I'm contenteditable.</p>\n<label>PIN <input inputmode="numeric" enterkeyhint="done" autocomplete="one-time-code"></label>\n<fieldset inert>\n  <legend>Inert section</legend>\n  <button>Can't focus me</button>\n</fieldset>\n<p data-price="499" id="p">data-* attribute</p>`}
+  js={`console.log(document.querySelector('#p').dataset.price);`}
+/>
+
+## Scripts and styles in the document
+
+`<script>` blocks parsing while it downloads and runs. **`defer`** downloads in parallel and runs after parsing, in order. **`async`** runs whenever it arrives. **`type="module"`** is deferred by default and supports **import maps**; `nomodule` is legacy. `blocking="render"` holds first paint for a critical script. `<link rel="stylesheet">` is render-blocking unless its `media` doesn't match (it still downloads, but doesn't block). `<noscript>` shows content when scripting is off. Put styles in the head, and scripts at the end of `<head>` with `defer`.
+
+<ScriptTimeline />
+
+```html
+<head>
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/print.css" media="print">
+  <script type="importmap">{ "imports": { "lit": "/vendor/lit.js" } }</script>
+  <script type="module" src="/app.js"></script>
+</head>
+```
+
+## Validation and conformance
+
+"Works in my browser", **valid** and **conforming** are different things. The **Nu HTML Checker** (validator.w3.org/nu) catches nesting errors, duplicate IDs, missing `alt`, invalid attributes, and interactive content inside `<a>` or `<button>`. Conformance matters because every consumer (parsers, crawlers, screen readers, your future self) sees the same predictable document.
+
+<Try task="Paste this into validator.w3.org/nu and list every error: `<a href='/x'><button>Buy</button></a><img src='p.jpg'><p id='x'></p><p id='x'></p>`">
+  (1) `button` must not appear as a descendant of `a` (interactive content can't nest). (2) `img` is missing an `alt` attribute. (3) Duplicate ID `x`. Also: no doctype, `<title>` or `lang` if checked as a whole document.
+</Try>
+
+## Writing HTML well
+
+Indent consistently, keep a conventional attribute order (`class`/`id` first, then the element-specific attributes, then ARIA and `data-*`), one element per concern, meaningful class names that describe *what* rather than *how it looks*, and clean templates (Part 22).
+
+```html
+<!-- Before: presentational names, div soup -->
+<div class="big-red-text" onclick="go()">Buy</div>
+
+<!-- After: the element says what it is; the class says what it's for -->
+<button class="cta" type="button">Buy</button>
+```
+
+<Try task="Rewrite `<div class='title-large'>Pricing</div><div class='link' onclick='goToPlans()'>See plans</div>` semantically.">
+  `<h2 class="section-title">Pricing</h2><a class="cta" href="/plans">See plans</a>`. A heading is a heading (it joins the outline); navigation is a link (it works with middle-click, keyboard, crawlers and without JavaScript).
+</Try>

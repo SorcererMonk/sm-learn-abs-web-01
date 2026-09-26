@@ -29,7 +29,9 @@ const items: IndexItem[] = await Promise.all(
     <header class="lesson-hero stack">
       <p class="kicker">Index</p>
       <h1>All {lessons.length} parts</h1>
-      <p class="lede">Search by any topic inside a part (try “subgrid”, “popover” or “CSRF”) or filter by tier.</p>
+      <p class="lede">
+        Search by any topic inside a part (try “subgrid”, “popover” or “CSRF”) or filter by tier.
+      </p>
     </header>
     <TopicIndex items={items} label="Parts of L1 HTML & CSS" />
   </div>

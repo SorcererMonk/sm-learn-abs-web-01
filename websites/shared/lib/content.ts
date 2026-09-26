@@ -19,7 +19,8 @@ export const lessonHref = (id: string): string => withBase(`/learn/${id}/`);
 export function sortLessons<T extends Sortable>(site: SiteConfig, entries: T[]): T[] {
   const order = site.sources.map((s) => s.file);
   return [...entries].sort(
-    (a, b) => order.indexOf(a.data.source) - order.indexOf(b.data.source) || a.data.part - b.data.part,
+    (a, b) =>
+      order.indexOf(a.data.source) - order.indexOf(b.data.source) || a.data.part - b.data.part,
   );
 }
 

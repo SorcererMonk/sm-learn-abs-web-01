@@ -15,7 +15,19 @@ const { id, label, min, max, step = 1, value, unit = '' } = Astro.props;
 <label class="control" for={id}>
   <span>{label}</span>
   <span class="control__row">
-    <input type="range" id={id} name={id} min={min} max={max} step={step} value={value} data-unit={unit} />
-    <output for={id}>{value}{unit}</output>
+    <input
+      type="range"
+      id={id}
+      name={id}
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      data-unit={unit}
+    />
+    <output for={id}>
+      {value}
+      {unit}
+    </output>
   </span>
 </label>

@@ -58,7 +58,8 @@ function timerDialog(): {
       clock.textContent = fmt(seconds);
       clock.toggleAttribute('data-over', seconds > target * 60);
     }
-    if (announce && Math.floor(seconds) === target * 60) announce.textContent = 'Target time reached.';
+    if (announce && Math.floor(seconds) === target * 60)
+      announce.textContent = 'Target time reached.';
     raf = requestAnimationFrame(tick);
   };
   const close = (save: boolean): void => {
@@ -74,7 +75,8 @@ function timerDialog(): {
       const title = dialog.querySelector('#timer-title');
       const targetEl = dialog.querySelector('[data-target]');
       if (title) title.textContent = label;
-      if (targetEl) targetEl.textContent = `Target: ${minutes} min. From memory, platform only. Stop when done.`;
+      if (targetEl)
+        targetEl.textContent = `Target: ${minutes} min. From memory, platform only. Stop when done.`;
       target = minutes;
       callback = onDone;
       started = performance.now();

@@ -22,11 +22,15 @@ function initTabs(root: HTMLElement): void {
     tab.addEventListener('click', () => select(tab));
     tab.addEventListener('keydown', (event) => {
       const next =
-        event.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length]
-        : event.key === 'ArrowLeft' ? tabs[(i - 1 + tabs.length) % tabs.length]
-        : event.key === 'Home' ? tabs[0]
-        : event.key === 'End' ? tabs.at(-1)
-        : undefined;
+        event.key === 'ArrowRight'
+          ? tabs[(i + 1) % tabs.length]
+          : event.key === 'ArrowLeft'
+            ? tabs[(i - 1 + tabs.length) % tabs.length]
+            : event.key === 'Home'
+              ? tabs[0]
+              : event.key === 'End'
+                ? tabs.at(-1)
+                : undefined;
       if (next) {
         event.preventDefault();
         select(next);
@@ -60,14 +64,17 @@ export function initPlayground(root: HTMLElement): void {
     }),
   );
 
-  window.addEventListener('message', (event: MessageEvent<{ pg?: string; level?: string; text?: string }>) => {
-    if (event.source !== iframe.contentWindow || event.data?.pg !== id || !consoleEl) return;
-    const line = document.createElement('div');
-    line.textContent = `${event.data.level === 'log' ? '›' : `[${event.data.level}]`} ${event.data.text ?? ''}`;
-    if (event.data.level === 'error') line.style.color = 'var(--color-danger)';
-    consoleEl.append(line);
-    consoleEl.scrollTop = consoleEl.scrollHeight;
-  });
+  window.addEventListener(
+    'message',
+    (event: MessageEvent<{ pg?: string; level?: string; text?: string }>) => {
+      if (event.source !== iframe.contentWindow || event.data?.pg !== id || !consoleEl) return;
+      const line = document.createElement('div');
+      line.textContent = `${event.data.level === 'log' ? '›' : `[${event.data.level}]`} ${event.data.text ?? ''}`;
+      if (event.data.level === 'error') line.style.color = 'var(--color-danger)';
+      consoleEl.append(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    },
+  );
 
   const load = (source: PlaygroundFiles): void => {
     areas.forEach((area) => {
@@ -81,12 +88,18 @@ export function initPlayground(root: HTMLElement): void {
   if (reset) {
     reset.hidden = false;
     reset.addEventListener('click', () =>
-      load(Object.fromEntries(areas.map((a) => [a.dataset.lang, a.dataset.initial ?? ''])) as PlaygroundFiles),
+      load(
+        Object.fromEntries(
+          areas.map((a) => [a.dataset.lang, a.dataset.initial ?? '']),
+        ) as PlaygroundFiles,
+      ),
     );
   }
   const solutionButton = root.querySelector<HTMLButtonElement>('[data-pg-solution]');
   if (solutionButton && root.dataset.solution) {
     solutionButton.hidden = false;
-    solutionButton.addEventListener('click', () => load(JSON.parse(root.dataset.solution ?? '{}') as PlaygroundFiles));
+    solutionButton.addEventListener('click', () =>
+      load(JSON.parse(root.dataset.solution ?? '{}') as PlaygroundFiles),
+    );
   }
 }

@@ -135,7 +135,8 @@ export function textFromContent(el: Element): string {
       const child = node as Element;
       if (isHidden(child)) return;
       if (child.localName === 'img') parts.push(child.getAttribute('alt') ?? '');
-      else if (child.localName === 'svg') parts.push(child.querySelector('title')?.textContent ?? '');
+      else if (child.localName === 'svg')
+        parts.push(child.querySelector('title')?.textContent ?? '');
       else parts.push(child.getAttribute('aria-label') ?? textFromContent(child));
     }
   });
@@ -149,14 +150,15 @@ export interface NameResult {
 }
 
 export function computeName(el: Element): NameResult {
-  const doc = el.ownerDocument;
+  // ids resolve within the element's own tree (a shadow root, when the specimen lives in one)
+  const doc = el.getRootNode() as Document | ShadowRoot;
   const labelledby = el.getAttribute('aria-labelledby');
   if (labelledby) {
     const name = clean(
       labelledby
         .split(/\s+/)
         .map((id) => doc.getElementById(id))
-        .map((ref) => (ref ? ref.getAttribute('aria-label') ?? textFromContent(ref) : ''))
+        .map((ref) => (ref ? (ref.getAttribute('aria-label') ?? textFromContent(ref)) : ''))
         .join(' '),
     );
     if (name) return { name, from: 'aria-labelledby' };
@@ -193,7 +195,9 @@ export function computeName(el: Element): NameResult {
     const title = el.querySelector(':scope > title');
     if (title) return { name: clean(title.textContent ?? ''), from: '<title>' };
   }
-  if (NAME_FROM_CONTENT.has(implicitRole(el))) {
+  // section/form roles depend on the name itself, and never take a name from content anyway
+  const nameDependent = !el.hasAttribute('role') && (tag === 'section' || tag === 'form');
+  if (!nameDependent && NAME_FROM_CONTENT.has(implicitRole(el))) {
     const text = textFromContent(el);
     if (text) return { name: text, from: 'content' };
   }

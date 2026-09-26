@@ -52,7 +52,8 @@ export function exportAll(): Record<string, unknown> {
     const prefix = `${PREFIX}${siteKey()}:`;
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (key?.startsWith(prefix)) out[key.slice(prefix.length)] = JSON.parse(localStorage.getItem(key) ?? 'null');
+      if (key?.startsWith(prefix))
+        out[key.slice(prefix.length)] = JSON.parse(localStorage.getItem(key) ?? 'null');
     }
   } catch {
     // ignore

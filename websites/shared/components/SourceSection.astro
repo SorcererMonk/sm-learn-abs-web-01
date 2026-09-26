@@ -13,7 +13,9 @@ interface Props {
   trackable?: boolean;
 }
 const { path, file, section, trackable = false } = Astro.props;
-const found = parseCurriculum(readFileSync(path, 'utf8'), file).sections.find((s) => s.title === section);
+const found = parseCurriculum(readFileSync(path, 'utf8'), file).sections.find(
+  (s) => s.title === section,
+);
 if (!found) throw new Error(`Section "${section}" not found in ${file}`);
 const html = renderBlocks(found.blocks, section, {
   headingBase: 1,

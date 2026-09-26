@@ -102,7 +102,8 @@ export function sectionFeatures(body: string): { demos: string[]; snippet: boole
   const demos = new Set<string>();
   for (const m of body.matchAll(/<([A-Z][A-Za-z0-9]+)[\s/>]/g)) {
     const name = m[1] ?? '';
-    if (name !== 'Callout' && name !== 'Fragment') demos.add(name === 'Try' ? 'Exercise (Try)' : name);
+    if (name !== 'Callout' && name !== 'Fragment')
+      demos.add(name === 'Try' ? 'Exercise (Try)' : name);
   }
   return { demos: [...demos], snippet: /```/.test(body) };
 }
@@ -128,7 +129,10 @@ export function sourceTopics(part: Part): string[] {
 const groupCount = (part: Part, pattern: RegExp): number => {
   const group = part.groups.find((g) => pattern.test(g.label));
   if (!group) return 0;
-  return group.blocks.reduce((n, b) => n + (b.type === 'list' ? b.items.length : b.type === 'paragraph' ? 1 : 0), 0);
+  return group.blocks.reduce(
+    (n, b) => n + (b.type === 'list' ? b.items.length : b.type === 'paragraph' ? 1 : 0),
+    0,
+  );
 };
 
 export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: string): Coverage {
@@ -136,14 +140,19 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
   const pagesDir = join(siteDir, 'src/pages');
   const pageExists = (route: string): boolean => {
     const clean = route.split('#')[0]?.replace(/^\/|\/$/g, '') ?? '';
-    return [`${clean}.astro`, `${clean}/index.astro`, `${clean || 'index'}.astro`].some((p) => existsSync(join(pagesDir, p)));
+    return [`${clean}.astro`, `${clean}/index.astro`, `${clean || 'index'}.astro`].some((p) =>
+      existsSync(join(pagesDir, p)),
+    );
   };
   const topics: TopicRow[] = [];
   const parts: PartRow[] = [];
   const problems: string[] = [];
 
   for (const source of site.sources) {
-    const curriculum = parseCurriculum(readFileSync(join(repoRoot, source.file), 'utf8'), source.file);
+    const curriculum = parseCurriculum(
+      readFileSync(join(repoRoot, source.file), 'utf8'),
+      source.file,
+    );
 
     if (curriculum.kind === 'training') {
       const route = source.route;
@@ -182,15 +191,34 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
     }
 
     for (const part of curriculum.parts) {
-      const lesson = lessons.find((l) => l.data.source === source.file && Number(l.data.part) === part.number);
+      const lesson = lessons.find(
+        (l) => l.data.source === source.file && Number(l.data.part) === part.number,
+      );
       const expected = sourceTopics(part);
       const route = lesson ? `/learn/${lesson.id}/` : '';
       if (!lesson) {
         problems.push(`${source.file} PART ${part.number}: no lesson`);
         expected.forEach((topic, i) =>
-          topics.push({ topic, source: source.file, location: `PART ${part.number} · topic ${i + 1}`, page: '—', demo: '—', status: 'Missing' }),
+          topics.push({
+            topic,
+            source: source.file,
+            location: `PART ${part.number} · topic ${i + 1}`,
+            page: '—',
+            demo: '—',
+            status: 'Missing',
+          }),
         );
-        parts.push({ part: String(part.number), title: part.title, source: source.file, page: '—', topics: expected.length, complete: 0, demos: '—', exercise: '—', status: 'Missing' });
+        parts.push({
+          part: String(part.number),
+          title: part.title,
+          source: source.file,
+          page: '—',
+          topics: expected.length,
+          complete: 0,
+          demos: '—',
+          exercise: '—',
+          status: 'Missing',
+        });
         continue;
       }
       if (lesson.sections.length !== expected.length) {
@@ -202,8 +230,14 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
       const checks = Array.isArray(lesson.data.checks) ? lesson.data.checks.length : 0;
       const expectAnchors = groupCount(part, /intuition/i);
       const expectChecks = groupCount(part, /mastery/i);
-      if (expectAnchors && anchors < expectAnchors) problems.push(`${source.file} PART ${part.number}: ${anchors}/${expectAnchors} intuition anchors`);
-      if (expectChecks && checks < expectChecks) problems.push(`${source.file} PART ${part.number}: ${checks}/${expectChecks} mastery checks`);
+      if (expectAnchors && anchors < expectAnchors)
+        problems.push(
+          `${source.file} PART ${part.number}: ${anchors}/${expectAnchors} intuition anchors`,
+        );
+      if (expectChecks && checks < expectChecks)
+        problems.push(
+          `${source.file} PART ${part.number}: ${checks}/${expectChecks} mastery checks`,
+        );
 
       let complete = 0;
       const allDemos = new Set<string>();
@@ -214,13 +248,20 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
         const hasDemo = features.demos.length > 0;
         const status: Status = !section ? 'Missing' : hasDemo ? 'Complete' : 'Partial';
         if (status === 'Complete') complete += 1;
-        if (status === 'Partial') problems.push(`${lesson.id} § "${section?.title}": explanation but no demo/exercise`);
+        if (status === 'Partial')
+          problems.push(`${lesson.id} § "${section?.title}": explanation but no demo/exercise`);
         topics.push({
-          topic: section && stripInline(section.title) !== topic ? `${topic} → ${stripInline(section.title)}` : topic,
+          topic:
+            section && stripInline(section.title) !== topic
+              ? `${topic} → ${stripInline(section.title)}`
+              : topic,
           source: source.file,
           location: `PART ${part.number} · topic ${i + 1}`,
           page: section ? `${route}#${section.slug}` : route,
-          demo: [...features.demos, features.snippet ? 'code snippet' : ''].filter(Boolean).join(', ') || '—',
+          demo:
+            [...features.demos, features.snippet ? 'code snippet' : '']
+              .filter(Boolean)
+              .join(', ') || '—',
           status,
         });
       });
@@ -233,7 +274,10 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
         complete,
         demos: [...allDemos].join(', ') || '—',
         exercise: `${lesson.data.build ? 'Build/Analysis project' : '—'} · ${checks} mastery checks`,
-        status: complete === expected.length && lesson.sections.length === expected.length ? 'Complete' : 'Partial',
+        status:
+          complete === expected.length && lesson.sections.length === expected.length
+            ? 'Complete'
+            : 'Partial',
       });
     }
 
@@ -249,7 +293,10 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
         source: source.file,
         location: `§ ${section.title}`,
         page: route,
-        demo: section.title === 'How To Use This Document' ? 'orientation page' : 'rendered from source with progress checkboxes',
+        demo:
+          section.title === 'How To Use This Document'
+            ? 'orientation page'
+            : 'rendered from source with progress checkboxes',
         status: ok ? 'Complete' : 'Missing',
       });
       if (!ok) problems.push(`${source.file}: page ${route} missing for "${section.title}"`);
@@ -261,7 +308,8 @@ export function computeCoverage(site: SiteConfig, siteDir: string, repoRoot: str
 const cell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 export function partsTable(coverage: Coverage, siteName: string): string {
-  const head = '| Topic | Source MD | Website | Page/Component | Demo/Exercise | Status |\n|---|---|---|---|---|---|';
+  const head =
+    '| Topic | Source MD | Website | Page/Component | Demo/Exercise | Status |\n|---|---|---|---|---|---|';
   const rows = coverage.parts.map(
     (p) =>
       `| ${cell(p.part === 'T' ? p.title : `PART ${p.part}: ${p.title} (${p.complete}/${p.topics} topics)`)} | \`${p.source}\` | ${siteName} | \`${p.page}\` | ${cell(`${p.demos}; ${p.exercise}`)} | ${p.status} |`,
@@ -270,7 +318,8 @@ export function partsTable(coverage: Coverage, siteName: string): string {
 }
 
 export function topicsTable(coverage: Coverage, siteName: string): string {
-  const head = '| Topic | Source MD | Website | Page/Component | Demo/Exercise | Status |\n|---|---|---|---|---|---|';
+  const head =
+    '| Topic | Source MD | Website | Page/Component | Demo/Exercise | Status |\n|---|---|---|---|---|---|';
   const rows = coverage.topics.map(
     (t) =>
       `| ${cell(t.topic)} | \`${t.source}\` (${cell(t.location)}) | ${siteName} | \`${cell(t.page)}\` | ${cell(t.demo)} | ${t.status} |`,

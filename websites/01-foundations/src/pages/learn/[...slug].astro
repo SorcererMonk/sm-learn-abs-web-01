@@ -9,7 +9,12 @@ export async function getStaticPaths() {
   const lessons = sortLessons(site, await getCollection('lessons'));
   return lessons.map((entry, i) => ({
     params: { slug: entry.id },
-    props: { entry, prev: toLink(lessons[i - 1]), next: toLink(lessons[i + 1]), total: lessons.length },
+    props: {
+      entry,
+      prev: toLink(lessons[i - 1]),
+      next: toLink(lessons[i + 1]),
+      total: lessons.length,
+    },
   }));
 }
 

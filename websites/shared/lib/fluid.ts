@@ -44,7 +44,12 @@ export function spaceStep(config: FluidConfig, multiplier: number): string {
 }
 
 /** Resolves a clamp() produced above at a given viewport width (px), for demos and tests. */
-export function resolveAt(minPx: number, maxPx: number, config: FluidConfig, viewport: number): number {
+export function resolveAt(
+  minPx: number,
+  maxPx: number,
+  config: FluidConfig,
+  viewport: number,
+): number {
   const t = (viewport - config.minViewport) / (config.maxViewport - config.minViewport);
   const raw = minPx + (maxPx - minPx) * t;
   return Math.min(Math.max(raw, Math.min(minPx, maxPx)), Math.max(minPx, maxPx));

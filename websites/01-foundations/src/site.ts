@@ -23,14 +23,46 @@ export const site: SiteConfig = {
 
 /** Chapters follow the source's Suggested Learning Order. */
 export const chapters = [
-  { title: 'The document', parts: [0, 1, 2], blurb: 'Parsing, semantics and HTML that works unstyled.' },
-  { title: 'Cascade & formatting model', parts: [8, 9, 10], blurb: 'Which rule wins, and which algorithm is in charge.' },
-  { title: 'Layout', parts: [11, 12, 13], blurb: 'Flexbox, grid and intrinsic, fluid, container-aware design.' },
-  { title: 'Native platform', parts: [3, 4, 5, 6, 7], blurb: 'Forms, media, SVG, metadata and the accessibility tree.' },
-  { title: 'Beautiful', parts: [14, 15, 18], blurb: 'Typography, colour and the design fundamentals.' },
-  { title: 'Motion', parts: [16, 17], blurb: 'Micro-interactions, scroll timelines and view transitions.' },
-  { title: 'Systems', parts: [19, 20], blurb: 'Tokens, architecture, design systems, web components.' },
+  {
+    title: 'The document',
+    parts: [0, 1, 2],
+    blurb: 'Parsing, semantics and HTML that works unstyled.',
+  },
+  {
+    title: 'Cascade & formatting model',
+    parts: [8, 9, 10],
+    blurb: 'Which rule wins, and which algorithm is in charge.',
+  },
+  {
+    title: 'Layout',
+    parts: [11, 12, 13],
+    blurb: 'Flexbox, grid and intrinsic, fluid, container-aware design.',
+  },
+  {
+    title: 'Native platform',
+    parts: [3, 4, 5, 6, 7],
+    blurb: 'Forms, media, SVG, metadata and the accessibility tree.',
+  },
+  {
+    title: 'Beautiful',
+    parts: [14, 15, 18],
+    blurb: 'Typography, colour and the design fundamentals.',
+  },
+  {
+    title: 'Motion',
+    parts: [16, 17],
+    blurb: 'Micro-interactions, scroll timelines and view transitions.',
+  },
+  {
+    title: 'Systems',
+    parts: [19, 20],
+    blurb: 'Tokens, architecture, design systems, web components.',
+  },
   { title: 'Ship it', parts: [21, 22], blurb: 'Rendering performance and server-rendered HTML.' },
-  { title: 'Everywhere, safely', parts: [23, 24, 25], blurb: 'Email, print, resilience, i18n and security.' },
+  {
+    title: 'Everywhere, safely',
+    parts: [23, 24, 25],
+    blurb: 'Email, print, resilience, i18n and security.',
+  },
   { title: 'For life', parts: [26, 27], blurb: 'Taste development and professional growth.' },
 ];

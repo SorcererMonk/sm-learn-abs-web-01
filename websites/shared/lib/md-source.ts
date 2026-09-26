@@ -201,7 +201,9 @@ export function parseCurriculum(source: string, fileName: string): Curriculum {
   const subtitle = blocks.find((b) => b.type === 'heading' && b.depth === 2);
   const intro = blocks.find((b) => b.type === 'quote');
   const kind = /(^|\/)T\d/.test(fileName) ? 'training' : 'learning';
-  const sections = sectionsAt(blocks, 2).filter((s) => s !== undefined && s.title !== subtitle?.text);
+  const sections = sectionsAt(blocks, 2).filter(
+    (s) => s !== undefined && s.title !== subtitle?.text,
+  );
 
   const parts: Part[] = [];
   const others: Section[] = [];

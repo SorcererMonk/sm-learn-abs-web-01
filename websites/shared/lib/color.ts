@@ -31,8 +31,7 @@ export function oklchToLinearSrgb({ l, c, h }: Oklch): Rgb {
 const encode = (x: number): number =>
   x <= 0.0031308 ? 12.92 * x : 1.055 * Math.sign(x) * Math.abs(x) ** (1 / 2.4) - 0.055;
 
-const decode = (x: number): number =>
-  x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+const decode = (x: number): number => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
 
 const inGamut = (rgb: Rgb, eps = 1e-6): boolean => rgb.every((v) => v >= -eps && v <= 1 + eps);
 

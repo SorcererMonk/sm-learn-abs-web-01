@@ -16,7 +16,10 @@ interface Props {
 }
 const { site } = Astro.props;
 const learning = site.sources
-  .map((s) => ({ source: s, curriculum: parseCurriculum(readFileSync(repoPath(s.file), 'utf8'), s.file) }))
+  .map((s) => ({
+    source: s,
+    curriculum: parseCurriculum(readFileSync(repoPath(s.file), 'utf8'), s.file),
+  }))
   .filter((x) => x.curriculum.kind === 'learning');
 ---
 
@@ -25,7 +28,9 @@ const learning = site.sources
     <header class="lesson-hero stack">
       <p class="kicker">Orientation</p>
       <h1>Start here</h1>
-      <p class="lede">How this site is organised, how deep to go, and what is current as of September 2026.</p>
+      <p class="lede">
+        How this site is organised, how deep to go, and what is current as of September 2026.
+      </p>
     </header>
 
     <section class="stack prose" aria-labelledby="map-title">
@@ -33,24 +38,26 @@ const learning = site.sources
       <slot />
     </section>
 
-    {
-      learning.map(({ source, curriculum }) => (
-        <section class="stack" aria-labelledby={`${source.file}-use`}>
-          <h2 id={`${source.file}-use`}>
-            {curriculum.title.replace(/\s*→.*/, '')} <span class="muted">· how to use it</span>
-          </h2>
-          <div class="callout" data-kind="note">
-            <p class="callout__label">What's current (from the source's currency stamp)</p>
-            {curriculum.intro
-              .split('\n')
-              .filter(Boolean)
-              .map((line) => (
-                <p set:html={renderInline(line)} />
-              ))}
-          </div>
-          <SourceSection path={repoPath(source.file)} file={source.file} section="How To Use This Document" />
-        </section>
-      ))
-    }
+    {learning.map(({ source, curriculum }) => (
+      <section class="stack" aria-labelledby={`${source.file}-use`}>
+        <h2 id={`${source.file}-use`}>
+          {curriculum.title.replace(/\s*→.*/, '')} <span class="muted">· how to use it</span>
+        </h2>
+        <div class="callout" data-kind="note">
+          <p class="callout__label">What's current (from the source's currency stamp)</p>
+          {curriculum.intro
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => (
+              <p set:html={renderInline(line)} />
+            ))}
+        </div>
+        <SourceSection
+          path={repoPath(source.file)}
+          file={source.file}
+          section="How To Use This Document"
+        />
+      </section>
+    ))}
   </div>
 </BaseLayout>

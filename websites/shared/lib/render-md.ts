@@ -45,7 +45,11 @@ const minutesFrom = (target: string): number | undefined => {
   return match ? Number(match[1]) : undefined;
 };
 
-function renderTable(block: Extract<Block, { type: 'table' }>, caption: string, opts: RenderOptions): string {
+function renderTable(
+  block: Extract<Block, { type: 'table' }>,
+  caption: string,
+  opts: RenderOptions,
+): string {
   const first = (block.header[0] ?? '').toLowerCase();
   const targetCol = block.header.findIndex((h) => /^target$/i.test(h));
   const isLadder = first === 'belt' || first === 'rung';
@@ -54,7 +58,11 @@ function renderTable(block: Extract<Block, { type: 'table' }>, caption: string, 
   const track = Boolean(opts.progressKey);
 
   const extraHead =
-    track && isLadder ? '<th scope="col">Your record</th>' : track && targetCol >= 0 ? '<th scope="col">Practice</th>' : '';
+    track && isLadder
+      ? '<th scope="col">Your record</th>'
+      : track && targetCol >= 0
+        ? '<th scope="col">Practice</th>'
+        : '';
   const head = block.header.map((h) => `<th scope="col">${renderInline(h)}</th>`).join('');
 
   const rows = block.rows
@@ -129,7 +137,8 @@ export function renderBlocks(blocks: Block[], caption: string, opts: RenderOptio
       case 'list': {
         const tag = block.ordered ? 'ol' : 'ul';
         const mode = opts.mode ?? 'plain';
-        const cls = mode === 'checklist' ? ' class="checklist"' : mode === 'probes' ? ' class="probes"' : '';
+        const cls =
+          mode === 'checklist' ? ' class="checklist"' : mode === 'probes' ? ' class="probes"' : '';
         out.push(`<${tag}${cls}>${renderItems(block.items, opts)}</${tag}>`);
         break;
       }
@@ -140,7 +149,13 @@ export function renderBlocks(blocks: Block[], caption: string, opts: RenderOptio
         out.push(`<pre class="md-code" tabindex="0"><code>${escapeHtml(block.text)}</code></pre>`);
         break;
       case 'quote':
-        out.push(`<blockquote>${block.text.split('\n').filter(Boolean).map((l) => `<p>${renderInline(l)}</p>`).join('')}</blockquote>`);
+        out.push(
+          `<blockquote>${block.text
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => `<p>${renderInline(l)}</p>`)
+            .join('')}</blockquote>`,
+        );
         break;
     }
   }

@@ -14,8 +14,16 @@ const { title, badge = 'Live demo', id } = Astro.props;
     <h4 class="demo__title">{title}</h4>
   </div>
   <div class="demo__body">
-    {Astro.slots.has('controls') && <div class="controls"><slot name="controls" /></div>}
+    {Astro.slots.has('controls') && (
+      <div class="controls">
+        <slot name="controls" />
+      </div>
+    )}
     <slot />
   </div>
-  {Astro.slots.has('note') && <div class="demo__note"><slot name="note" /></div>}
+  {Astro.slots.has('note') && (
+    <div class="demo__note">
+      <slot name="note" />
+    </div>
+  )}
 </section>

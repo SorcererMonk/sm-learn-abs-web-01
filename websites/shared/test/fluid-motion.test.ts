@@ -10,7 +10,14 @@ import {
   springToLinear,
 } from '../lib/motion.ts';
 
-const config: FluidConfig = { minViewport: 360, maxViewport: 1440, minBase: 16, maxBase: 19, minRatio: 1.2, maxRatio: 1.25 };
+const config: FluidConfig = {
+  minViewport: 360,
+  maxViewport: 1440,
+  minBase: 16,
+  maxBase: 19,
+  minRatio: 1.2,
+  maxRatio: 1.25,
+};
 
 describe('fluid scales', () => {
   it('mixes rem and vi so zoom still scales text', () => {

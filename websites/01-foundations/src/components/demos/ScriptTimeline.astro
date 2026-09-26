@@ -1,0 +1,153 @@
+---
+/**
+ * How each <script> flavour interacts with HTML parsing: fetch (thin bar),
+ * execute (thick bar), parser blocked (hatched). Pure HTML/CSS, no JavaScript.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+type Seg = [kind: 'parse' | 'blocked' | 'fetch' | 'exec', start: number, end: number];
+const rows: { label: string; code: string; note: string; segs: Seg[] }[] = [
+  {
+    label: 'Classic',
+    code: '<script src>',
+    note: 'Parsing stops while the script downloads and runs.',
+    segs: [
+      ['parse', 1, 4],
+      ['blocked', 4, 9],
+      ['fetch', 4, 8],
+      ['exec', 8, 9],
+      ['parse', 9, 13],
+    ],
+  },
+  {
+    label: 'async',
+    code: '<script async src>',
+    note: 'Downloads in parallel, runs as soon as it arrives (order not guaranteed), pausing the parser.',
+    segs: [
+      ['parse', 1, 6],
+      ['fetch', 3, 6],
+      ['exec', 6, 7],
+      ['blocked', 6, 7],
+      ['parse', 7, 13],
+    ],
+  },
+  {
+    label: 'defer',
+    code: '<script defer src>',
+    note: 'Downloads in parallel, runs after parsing finishes, in document order, before DOMContentLoaded.',
+    segs: [
+      ['parse', 1, 12],
+      ['fetch', 3, 7],
+      ['exec', 12, 13],
+    ],
+  },
+  {
+    label: 'module',
+    code: '<script type="module">',
+    note: 'Deferred by default; its imports are fetched too. Add async to run as soon as ready.',
+    segs: [
+      ['parse', 1, 12],
+      ['fetch', 3, 8],
+      ['exec', 12, 13],
+    ],
+  },
+];
+---
+
+<Demo title="Script loading: classic vs async vs defer vs module" badge="Diagram">
+  <div class="timeline" role="img" aria-labelledby="timeline-desc">
+    {rows.map((row) => (
+      <div class="timeline__row">
+        <div class="timeline__label">
+          <strong>{row.label}</strong>
+          <code>{row.code}</code>
+        </div>
+        <div class="timeline__track">
+          {row.segs.map(([kind, start, end]) => (
+            <span class={`seg seg--${kind}`} style={`grid-column: ${start} / ${end}`} />
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+  <p class="cluster muted" aria-hidden="true">
+    <span>
+      <span class="key seg--parse"></span> HTML parsing
+    </span>
+    <span>
+      <span class="key seg--fetch"></span> download
+    </span>
+    <span>
+      <span class="key seg--exec"></span> execute
+    </span>
+    <span>
+      <span class="key seg--blocked"></span> parser blocked
+    </span>
+  </p>
+  <ul id="timeline-desc" class="stack stack-sm" role="list">
+    {rows.map((row) => (
+      <li>
+        <strong>{row.label}:</strong> {row.note}
+      </li>
+    ))}
+  </ul>
+</Demo>
+
+<style>
+  .timeline {
+    display: grid;
+    gap: var(--space-xs);
+  }
+  .timeline__row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 12rem) 1fr;
+    gap: var(--space-s);
+    align-items: center;
+  }
+  .timeline__label {
+    display: grid;
+    font-size: var(--step-n1);
+  }
+  .timeline__track {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: 1.4rem;
+    background: var(--color-surface-2);
+    border-radius: var(--radius-sm);
+    position: relative;
+  }
+  .seg {
+    grid-row: 1;
+    border-radius: 3px;
+  }
+  .seg--parse {
+    background: var(--color-info);
+    opacity: 0.35;
+  }
+  .seg--blocked {
+    background: repeating-linear-gradient(45deg, var(--color-danger) 0 4px, transparent 4px 8px);
+    opacity: 0.6;
+  }
+  .seg--fetch {
+    background: var(--color-accent-strong);
+    block-size: 0.35rem;
+    align-self: end;
+  }
+  .seg--exec {
+    background: var(--color-text);
+    block-size: 0.9rem;
+    align-self: center;
+  }
+  .key {
+    display: inline-block;
+    inline-size: 1.2em;
+    block-size: 0.7em;
+    vertical-align: middle;
+    border-radius: 2px;
+  }
+  @media (forced-colors: active) {
+    .seg {
+      forced-color-adjust: none;
+    }
+  }
+</style>

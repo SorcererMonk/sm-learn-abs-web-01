@@ -29,20 +29,41 @@ const {
 <Demo title={title}>
   <div class="trees-lab stack" data-trees-lab>
     <div class="switcher" style="--switcher-threshold: 40rem">
-      <label class="control"><span>HTML</span><textarea rows="9" spellcheck="false" data-trees-html>{html}</textarea></label>
-      <label class="control"><span>CSS</span><textarea rows="9" spellcheck="false" data-trees-css>{css}</textarea></label>
+      <label class="control">
+        <span>HTML</span>
+        <textarea rows="9" spellcheck="false" data-trees-html>{html}</textarea>
+      </label>
+      <label class="control">
+        <span>CSS</span>
+        <textarea rows="9" spellcheck="false" data-trees-css>{css}</textarea>
+      </label>
     </div>
-    <div class="trees-lab__host" data-trees-host inert title="Specimen: rendered, but inert and hidden from assistive technology on this page"></div>
+    <div
+      class="trees-lab__host"
+      data-trees-host
+      inert
+      title="Specimen: rendered, but inert and hidden from assistive technology on this page"
+    ></div>
     <div class="auto-grid" style="--grid-min: 15rem">
-      <div class="stack stack-sm"><h5 class="kicker">DOM</h5><pre data-tree="dom">(needs JavaScript)</pre></div>
-      <div class="stack stack-sm"><h5 class="kicker">Box tree</h5><pre data-tree="box"></pre></div>
-      <div class="stack stack-sm"><h5 class="kicker">Accessibility tree (simplified)</h5><pre data-tree="ax"></pre></div>
+      <div class="stack stack-sm">
+        <h5 class="kicker">DOM</h5>
+        <pre data-tree="dom">(needs JavaScript)</pre>
+      </div>
+      <div class="stack stack-sm">
+        <h5 class="kicker">Box tree</h5>
+        <pre data-tree="box"></pre>
+      </div>
+      <div class="stack stack-sm">
+        <h5 class="kicker">Accessibility tree (simplified)</h5>
+        <pre data-tree="ax"></pre>
+      </div>
     </div>
   </div>
   <p slot="note">
-    Watch the gaps: <code>display: none</code> removes a node from the box tree <em>and</em> the accessibility
-    tree; <code>::before</code> content adds a box (and name text) that the DOM never had; the icon-only
-    button has no name at all; <code>alt=""</code> makes the image presentational.
+    Watch the gaps: <code>display: none</code> removes a node from the box tree <em>and</em> the
+    accessibility tree; <code>::before</code> content adds a box (and name text) that the DOM never
+    had; the icon-only button has no name at all; <code>alt=""</code> makes the image
+    presentational.
   </p>
 </Demo>
 
@@ -51,7 +72,8 @@ const {
 
   function domLines(node: Node, depth: number, out: string[]): void {
     if (node.nodeType === Node.TEXT_NODE) {
-      if ((node.textContent ?? '').trim()) out.push(`${'  '.repeat(depth)}"${node.textContent?.trim()}"`);
+      if ((node.textContent ?? '').trim())
+        out.push(`${'  '.repeat(depth)}"${node.textContent?.trim()}"`);
       return;
     }
     if (!(node instanceof Element)) return;
@@ -73,7 +95,8 @@ const {
     }
     for (const child of el.children) boxLines(child, inner, out);
     const after = getComputedStyle(el, '::after').content;
-    if (after && after !== 'none' && after !== 'normal') out.push(`${'  '.repeat(inner)}::after ${after}`);
+    if (after && after !== 'none' && after !== 'normal')
+      out.push(`${'  '.repeat(inner)}::after ${after}`);
   }
 
   document.querySelectorAll<HTMLElement>('[data-trees-lab]').forEach((root) => {
@@ -87,9 +110,13 @@ const {
       // Parse first (inert), then adopt: nothing the learner types can run script.
       const doc = new DOMParser().parseFromString(htmlInput.value, 'text/html');
       doc.querySelectorAll('script, iframe, object, embed').forEach((n) => n.remove());
-      doc.querySelectorAll('*').forEach((n) =>
-        [...n.attributes].filter((a) => a.name.startsWith('on')).forEach((a) => n.removeAttribute(a.name)),
-      );
+      doc
+        .querySelectorAll('*')
+        .forEach((n) =>
+          [...n.attributes]
+            .filter((a) => a.name.startsWith('on'))
+            .forEach((a) => n.removeAttribute(a.name)),
+        );
       const style = document.createElement('style');
       style.textContent = cssInput.value;
       const container = document.createElement('div');
@@ -100,7 +127,8 @@ const {
       const box: string[] = [];
       for (const child of container.children) boxLines(child, 0, box);
       const ax = accessibilityTree(container).map(
-        (n) => `${'  '.repeat(n.depth)}${n.role}${n.name ? ` "${n.name}"` : ' (no name)'}${n.from !== 'none' ? `  ← ${n.from}` : ''}`,
+        (n) =>
+          `${'  '.repeat(n.depth)}${n.role}${n.name ? ` "${n.name}"` : ' (no name)'}${n.from !== 'none' ? `  ← ${n.from}` : ''}`,
       );
       const set = (name: string, lines: string[]): void => {
         const el = out(name);

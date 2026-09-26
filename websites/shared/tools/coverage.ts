@@ -15,7 +15,9 @@ const args = process.argv.slice(2);
 const siteArg = args[args.indexOf('--site') + 1];
 if (!siteArg) throw new Error('Pass --site <folder>');
 const siteDir = join(websites, siteArg);
-const { site } = (await import(pathToFileURL(join(siteDir, 'src/site.ts')).href)) as { site: SiteConfig };
+const { site } = (await import(pathToFileURL(join(siteDir, 'src/site.ts')).href)) as {
+  site: SiteConfig;
+};
 
 const coverage = computeCoverage(site, siteDir, repoRoot);
 const total = coverage.topics.length;
@@ -33,7 +35,9 @@ writeFileSync(
     '',
     topicsTable(coverage, site.name),
     '',
-    coverage.problems.length ? `## Open problems\n\n${coverage.problems.map((p) => `- ${p}`).join('\n')}` : '## Open problems\n\nNone.',
+    coverage.problems.length
+      ? `## Open problems\n\n${coverage.problems.map((p) => `- ${p}`).join('\n')}`
+      : '## Open problems\n\nNone.',
     '',
   ].join('\n'),
 );
@@ -42,9 +46,14 @@ const readmePath = join(siteDir, 'README.md');
 if (existsSync(readmePath)) {
   const readme = readFileSync(readmePath, 'utf8');
   const block = `<!-- coverage:start -->\n${summary}\n\n${partsTable(coverage, site.name)}\n\nFull topic-level matrix: [COVERAGE.md](./COVERAGE.md).\n<!-- coverage:end -->`;
-  writeFileSync(readmePath, readme.replace(/<!-- coverage:start -->[\s\S]*<!-- coverage:end -->/, block));
+  writeFileSync(
+    readmePath,
+    readme.replace(/<!-- coverage:start -->[\s\S]*<!-- coverage:end -->/, block),
+  );
 }
 
-console.info(`${site.id}: ${complete}/${total} topics complete, ${coverage.problems.length} problem(s).`);
+console.info(
+  `${site.id}: ${complete}/${total} topics complete, ${coverage.problems.length} problem(s).`,
+);
 coverage.problems.slice(0, 40).forEach((p) => console.info(`  - ${p}`));
 if (args.includes('--check') && coverage.problems.length) process.exit(1);
