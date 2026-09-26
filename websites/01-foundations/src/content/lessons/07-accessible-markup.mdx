@@ -1,0 +1,219 @@
+---
+title: Accessible Markup & the Accessibility Tree
+source: L1-coding-html-css.md
+part: 7
+tier: Core → Deep
+summary: The accessibility tree, accessible names, the rules of ARIA and the vocabulary worth knowing, APG keyboard patterns, focus, three ways of hiding, CSS that affects accessibility, target sizes, live regions, and how to test.
+anchors:
+  - "You are always shipping two interfaces: the visual one and the accessibility tree. Semantic HTML writes the second one for you. Every `<div>` with a click handler leaves a hole in it."
+  - "ARIA changes what assistive technology is *told*, never what the browser *does*. `role=\"button\"` doesn't add keyboard support. It adds a promise you now have to keep."
+checks:
+  - q: "Compute the accessible name of five elements by hand (an icon button with `aria-label`, a link with an image, an input with both `<label>` and `aria-labelledby`, a `<figure>`, a `<fieldset>`), then check them in DevTools."
+    a: "Icon button: its `aria-label`. Link containing `<img alt=\"Home\">`: \"Home\" (name from content, which includes the image's alt). Input with both: `aria-labelledby` wins over `<label>`. `<figure>`: its `<figcaption>` text. `<fieldset>`: its `<legend>` text. Paste each into the tree lab on this page to confirm the \"from\" column."
+  - q: "Explain why removing list styles in Safari can remove list semantics, and the fix."
+    a: "WebKit decided that a list with `list-style: none` often isn't presented as a list (navigation bars, card grids), so VoiceOver doesn't announce it as one. When the list-ness matters, add `role=\"list\"` to the `<ul>`/`<ol>` (this site does it on every unstyled list), or use a `::marker`/`::before` with zero-width content instead of `list-style: none`."
+  - q: "Build a visually-hidden class, explain each declaration, and explain why `display: none` is wrong for it."
+    a: "`.visually-hidden:not(:focus):not(:active) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }`: absolute takes it out of flow; 1px size (not 0, which some screen readers skip); `clip-path` and `overflow` hide the pixels; `nowrap` stops words being read run together after wrapping in a 1px box. `display: none` (and `visibility: hidden`) remove the element from the accessibility tree too, so screen readers never hear it."
+  - q: "Explain three ways CSS layout can make keyboard order diverge from visual order."
+    a: "(1) Flex `order` or `flex-direction: row-reverse`/`column-reverse` reorders boxes visually but not in the DOM. (2) Grid placement (`grid-area`, `grid-row`, auto-placement with `dense`) can put a later element first on screen. (3) Absolute or fixed positioning can move an element anywhere while its tab position stays where it is in the source. Fix the DOM order, or use `reading-flow` where supported."
+build: "A \"tabs, disclosure, and dialog\" trio, built first with native elements where possible and then as custom APG-conformant widgets, each tested with a screen reader and keyboard, with an accessibility-tree screenshot of each state."
+steps:
+  - "Native disclosure with `<details>`; native dialog with `<dialog>` + `showModal()`."
+  - "Tabs have no native element: build them with `role=\"tablist\"`/`tab`/`tabpanel`, roving tabindex and arrow keys (the playground on this page)."
+  - "Rebuild the disclosure as a `<button aria-expanded aria-controls>` and compare with `<details>`."
+  - "Test each with a keyboard only, then VoiceOver or NVDA, noting every announcement."
+  - "Screenshot the DevTools accessibility tree for each state (collapsed/expanded, open/closed, each tab selected)."
+taste: "Design focus states as deliberately as hover states. They are the hover state for everyone not using a mouse, and a visible, beautiful focus ring is a mark of craft."
+quiz:
+  - q: "Which wins when an input has both `aria-labelledby` and a `<label>`?"
+    options: ["The `<label>`", "`aria-labelledby`", "Whichever comes first in the DOM"]
+    answer: 1
+    why: "The name computation checks aria-labelledby first, then aria-label, then native labels."
+  - q: "What is the minimum target size in WCAG 2.2 (2.5.8)?"
+    options: ["16×16 CSS px", "24×24 CSS px", "44×44 CSS px"]
+    answer: 1
+    why: "24×24 is the AA minimum (with spacing exceptions); 44×44 is the comfortable norm and the AAA target."
+  - q: "Why must a live region exist before its content changes?"
+    options: ["For performance", "Screen readers watch regions they already know about; a region inserted with its text often isn't announced", "It doesn't matter"]
+    answer: 1
+    why: "Render the empty `role=\"status\"` region on load, then change its text."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import TreesLab from '../../components/demos/TreesLab.astro';
+
+## The accessibility tree
+
+Browsers build a second tree for assistive technology. Each node has a **role**, a **name**, a **description**, **states** (expanded, checked, disabled) and a **value**. It comes mostly from HTML semantics, then ARIA, and some CSS: `display: none` and `visibility: hidden` remove nodes; `content` in `::before`/`::after` contributes to names; `display: contents` historically dropped roles from some elements (buttons, tables); and **removing list styles drops list semantics in Safari** unless you add `role="list"`. Read it in DevTools (Elements → Accessibility, or the full-page tree view).
+
+<TreesLab
+  title="What CSS does to the accessibility tree"
+  html={`<ul class="plain"><li>Styled list, no bullets</li><li>Still a list?</li></ul>\n<ul class="plain" role="list"><li>With role="list"</li></ul>\n<h2 class="starred">Reviews</h2>\n<p class="rating">4 out of 5</p>\n<p class="gone">display: none</p>\n<p class="invisible">visibility: hidden</p>\n<button class="ghost">Invisible but still focusable?</button>`}
+  css={`.plain { list-style: none; padding: 0; }\n.starred::before { content: "★ "; }\n.rating::after { content: " ★★★★" / ""; }\n.gone { display: none; }\n.invisible { visibility: hidden; }\n.ghost { opacity: 0; }`}
+/>
+
+## Accessible name computation
+
+The precedence: **`aria-labelledby`** → **`aria-label`** → the native label (`<label>`, `alt`, `<caption>`, `<legend>`, `<figcaption>`, SVG `<title>`) → **content** (for roles that allow it: buttons, links, headings, cells) → `title` (last resort, and not a real label). An icon-only button has no name until you give it one. And **label in name** (WCAG 2.5.3): the visible text must be part of the accessible name, so voice-control users can say "click Send" and have it work.
+
+<TreesLab
+  title="Accessible names: which rule produced each one?"
+  html={`<button aria-label="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1l-8 8"/></svg></button>\n<a href="/"><img src="" alt="Home"></a>\n<span id="lbl">Billing email</span>\n<label>Email <input aria-labelledby="lbl"></label>\n<figure><div>chart</div><figcaption>Sales by month</figcaption></figure>\n<fieldset><legend>Delivery speed</legend><label><input type="radio" name="s"> Standard</label></fieldset>\n<button aria-label="Submit form">Send</button>\n<input title="Search the site">`}
+  css={``}
+/>
+
+<Try task="The last button's visible text is 'Send' but its name is 'Submit form'. Which WCAG criterion does that fail, and what's the fix?">
+  2.5.3 Label in Name: a voice-control user says "click Send" and nothing happens. Remove the `aria-label` (the content "Send" is the name), or make the label start with the visible text: `aria-label="Send message"`.
+</Try>
+
+## The rules of ARIA
+
+1. **Don't use ARIA if a native element exists.** `<button>`, not `<div role="button">`.
+2. **Don't change native semantics** unless you must (`<h2 role="tab">` is wrong; put the tab inside the heading).
+3. **Every interactive ARIA control must be keyboard-operable.**
+4. **Never put `role="presentation"` or `aria-hidden="true"` on a focusable element**: keyboard users land on something that doesn't exist for screen readers.
+5. **Every interactive element needs an accessible name.**
+
+"No ARIA is better than bad ARIA": pages with ARIA average *more* accessibility errors than pages without, because each role is a promise.
+
+<Playground
+  id="p7-div-button"
+  title="A div button vs a button: count the promises"
+  task="Try to operate each with the keyboard (Tab, Enter, Space). Then make the div work fully: tabindex, role, Enter and Space handlers. Compare the line count with the native one."
+  html={`<div class="btn" onclick="console.log('div clicked')">Save (div)</div>\n<div class="btn" role="button" onclick="console.log('role=button clicked')">Save (div + role)</div>\n<button class="btn" type="button" onclick="console.log('button clicked')">Save (button)</button>`}
+  css={`.btn { display: inline-block; padding: .5rem 1rem; margin: .25rem; border-radius: .5rem; background: #c2410c; color: #fff; font: 600 1rem system-ui; border: 0; cursor: pointer; }\n:focus-visible { outline: 3px solid #1d1a19; outline-offset: 2px; }`}
+/>
+
+## The ARIA vocabulary you'll actually use
+
+- **Naming**: `aria-label`, `aria-labelledby`, `aria-describedby`.
+- **State**: `aria-expanded` (+ `aria-controls`), `aria-pressed` (toggle buttons), `aria-selected` (tabs, options), `aria-checked`, `aria-current` (`page`, `step`, `date`), `aria-invalid` + `aria-errormessage`, `aria-busy`, `aria-haspopup`, `aria-sort`.
+- **Live**: `aria-live="polite"`/`"assertive"`, `role="status"` (polite), `role="alert"` (assertive).
+- **Structure fixes**: `aria-hidden="true"`, `role="list"`, `role="region"` (with a name).
+
+Widget roles (`tab`, `listbox`, `menu`, `grid`, `tree`, `combobox`) come with full keyboard contracts: get them from native elements or a headless library (React Aria, Radix, Ark) rather than hand-rolling.
+
+<Playground
+  id="p7-disclosure"
+  title="aria-expanded, aria-controls and aria-pressed"
+  task='Toggle both buttons and style them with attribute selectors only (no classes): rotate the chevron when `[aria-expanded="true"]`.'
+  html={`<button type="button" aria-expanded="false" aria-controls="filters" id="toggle">Filters <span class="chev" aria-hidden="true">▸</span></button>\n<div id="filters" hidden>\n  <label><input type="checkbox"> In stock</label>\n</div>\n<button type="button" aria-pressed="false" id="mute">Mute notifications</button>`}
+  css={`[aria-expanded="true"] .chev { display: inline-block; rotate: 90deg; }\n[aria-pressed="true"] { background: #1d1a19; color: #fff; }\nbutton { font: inherit; padding: .4rem .8rem; margin: .25rem 0; }`}
+  js={`const toggle = document.getElementById('toggle');\ntoggle.addEventListener('click', () => {\n  const open = toggle.getAttribute('aria-expanded') === 'true';\n  toggle.setAttribute('aria-expanded', String(!open));\n  document.getElementById('filters').hidden = open;\n});\nconst mute = document.getElementById('mute');\nmute.addEventListener('click', () => mute.setAttribute('aria-pressed', String(mute.getAttribute('aria-pressed') !== 'true')));`}
+/>
+
+## APG patterns and keyboard models
+
+The **ARIA Authoring Practices Guide** documents the expected keyboard model for each widget: **tabs** (one Tab stop for the list, arrow keys move between tabs, *roving tabindex*), **menu button**, **disclosure navigation** (usually better than an ARIA "menu" for site navigation, which is almost never `role="menu"`), **combobox**, **listbox**, **tree**, **grid**, **carousel** and **dialog**. Match the pattern exactly: screen-reader users expect it.
+
+<Playground
+  id="p7-tabs"
+  title="APG tabs with roving tabindex"
+  task="Tab into the tab list (one stop), then use ←/→, Home and End. Tab again: focus goes into the panel, not the next tab. Add a fourth tab."
+  html={`<div class="tabs">\n  <div role="tablist" aria-label="Plan details">\n    <button role="tab" id="t1" aria-controls="p1" aria-selected="true">Overview</button>\n    <button role="tab" id="t2" aria-controls="p2" aria-selected="false" tabindex="-1">Pricing</button>\n    <button role="tab" id="t3" aria-controls="p3" aria-selected="false" tabindex="-1">FAQ</button>\n  </div>\n  <div role="tabpanel" id="p1" aria-labelledby="t1" tabindex="0">Everything you need to start.</div>\n  <div role="tabpanel" id="p2" aria-labelledby="t2" tabindex="0" hidden>₹499 a month.</div>\n  <div role="tabpanel" id="p3" aria-labelledby="t3" tabindex="0" hidden>Cancel any time.</div>\n</div>`}
+  css={`[role="tablist"] { display: flex; gap: .25rem; border-bottom: 2px solid #ddd; }\n[role="tab"] { font: inherit; border: 0; background: none; padding: .5rem .9rem; border-bottom: 3px solid transparent; }\n[role="tab"][aria-selected="true"] { border-color: #c2410c; font-weight: 700; }\n[role="tabpanel"] { padding: 1rem 0; }\n:focus-visible { outline: 2px solid #c2410c; outline-offset: 2px; }`}
+  js={`const tabs = [...document.querySelectorAll('[role="tab"]')];\nconst select = (tab) => {\n  for (const t of tabs) {\n    const on = t === tab;\n    t.setAttribute('aria-selected', String(on));\n    t.tabIndex = on ? 0 : -1;\n    document.getElementById(t.getAttribute('aria-controls')).hidden = !on;\n  }\n  tab.focus();\n};\ntabs.forEach((tab, i) => {\n  tab.addEventListener('click', () => select(tab));\n  tab.addEventListener('keydown', (e) => {\n    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];\n    if (next === undefined) return;\n    e.preventDefault();\n    select(tabs[(next + tabs.length) % tabs.length]);\n  });\n});`}
+/>
+
+## Focus and keyboard
+
+Tab order **follows DOM order**, so CSS reordering (`order`, grid placement, `row-reverse`, absolute positioning) can make it diverge from what people see; `reading-flow` **[Frontier]** is the emerging fix. Use `tabindex="0"` (add to the order) and `"-1"` (focusable by script) only; positive values create chaos. Give **`:focus-visible`** a clearly visible style (WCAG 2.4.7, 2.4.11, 2.4.13). Provide **skip links**. Make off-screen or background content **`inert`**. Stop sticky headers hiding the focused element with **`scroll-padding-top`**. And after dynamic changes (deleting a row, closing a dialog), **move focus somewhere sensible**.
+
+<Playground
+  id="p7-focus"
+  title="Visual order vs tab order, skip link and inert"
+  task="Tab through the buttons: the order is 1, 2, 3 even though they appear as 3, 2, 1. Then toggle the drawer: while it's closed, its links are inert and skipped."
+  html={`<a class="skip" href="#content">Skip to content</a>\n<div class="row"><button>1</button><button>2</button><button>3</button></div>\n<button type="button" id="drawer-toggle" aria-expanded="false">Menu</button>\n<nav id="drawer" inert aria-label="Drawer"><a href="#a">Link A</a> <a href="#b">Link B</a></nav>\n<main id="content" tabindex="-1"><p>Main content.</p></main>`}
+  css={`.row { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: .5rem; margin: .5rem 0; }\n.skip { position: absolute; translate: 0 -200%; background: #1d1a19; color: #fff; padding: .5rem; }\n.skip:focus { translate: 0 0; }\n#drawer { padding: .5rem; background: #f4f1ee; opacity: .4; transition: opacity .2s; }\n#drawer:not([inert]) { opacity: 1; }\n:focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }`}
+  js={`const t = document.getElementById('drawer-toggle');\nconst d = document.getElementById('drawer');\nt.addEventListener('click', () => {\n  const open = t.getAttribute('aria-expanded') === 'true';\n  t.setAttribute('aria-expanded', String(!open));\n  d.inert = open;\n  if (!open) d.querySelector('a').focus();\n});`}
+/>
+
+## Hiding content correctly: three intents
+
+| Intent | How | Effect |
+| --- | --- | --- |
+| Hidden from everyone | `hidden` attribute, `display: none` | Not rendered, not in the accessibility tree |
+| Visible only to screen readers | the **visually-hidden** class | In the tree, zero pixels |
+| Visible, but hidden from assistive technology | `aria-hidden="true"` | Rendered, not in the tree (decorative duplicates, icons beside text) |
+
+```css
+.visually-hidden:not(:focus):not(:active) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+```
+
+<Try task="A product card repeats 'Add to cart' eight times. Make each button's name unique without changing the visual design.">
+  `<button>Add to cart<span class="visually-hidden">: Trail Runner 3</span></button>`, or `aria-describedby` pointing at the product title. The visible text stays "Add to cart", the name becomes "Add to cart: Trail Runner 3", and 2.5.3 still passes because the visible text is at the start of the name.
+</Try>
+
+## CSS that affects accessibility
+
+- **Contrast**: 4.5:1 for text, 3:1 for large text, UI component edges and focus indicators; **never colour alone** for meaning.
+- **`prefers-reduced-motion`**, **`prefers-contrast`**, and **`forced-colors: active`** (Windows High Contrast: system colours replace yours, borders reappear, background images vanish; use `forced-color-adjust` sparingly and system colour keywords like `CanvasText`).
+- **Text spacing** (1.4.12): layouts must survive line height 1.5, paragraph spacing 2×, letter spacing 0.12em and word spacing 0.16em.
+- **Reflow at 320 CSS px** (1.4.10) and **resize text to 200%** (1.4.4): `px` font sizes and `vw`-only fluid type fail, so fluid type must include `rem`.
+- Alt text for generated content: `content: "★" / "Rating"`.
+- Content revealed on hover must be **dismissible, hoverable and persistent** (1.4.13).
+
+<Playground
+  id="p7-spacing"
+  title="The WCAG 1.4.12 text-spacing stress test"
+  task="Press Apply text spacing. The fixed-height card clips its text. Fix it by replacing `height` with `min-height`, then test again."
+  html={`<button type="button" id="spacing" aria-pressed="false">Apply text spacing</button>\n<div class="card"><h3>Weekend workshop</h3><p>Two days of hands-on typography, grids and colour, with lunch included.</p></div>`}
+  css={`.card { width: 16rem; height: 8rem; overflow: hidden; border: 2px solid #1d1a19; border-radius: .75rem; padding: .75rem; margin-top: .75rem; }\n.card h3 { margin: 0 0 .25rem; }\n.spaced * { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }\n.spaced p { margin-bottom: 2em !important; }`}
+  js={`const b = document.getElementById('spacing');\nb.addEventListener('click', () => {\n  const on = document.body.classList.toggle('spaced');\n  b.setAttribute('aria-pressed', String(on));\n});`}
+/>
+
+## Target size, pointer cancellation and dragging
+
+**Target size** (2.5.8): at least **24×24 CSS px** (or enough spacing around smaller targets); 44×44 is the comfortable norm. **Pointer cancellation** (2.5.2): actions fire on up-events (`click`), so people can slide off to cancel. **Dragging** (2.5.7) needs a single-pointer alternative (buttons to reorder, a click to place). **Consistent help** (3.2.6): help links in the same place on every page.
+
+<Playground
+  id="p7-targets"
+  title="Growing a target without changing the design"
+  task="The icons are 16px. Make each target at least 24×24 (better 44×44) without making the icons bigger, using padding or an inset pseudo-element."
+  html={`<div class="toolbar">\n  <button aria-label="Bold"><b>B</b></button>\n  <button aria-label="Italic"><i>I</i></button>\n  <button aria-label="Underline"><u>U</u></button>\n</div>`}
+  css={`.toolbar { display: flex; gap: 2px; }\n.toolbar button { font: 14px/1 system-ui; inline-size: 16px; block-size: 16px; padding: 0; border: 0; background: #f4f1ee; }`}
+  solution={{ css: `.toolbar { display: flex; gap: 4px; }\n.toolbar button { font: 14px/1 system-ui; min-inline-size: 44px; min-block-size: 44px; padding: 0; border: 0; border-radius: 8px; background: #f4f1ee; }` }}
+/>
+
+## Dynamic content and live regions
+
+Screen readers don't see changes unless told. A **live region must exist in the DOM before its content changes**: render an empty `role="status"` (polite) or `role="alert"` (assertive, for errors only) on load, then update its text. Status messages (4.1.3) like "3 results" or "Saved" must be announced without moving focus. Use `aria-busy="true"` while a region loads. In single-page apps, **announce route changes** and move focus to the new `<h1>` or `<main>`.
+
+<Playground
+  id="p7-live"
+  title="A status message that is announced, and one that isn't"
+  task="With a screen reader on, press both buttons. Only the pre-existing region is reliably announced. Fix the second one by rendering its region up front."
+  html={`<button type="button" id="save">Save (region exists)</button>\n<p role="status" id="status"></p>\n<button type="button" id="save2">Save (region inserted late)</button>\n<div id="late"></div>`}
+  css={`[role="status"] { min-height: 1.5em; color: #15803d; font-weight: 600; }`}
+  js={`document.getElementById('save').addEventListener('click', () => {\n  const s = document.getElementById('status');\n  s.textContent = '';\n  setTimeout(() => (s.textContent = 'Saved at ' + new Date().toLocaleTimeString()), 50);\n});\ndocument.getElementById('save2').addEventListener('click', () => {\n  document.getElementById('late').innerHTML = '<p role="status">Saved (you may not hear this)</p>';\n});`}
+/>
+
+## Testing your markup
+
+Automated tools (**axe DevTools**, Lighthouse) catch perhaps a third of issues. The rest needs people: the DevTools **accessibility pane** and full-page tree, a **real screen reader** (VoiceOver with the rotor, NVDA in browse mode, TalkBack), a **keyboard-only** pass, **forced-colors emulation** (DevTools → Rendering), and **zoom to 400%**. Automate what you can in CI; every page of this site is checked with axe in its end-to-end test:
+
+```ts
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
+
+test('lesson page has no WCAG A/AA violations', async ({ page }) => {
+  await page.goto('/learn/07-accessible-markup/');
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag22aa']).analyze();
+  expect(results.violations).toEqual([]);
+});
+```
+
+<Try task="Do a five-minute manual audit of any page you built: keyboard only, then a screen reader's heading list and landmark list, then 400% zoom. Write down the first three problems.">
+  Common first finds: an invisible or missing focus ring; a heading list that skips levels or is missing the page's `<h1>`; icon buttons announced as "button" with no name; a sticky header that covers the focused element; and content cut off or requiring horizontal scrolling at 400%.
+</Try>

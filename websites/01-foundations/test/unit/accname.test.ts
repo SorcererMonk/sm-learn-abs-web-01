@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { accessibilityTree, computeName, implicitRole } from '../../src/lib/accname.ts';
+import {
+  accessibilityTree,
+  computeName,
+  contentValueText,
+  implicitRole,
+} from '../../src/lib/accname.ts';
 
 const html = (markup: string): HTMLElement => {
   document.body.innerHTML = markup;
@@ -83,5 +88,15 @@ describe('accessibility tree', () => {
       '<div><h1>Title</h1><p hidden>gone</p><div aria-hidden="true"><button>x</button></div><ul><li>a</li></ul></div>',
     );
     expect(accessibilityTree(body).map((n) => n.role)).toEqual(['heading', 'list', 'listitem']);
+  });
+});
+
+describe('generated content in names', () => {
+  it('reads content strings and prefers the alt-text syntax', () => {
+    expect(contentValueText('"★ "')).toBe('★ ');
+    expect(contentValueText('"★" / "Rating"')).toBe('Rating');
+    expect(contentValueText('"★" / ""')).toBe('');
+    expect(contentValueText('none')).toBe('');
+    expect(contentValueText('counter(item)')).toBe('');
   });
 });

@@ -1,0 +1,116 @@
+---
+/**
+ * viewBox is the camera, width/height the printed photo. Move and zoom the camera, change
+ * the viewport shape and preserveAspectRatio, and watch the same drawing reframe.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import Control from '@learn/shared/components/Control.astro';
+---
+
+<Demo title="viewBox lab: the camera and the photo">
+  <div class="stack" data-viewbox-lab>
+    <div class="controls">
+      <Control id="vb-x" label="viewBox min-x" min={-50} max={100} value={0} />
+      <Control id="vb-y" label="viewBox min-y" min={-50} max={100} value={0} />
+      <Control id="vb-w" label="viewBox width" min={20} max={200} value={100} />
+      <Control id="vb-h" label="viewBox height" min={20} max={200} value={50} />
+      <Control id="vb-vw" label="Viewport width" min={80} max={320} value={300} unit="px" />
+      <Control id="vb-vh" label="Viewport height" min={80} max={320} value={300} unit="px" />
+      <label class="control" for="vb-align">
+        <span>Align</span>
+        <select id="vb-align">
+          <option>xMinYMin</option>
+          <option selected>xMidYMid</option>
+          <option>xMaxYMax</option>
+          <option>none</option>
+        </select>
+      </label>
+      <label class="control" for="vb-fit">
+        <span>meet or slice</span>
+        <select id="vb-fit">
+          <option selected>meet</option>
+          <option>slice</option>
+        </select>
+      </label>
+    </div>
+    <div class="vb-stage">
+      <svg
+        data-vb-svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 100 50"
+        width="300"
+        height="300"
+        role="img"
+        aria-label="A sun over two hills, drawn in a 100 by 50 unit world"
+      >
+        <defs>
+          <pattern id="vb-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+            <path d="M 10 0 L 0 0 0 10" fill="none" class="vb-gridline"></path>
+          </pattern>
+        </defs>
+        <rect x="-100" y="-100" width="400" height="300" fill="url(#vb-grid)"></rect>
+        <path d="M0 50 Q 25 20 50 50 Q 75 28 100 50 Z" class="vb-hill"></path>
+        <circle cx="75" cy="15" r="8" class="vb-sun"></circle>
+        <rect x="0" y="0" width="100" height="50" class="vb-world"></rect>
+      </svg>
+    </div>
+    <p class="result-line" aria-live="polite" data-vb-code></p>
+  </div>
+  <p slot="note">
+    The dashed rectangle is the drawing's world (0 0 100 50). Slice fills the viewport and crops;
+    meet fits the whole camera view and letterboxes; none stretches.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '@learn/shared/client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-viewbox-lab]').forEach((root) => {
+    const svg = need<SVGSVGElement>(root, '[data-vb-svg]');
+    const code = need<HTMLElement>(root, '[data-vb-code]');
+    bindControls(root, () => {
+      const viewBox = ['#vb-x', '#vb-y', '#vb-w', '#vb-h'].map((s) => num(root, s)).join(' ');
+      const align = need<HTMLSelectElement>(root, '#vb-align').value;
+      const fit = need<HTMLSelectElement>(root, '#vb-fit').value;
+      const par = align === 'none' ? 'none' : `${align} ${fit}`;
+      const width = num(root, '#vb-vw');
+      const height = num(root, '#vb-vh');
+      svg.setAttribute('viewBox', viewBox);
+      svg.setAttribute('preserveAspectRatio', par);
+      svg.setAttribute('width', String(width));
+      svg.setAttribute('height', String(height));
+      code.textContent = `<svg viewBox="${viewBox}" width="${width}" height="${height}" preserveAspectRatio="${par}">`;
+    });
+  });
+</script>
+
+<style>
+  .vb-stage {
+    display: grid;
+    place-items: center;
+    min-block-size: 22rem;
+    background: var(--color-surface-2);
+    border-radius: var(--radius-md);
+  }
+  svg {
+    max-inline-size: 100%;
+    outline: 2px solid var(--color-text);
+    background: var(--color-surface);
+  }
+  .vb-gridline {
+    stroke: var(--color-border);
+    stroke-width: 0.3;
+  }
+  .vb-hill {
+    fill: var(--color-accent);
+  }
+  .vb-sun {
+    fill: var(--color-warning);
+  }
+  .vb-world {
+    fill: none;
+    stroke: var(--color-text);
+    stroke-width: 0.6;
+    stroke-dasharray: 2 1.5;
+  }
+</style>

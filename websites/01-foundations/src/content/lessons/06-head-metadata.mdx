@@ -1,0 +1,226 @@
+---
+title: The Head, Metadata & Discoverability Markup
+source: L1-coding-html-css.md
+part: 6
+tier: Core
+summary: The minimal correct head and its order, titles and descriptions as copy, the link and meta vocabularies, social previews, JSON-LD, speculation rules, the web app manifest, lang and dir, and head management in frameworks.
+anchors:
+  - "The `<head>` is the page's contract with machines: browsers (charset, viewport, colour scheme, hints), crawlers (title, canonical, structured data), and social platforms (Open Graph). Humans never see it, but every one of those machines acts on it before a pixel renders."
+checks:
+  - q: "Write the complete `<head>` for a blog post from memory, and justify the order."
+    a: "`<meta charset=\"utf-8\">` first (it must be in the first 1024 bytes, before any text the parser decodes); `<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">` (layout depends on it); `<title>`; `<meta name=\"description\">`; `<meta name=\"color-scheme\" content=\"light dark\">` and `theme-color`; early hints (`preconnect`, font `preload` with `crossorigin`); `<link rel=\"stylesheet\">`; deferred or module scripts; then `canonical`, icons, manifest, `alternate` feeds, Open Graph and Twitter tags, and the JSON-LD `BlogPosting`. Critical things the browser acts on during parsing come first; things only machines read later come last."
+  - q: "Explain what `<meta name=\"color-scheme\" content=\"light dark\">` changes before any CSS loads."
+    a: "It tells the browser the page supports both schemes, so in dark mode it paints a dark default canvas (no white flash while CSS downloads) and renders form controls, scrollbars and the default text colour in their dark variants. The CSS property `color-scheme` does the same once CSS has loaded; the meta tag makes it happen at first paint."
+  - q: "Write JSON-LD for a product with price, availability, and reviews, and validate it."
+    a: "`{\"@context\":\"https://schema.org\",\"@type\":\"Product\",\"name\":\"Trail Runner 3\",\"image\":\"https://shop.example/tr3.jpg\",\"description\":\"…\",\"sku\":\"TR3-42\",\"brand\":{\"@type\":\"Brand\",\"name\":\"Summit\"},\"offers\":{\"@type\":\"Offer\",\"price\":\"7499\",\"priceCurrency\":\"INR\",\"availability\":\"https://schema.org/InStock\",\"url\":\"https://shop.example/tr3\"},\"aggregateRating\":{\"@type\":\"AggregateRating\",\"ratingValue\":\"4.6\",\"reviewCount\":\"128\"}}`, inside `<script type=\"application/ld+json\">`. Validate with the Rich Results Test and the Schema Markup Validator, and make sure the same price and rating are visible on the page."
+  - q: "Explain why `user-scalable=no` is an accessibility failure."
+    a: "It stops people from pinch-zooming, and many low-vision users rely on zoom to read. WCAG 1.4.4 requires text to be resizable to 200% and 1.4.10 requires reflow; blocking zoom fails both (and most mobile browsers now ignore it, which is the platform agreeing)."
+build: "A head-and-metadata generator for a static site: per-page titles, descriptions, canonicals, OG images rendered from an HTML template, JSON-LD per content type, feeds, sitemap, and a test that fails the build when any page is missing required metadata."
+steps:
+  - "Define a metadata object per page (title, description, canonical path, type, image) in frontmatter or a data file."
+  - "Write a `<Head>` component that renders the full head in the right order from that object."
+  - "Render OG images from an HTML/CSS template at build time (Satori, or a headless browser screenshot)."
+  - "Emit JSON-LD per content type (`BlogPosting`, `Product`, `BreadcrumbList`)."
+  - "Generate `sitemap.xml` and an Atom feed."
+  - "Write a test that parses every built page and fails if title, description, canonical or `og:image` is missing (the head audit on this page is a starting point)."
+taste: "Write titles and descriptions like headlines, because they are what people read in search results, tabs, bookmarks, and share cards. Metadata is copywriting with a strict character limit."
+quiz:
+  - q: "Where must `<meta charset>` appear?"
+    options: ["Anywhere in the head", "Within the first 1024 bytes of the document, ideally first in the head", "In an HTTP header only"]
+    answer: 1
+    why: "The browser pre-scans the first 1024 bytes to find the encoding; later declarations can force a re-parse."
+  - q: "Why do font preloads need `crossorigin`?"
+    options: ["Fonts are always cross-origin", "Fonts are fetched in CORS mode, so a non-CORS preload doesn't match and the font downloads twice", "It's optional"]
+    answer: 1
+    why: "The preload's request mode must match the real request's, which for fonts is always CORS (even same-origin)."
+  - q: "What is the honesty rule for structured data?"
+    options: ["It must validate", "It must describe content that is visible on the page", "It must include reviews"]
+    answer: 1
+    why: "Marking up content users can't see (fake ratings, hidden FAQs) violates search guidelines and can earn manual penalties."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import HeadAudit from '../../components/demos/HeadAudit.astro';
+
+## The minimal correct `<head>`, in order
+
+1. **`<meta charset="utf-8">`**, first, within the first 1024 bytes.
+2. **`<meta name="viewport" content="width=device-width, initial-scale=1">`**. Never `maximum-scale=1` or `user-scalable=no`: they break zoom and WCAG. Add `viewport-fit=cover` to draw under notches, and `interactive-widget=resizes-content` so on-screen keyboards resize the layout **[Frontier]**.
+3. **`<title>`**.
+4. Critical resource hints (preconnect, preload), then styles, then scripts (`defer` or `type="module"`).
+
+Everything else (description, canonical, icons, social tags, JSON-LD) follows. The order matters because the browser acts on the first items while it's still parsing.
+
+<HeadAudit />
+
+## Titles and descriptions are user-facing copy
+
+`<title>` appears in tabs, bookmarks, history, search results and share cards, and **screen readers announce it on every navigation**. Make it unique per page, **front-load the distinctive part** ("Cycle lanes approved · The Daily Planet", not "The Daily Planet · News · Cycle lanes approved"), and keep it under ~60 characters. `<meta name="description">` is the snippet under the title in search results (~150–160 characters): write it as a pitch for this page, not a list of keywords.
+
+<Try task="Rewrite these titles: 'Home', 'Products | ACME Corp | Best Quality Products Online', 'Untitled Document', and 'Blog - Post - 2026 - 09 - How we cut our build time in half'.">
+  "ACME · Hand-thrown ceramics from Jaipur" (home, what makes it distinct); "Serving bowls · ACME" (a category page names the category first); a real title for the document, e.g. "Q3 hiring plan"; "How we cut our build time in half · ACME Engineering". Each is unique, starts with the words someone scanning tabs needs, and ends with the brand.
+</Try>
+
+## The `<link rel>` vocabulary
+
+| `rel` | What it does |
+| --- | --- |
+| `stylesheet` | Render-blocking CSS |
+| `icon`, `apple-touch-icon`, `manifest` | Icons and the web app manifest (Part 4) |
+| **`canonical`** | The one URL that represents this content (deduplicates `?utm=` and `/index.html` variants) |
+| `alternate` | Translations (`hreflang`), feeds (`type="application/atom+xml"`) |
+| **`preload`** | Fetch a late-discovered critical resource now; needs the right `as` (and `crossorigin` for fonts) |
+| `preconnect`, `dns-prefetch` | Warm up a connection to an origin you'll need soon |
+| `modulepreload` | Fetch and parse an ES module ahead of time |
+| `prefetch` | Low-priority fetch for a likely *next* navigation |
+| `me`, `license`, `search` | Identity verification (IndieWeb, Mastodon), licensing, OpenSearch |
+
+```html
+<link rel="preconnect" href="https://cdn.example.com" crossorigin>
+<link rel="preload" href="/fonts/fraunces.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles/site.css">
+<link rel="canonical" href="https://planet.example/news/cycle-lanes">
+<link rel="alternate" hreflang="hi" href="https://planet.example/hi/news/cycle-lanes">
+<link rel="alternate" type="application/atom+xml" title="Daily Planet news" href="/feed.xml">
+<link rel="me" href="https://mastodon.social/@dailyplanet">
+```
+
+<Try task="Your hero image is set as a CSS background, so the preload scanner can't see it. Write the one line that fixes discovery, and say when you'd use preconnect instead.">
+  `<link rel="preload" href="/img/hero.avif" as="image" type="image/avif" fetchpriority="high">` (use `imagesrcset`/`imagesizes` if it's responsive). Better still: make it an `<img>` so the scanner finds it. Use `preconnect` when you know the *origin* but not the exact URL yet (a font CDN, an image CDN), and only for one or two critical origins.
+</Try>
+
+## The `<meta>` vocabulary
+
+- **`robots`**: `noindex`, `nofollow`, `max-image-preview:large`.
+- **`color-scheme`**: `light dark` so the browser paints the right default canvas, text colour and form controls before CSS loads.
+- **`theme-color`**, with `media="(prefers-color-scheme: dark)"` for a second value: colours browser UI on mobile.
+- `referrer`, `format-detection` (`telephone=no` stops iOS turning numbers into links), `generator` (don't: it advertises your stack), and `http-equiv` (a CSP in a meta tag can't use `frame-ancestors` or reporting; prefer real headers).
+
+<Playground
+  id="p6-scheme"
+  title="color-scheme changes native controls, canvas and scrollbars"
+  task="Change `color-scheme` to `light dark` and switch your OS to dark mode. Then set `accent-color` too."
+  html={`<main>\n  <p>Native parts follow color-scheme:</p>\n  <input type="text" value="A text field">\n  <select><option>A select</option></select>\n  <label><input type="checkbox" checked> Checkbox</label>\n  <textarea rows="3">Scroll me\n\n\n\n\nend</textarea>\n</main>`}
+  css={`:root { color-scheme: dark; }\nhtml { background: Canvas; color: CanvasText; }\nmain { display: grid; gap: .6rem; max-width: 18rem; }`}
+/>
+
+## Social previews: Open Graph and Twitter cards
+
+Share cards come from **Open Graph**: `og:title`, `og:description`, **`og:image`** (1200×630, absolute URL) with **`og:image:alt`**, `og:url`, `og:type` and `og:site_name`, plus `twitter:card="summary_large_image"`. Generate them **per route**, and render the image from HTML/CSS at build time (Satori, or a headless browser screenshot, Part 23). Social scrapers don't run JavaScript, so this must be server-rendered.
+
+```html
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="The Daily Planet">
+<meta property="og:title" content="Cycle lanes approved">
+<meta property="og:description" content="14 km of protected lanes by 2027. Here's what changes on your street.">
+<meta property="og:url" content="https://planet.example/news/cycle-lanes">
+<meta property="og:image" content="https://planet.example/og/cycle-lanes.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Map of the city with the new cycle lanes in orange">
+<meta name="twitter:card" content="summary_large_image">
+```
+
+<Try task="Paste the tags above into the head audit at the top of this page (inside its head), and fix every remaining warning. What does the share-card preview show before and after?">
+  Before: the card falls back to the `<title>` and a hatched "no image" area. After adding `og:title`, `og:description`, `og:image`, `og:image:alt` and `og:url`, the preview shows your headline, description and image, and the Open Graph row turns OK.
+</Try>
+
+## Structured data with JSON-LD
+
+`<script type="application/ld+json">` holds **schema.org** data: `Article`/`BlogPosting`, `Product` (with `Offer` and `AggregateRating`), `BreadcrumbList`, `Organization`, `Person`, `Event`, `FAQPage`, `Recipe`. Search engines use it for rich results. **The honesty rule**: markup must match visible content. Validate with the Rich Results Test and the Schema Markup Validator.
+
+<Playground
+  id="p6-jsonld"
+  title="JSON-LD to a rich-result preview"
+  task="Add `aggregateRating` (ratingValue 4.6, reviewCount 128) and change availability to OutOfStock. Break the JSON on purpose and read the console."
+  html={`<script type="application/ld+json" id="data">\n{\n  "@context": "https://schema.org",\n  "@type": "Product",\n  "name": "Trail Runner 3",\n  "description": "A light trail shoe with a rock plate.",\n  "offers": {\n    "@type": "Offer",\n    "price": "7499",\n    "priceCurrency": "INR",\n    "availability": "https://schema.org/InStock"\n  }\n}\n</script>\n<div class="result" id="result"></div>`}
+  css={`.result { font-family: system-ui; border: 1px solid #ddd; border-radius: .75rem; padding: .75rem 1rem; max-width: 28rem; }\n.result h3 { color: #1a0dab; margin: 0 0 .25rem; font-weight: 400; }\n.meta { color: #4d5156; font-size: .9rem; }`}
+  js={`const out = document.getElementById('result');\ntry {\n  const d = JSON.parse(document.getElementById('data').textContent);\n  const o = d.offers || {};\n  const stock = String(o.availability || '').split('/').pop();\n  const r = d.aggregateRating;\n  out.innerHTML = '';\n  const h = document.createElement('h3'); h.textContent = d.name + ' · Shop';\n  const p = document.createElement('p'); p.textContent = d.description;\n  const m = document.createElement('p'); m.className = 'meta';\n  m.textContent = (r ? '★ ' + r.ratingValue + ' (' + r.reviewCount + ') · ' : '') + o.priceCurrency + ' ' + o.price + ' · ' + stock;\n  out.append(h, p, m);\n  console.log('Valid JSON-LD:', d['@type']);\n} catch (error) {\n  console.error('JSON-LD is not valid JSON:', error.message);\n}`}
+/>
+
+## Speculation rules
+
+`<script type="speculationrules">` tells the browser which navigations to **prefetch** or **prerender** ahead of time, by URL list or document rules with `eagerness` (`immediate`, `eager`, `moderate` on hover, `conservative` on pointer-down) **[Frontier]**. Prerendered pages run their JavaScript before the user arrives, so analytics and side effects must wait for `document.prerendering` to become false.
+
+```html
+<script type="speculationrules">
+{
+  "prerender": [{
+    "where": { "and": [{ "href_matches": "/learn/*" }, { "not": { "selector_matches": "[rel~=nofollow]" } }] },
+    "eagerness": "moderate"
+  }]
+}
+</script>
+<script>
+  if (document.prerendering) {
+    document.addEventListener('prerenderingchange', () => sendPageView(), { once: true });
+  } else {
+    sendPageView();
+  }
+</script>
+```
+
+<Try task="Which links on a store should you never prerender? Name three and why.">
+  "Add to cart", "Log out" and "Delete" (anything with side effects on GET, which is itself a bug); links to huge pages that would waste data; and third-party links you can't control. Also avoid prerendering pages that start expensive work (video, websocket connections) before the user commits.
+</Try>
+
+## The web app manifest
+
+A JSON file linked with `<link rel="manifest">`: `name`, `short_name`, **`icons`** (192 and 512, plus a **maskable** one), `display` (`standalone`, `minimal-ui`, `browser`), `theme_color`, `background_color` (the splash screen), `start_url`, `scope`, `id` and `shortcuts`. Installability details live in `L18-cs-web-engineering.md` Part 13.
+
+```json
+{
+  "name": "The Daily Planet",
+  "short_name": "Planet",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "display": "standalone",
+  "background_color": "#fbf8f5",
+  "theme_color": "#c2410c",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [{ "name": "Today's paper", "url": "/today" }]
+}
+```
+
+<Try task="Open DevTools → Application → Manifest on any installable site. Which fields are missing or produce warnings?">
+  Common findings: no maskable icon (Android shows a white circle around the logo), `short_name` too long for the home screen, missing `id` (the app's identity changes if `start_url` changes), and `theme_color` not matching the `theme-color` meta.
+</Try>
+
+## `lang` and `dir`
+
+`<html lang="en">` sets the language for screen-reader **pronunciation**, CSS **hyphenation** (`hyphens: auto` only works with a language), **font selection** for shared code points (Han characters in Japanese vs Chinese fonts), spell-checking, quotes and translation tools. Mark inline foreign phrases too: `<i lang="fr">déjà vu</i>`. **`dir="rtl"`** sets right-to-left documents (Arabic, Hebrew, Urdu), and `dir="auto"` handles user content of unknown direction.
+
+<Playground
+  id="p6-lang"
+  title="lang changes hyphenation and quotes; dir flips layout"
+  task="Remove `lang` from the first paragraph and watch hyphenation stop. Change the German quote's `lang` to `fr`."
+  html={`<p lang="en" class="narrow">Internationalisation considerations necessitate comprehensive hyphenation.</p>\n<p lang="de">Sie sagte <q>Guten Morgen</q>.</p>\n<p lang="fr">Elle a dit <q>Bonjour</q>.</p>\n<p dir="rtl" lang="ar">مرحبا بالعالم <bdi>WebKit</bdi> هنا.</p>`}
+  css={`.narrow { inline-size: 9rem; hyphens: auto; border: 1px dashed #aaa; padding: .25rem; }`}
+/>
+
+## Head management in frameworks
+
+Every route needs its own title, description, canonical and social tags, rendered **on the server**, because social scrapers and some crawlers don't run JavaScript. React 19 **hoists** `<title>`, `<meta>` and `<link>` rendered anywhere in the tree into the head; Next.js has `metadata` exports; Astro and other SSG tools render the head per page from frontmatter (this site does exactly that).
+
+```tsx
+// React 19: rendered inside the component, hoisted into <head>
+export function ArticlePage({ article }: { article: Article }) {
+  return (
+    <article>
+      <title>{`${article.title} · The Daily Planet`}</title>
+      <meta name="description" content={article.summary} />
+      <link rel="canonical" href={`https://planet.example/news/${article.slug}`} />
+      <h1>{article.title}</h1>
+    </article>
+  );
+}
+```
+
+<Try task="View the source (not the DevTools DOM) of a single-page app you use. Is the title in the HTML the server sent? What does a share card for a deep link show?">
+  If the served HTML has a generic `<title>` and no `og:` tags, every deep link shares as the home page and crawlers that don't execute JavaScript see nothing. The fix is server rendering or prerendering the head for each route.
+</Try>

@@ -1,0 +1,144 @@
+---
+/**
+ * "Which file will the browser download?" Evaluate `sizes` at a viewport width, multiply by
+ * device pixel ratio, and pick the smallest `w` candidate that covers it (lib/srcset.ts).
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import Control from '@learn/shared/components/Control.astro';
+
+const srcset =
+  'hero-480.avif 480w, hero-800.avif 800w, hero-1200.avif 1200w, hero-1600.avif 1600w, hero-2400.avif 2400w';
+const sizes = '(min-width: 72rem) 36rem, (min-width: 40rem) 50vw, 100vw';
+---
+
+<Demo title="Responsive image picker: what does the browser download?">
+  <div class="stack" data-srcset-lab>
+    <label class="control" for="rip-srcset">
+      <span>
+        <code>srcset</code>
+      </span>
+      <textarea id="rip-srcset" rows="2" spellcheck="false">{srcset}</textarea>
+    </label>
+    <label class="control" for="rip-sizes">
+      <span>
+        <code>sizes</code> (the layout width you promise)
+      </span>
+      <input id="rip-sizes" type="text" value={sizes} spellcheck="false" />
+    </label>
+    <div class="controls">
+      <Control
+        id="rip-vw"
+        label="Viewport width"
+        min={320}
+        max={1920}
+        step={10}
+        value={390}
+        unit="px"
+      />
+      <label class="control" for="rip-dpr">
+        <span>Device pixel ratio</span>
+        <select id="rip-dpr">
+          <option value="1">1× (desktop monitor)</option>
+          <option value="2">2× (laptop, tablet)</option>
+          <option value="3" selected>
+            3× (phone)
+          </option>
+        </select>
+      </label>
+    </div>
+    <div class="rip-viewport" aria-hidden="true">
+      <div class="rip-slot" data-rip-slot></div>
+    </div>
+    <p class="result-line" aria-live="polite" data-rip-result></p>
+    <ol class="rip-candidates" role="list" data-rip-list></ol>
+  </div>
+  <p slot="note">
+    The browser decides before CSS has loaded, so <code>sizes</code> must describe the real layout.
+    Browsers may also pick a smaller file on slow connections or reuse a larger cached one; this
+    models a cold, fast load.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '@learn/shared/client/controls.ts';
+  import { chooseCandidate, parseSrcset } from '../../lib/srcset.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-srcset-lab]').forEach((root) => {
+    const srcset = need<HTMLTextAreaElement>(root, '#rip-srcset');
+    const sizes = need<HTMLInputElement>(root, '#rip-sizes');
+    const slotBox = need<HTMLElement>(root, '[data-rip-slot]');
+    const result = need<HTMLElement>(root, '[data-rip-result]');
+    const list = need<HTMLOListElement>(root, '[data-rip-list]');
+    bindControls(root, () => {
+      const vw = num(root, '#rip-vw');
+      const dpr = num(root, '#rip-dpr');
+      const choice = chooseCandidate(srcset.value, sizes.value, vw, dpr);
+      if (!choice) {
+        result.textContent = 'No valid candidates in srcset.';
+        list.replaceChildren();
+        return;
+      }
+      slotBox.style.inlineSize = `${Math.min(100, (choice.slot / vw) * 100)}%`;
+      result.textContent = `Slot ${Math.round(choice.slot)} CSS px × ${dpr} = ${Math.round(choice.needed)} device px needed → ${choice.candidate.url}`;
+      const max = Math.max(...parseSrcset(srcset.value).map((c) => c.width ?? 0), choice.needed);
+      list.replaceChildren(
+        ...parseSrcset(srcset.value).map((c) => {
+          const li = document.createElement('li');
+          const chosen = c.url === choice.candidate.url;
+          li.dataset.chosen = String(chosen);
+          li.style.setProperty('--w', `${((c.width ?? 0) / max) * 100}%`);
+          li.style.setProperty('--need', `${(choice.needed / max) * 100}%`);
+          li.textContent = `${c.url}${c.width ? ` · ${c.width}w` : ` · ${c.density ?? 1}x`}${chosen ? ' ← downloaded' : ''}`;
+          return li;
+        }),
+      );
+    });
+  });
+</script>
+
+<style>
+  .rip-viewport {
+    border: 2px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    padding: var(--space-2xs);
+    background: var(--color-surface-2);
+  }
+  .rip-slot {
+    block-size: 3rem;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-strong));
+    transition: inline-size var(--duration-base) var(--ease-standard);
+  }
+  .rip-candidates {
+    display: grid;
+    gap: var(--space-3xs);
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+  }
+  .rip-candidates :global(li) {
+    position: relative;
+    padding: 0.2rem 0.5rem;
+    background: linear-gradient(
+      to right,
+      var(--color-accent-subtle) var(--w),
+      transparent var(--w)
+    );
+    border-radius: var(--radius-sm);
+  }
+  .rip-candidates :global(li)::after {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: var(--need);
+    border-inline-start: 2px dashed var(--color-danger);
+  }
+  .rip-candidates :global(li[data-chosen='true']) {
+    font-weight: 700;
+    outline: 2px solid var(--color-accent-strong);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rip-slot {
+      transition: none;
+    }
+  }
+</style>

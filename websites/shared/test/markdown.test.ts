@@ -117,4 +117,9 @@ describe('quiz and playground renderers', () => {
     expect(out).not.toContain('allow-same-origin');
     expect(composeDocument('p', { html: '<p>hi</p>', css: 'p{}' })).toContain('<p>hi</p>');
   });
+  it('adds allow-forms only when asked', () => {
+    const out = renderPlayground({ id: 'p', title: 'T', html: '<form></form>', forms: true });
+    expect(out).toContain('sandbox="allow-scripts allow-forms"');
+    expect(out).not.toContain('allow-same-origin');
+  });
 });

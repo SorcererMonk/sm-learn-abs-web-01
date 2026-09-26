@@ -126,9 +126,23 @@ export function isHidden(el: Element): boolean {
   return style.display === 'none' || style.visibility === 'hidden';
 }
 
-/** Text from content: text nodes plus the names of embedded content, skipping hidden subtrees. */
+/**
+ * The text a ::before/::after `content` value contributes to a name. Strings count, and the
+ * alt-text syntax `content: "★" / "Rating"` contributes only its alternative ("Rating").
+ */
+export function contentValueText(value: string): string {
+  const m = /^"((?:[^"\\]|\\.)*)"(?:\s*\/\s*"((?:[^"\\]|\\.)*)")?$/.exec(value.trim());
+  return m ? (m[2] ?? m[1] ?? '') : '';
+}
+
+function pseudoText(el: Element, pseudo: '::before' | '::after'): string {
+  const view = el.ownerDocument.defaultView;
+  return view ? contentValueText(view.getComputedStyle(el, pseudo).content ?? '') : '';
+}
+
+/** Text from content: pseudo-element text, text nodes and the names of embedded content, skipping hidden subtrees. */
 export function textFromContent(el: Element): string {
-  const parts: string[] = [];
+  const parts: string[] = [pseudoText(el, '::before')];
   el.childNodes.forEach((node) => {
     if (node.nodeType === 3) parts.push(node.textContent ?? '');
     else if (node.nodeType === 1) {
@@ -140,6 +154,7 @@ export function textFromContent(el: Element): string {
       else parts.push(child.getAttribute('aria-label') ?? textFromContent(child));
     }
   });
+  parts.push(pseudoText(el, '::after'));
   return clean(parts.join(' '));
 }
 

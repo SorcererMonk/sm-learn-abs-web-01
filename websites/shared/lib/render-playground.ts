@@ -1,6 +1,6 @@
 /**
- * Live HTML/CSS/JS playground markup. The preview is a sandboxed iframe (allow-scripts only,
- * never allow-same-origin), rendered with srcdoc at build time so it works without JavaScript.
+ * Live HTML/CSS/JS playground markup. The preview is a sandboxed iframe (allow-scripts, plus
+ * allow-forms only when a lesson needs real form submission; never allow-same-origin), rendered with srcdoc at build time so it works without JavaScript.
  * client/playground.ts adds tabs, live re-rendering, reset/solution and a console bridge.
  */
 import { escapeHtml } from './escape.ts';
@@ -18,6 +18,8 @@ export interface PlaygroundProps extends PlaygroundFiles {
   task?: string;
   solution?: PlaygroundFiles;
   height?: string;
+  /** allow form submission inside the preview (validation bubbles, method="dialog") */
+  forms?: boolean;
 }
 
 /** Split so the literal never closes an inline <script> if this module is ever inlined. */
@@ -34,7 +36,7 @@ export function composeDocument(id: string, files: PlaygroundFiles): string {
 }
 
 export function renderPlayground(props: PlaygroundProps): string {
-  const { id, title, task, solution, height } = props;
+  const { id, title, task, solution, height, forms } = props;
   const langs = (['html', 'css', 'js'] as const).filter((lang) => props[lang] !== undefined);
   const tabs = langs
     .map(
@@ -56,7 +58,7 @@ ${task ? `<div class="demo__body"><p><strong>Task:</strong> ${renderInline(task)
 <div class="playground">
 <div class="playground__editor"><div class="tabs" role="tablist" aria-label="Source files">${tabs}</div>${panels}</div>
 <div class="playground__preview"><div class="playground__bar"><span class="muted">Live preview (sandboxed)</span><span class="cluster"><button type="button" class="btn btn--small btn--ghost" data-pg-reset hidden>Reset</button>${solution ? '<button type="button" class="btn btn--small btn--ghost" data-pg-solution hidden>Show solution</button>' : ''}</span></div>
-<iframe title="Preview: ${escapeHtml(title)}" sandbox="allow-scripts" loading="lazy" srcdoc="${escapeHtml(doc)}"></iframe>
+<iframe title="Preview: ${escapeHtml(title)}" sandbox="allow-scripts${forms ? ' allow-forms' : ''}" loading="lazy" srcdoc="${escapeHtml(doc)}"></iframe>
 <pre class="playground__console" aria-live="polite" aria-label="Console output"></pre></div>
 </div></div>`;
 }

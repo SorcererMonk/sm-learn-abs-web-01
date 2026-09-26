@@ -1,0 +1,239 @@
+---
+title: Forms & Native Interactive Elements
+source: L1-coding-html-css.md
+part: 3
+tier: Core → Deep
+summary: The form as a protocol, every input type, labels and groups, autofill, constraint validation, accessible error patterns, the native components (details, dialog, popover, invokers, customisable select), styling controls and file uploads.
+anchors:
+  - "A form is an API that browsers, password managers, autofill, and assistive technology already know how to use. Every custom control you build instead has to re-earn that trust one behaviour at a time."
+  - "The platform now ships dialogs, popovers, accordions, and (soon everywhere) selects. Your job has shifted from building them to styling them."
+checks:
+  - q: "Build a checkout address form with correct types, `autocomplete` tokens, labels, grouping, and validation. Complete it using only browser autofill and a keyboard."
+    a: "Group the shipping address in `<fieldset><legend>Shipping address</legend>`. Use `<label for>` on every field, `autocomplete=\"shipping name\"`, `shipping street-address` (a `<textarea>`), `shipping address-level2` (city), `shipping postal-code` with `inputmode=\"numeric\"` only where postcodes are numeric, `shipping country` on a `<select>`, `email` with `type=\"email\"` and `tel` with `type=\"tel\"`. Mark required fields with `required` and the word \"required\" in the label, style errors with `:user-invalid`. Then tab from the first field, accept the autofill suggestion, and submit with Enter: every field should fill and the submit should work with no mouse."
+  - q: "Explain `:invalid` vs `:user-invalid` and the UX problem the latter solves."
+    a: "`:invalid` matches as soon as a field's value fails its constraints, including an empty `required` field on page load, so forms render red before anyone has typed. `:user-invalid` matches only after the user has interacted with the field (changed and blurred it, or tried to submit), so errors appear when they are useful rather than as an accusation."
+  - q: "Explain what `showModal()` does to the rest of the page that `show()` doesn't, and what the top layer is."
+    a: "`showModal()` puts the dialog in the top layer (a layer above every z-index, outside stacking contexts, with its own `::backdrop`), makes everything outside the dialog inert (not clickable, not focusable, hidden from assistive technology), moves focus into the dialog, and lets Escape close it. `show()` opens it in normal flow, non-modal: the page stays interactive and no backdrop or inertness is applied."
+  - q: "Explain why `type=\"number\"` is wrong for a credit-card field and what to use instead."
+    a: "A card number is an identifier, not a quantity: `type=\"number\"` adds spinners, scroll-wheel increments, may drop leading zeros, rejects spaces, and can format as `4.1e15`. Use `type=\"text\"` with `inputmode=\"numeric\"` (numeric keyboard), `autocomplete=\"cc-number\"` (autofill) and a permissive `pattern` like `[0-9 ]{12,23}`; strip spaces on the server."
+build: "A \"native components gallery\": an exclusive accordion, a modal dialog with a form that returns a value, a popover menu anchored to its button, a tooltip with `interestfor` (or a fallback), a customised `<select>` with a progressive-enhancement fallback, and a multi-step form with an error summary. Zero lines of JavaScript where the platform allows it, and a note on each place where it didn't."
+steps:
+  - "Exclusive accordion from `<details name>`: no JavaScript."
+  - "Modal `<dialog>` opened with `commandfor`/`command` (with a one-line script fallback), containing a `<form method=\"dialog\">` whose buttons return values."
+  - "Popover menu with `popovertarget`, positioned with anchor positioning and a `position-try` fallback."
+  - "Tooltip with `interestfor`, falling back to a `popover=\"hint\"` shown on focus and hover."
+  - "A `<select>` with `appearance: base-select` inside `@supports`, rich option content, and an unchanged native select elsewhere."
+  - "A multi-step form (one question per page) with an error summary that moves focus, working without JavaScript."
+  - "Write down each place where you needed JavaScript and why."
+taste: "Reach for the native element first, style it second, and replace it last. The platform's version gets keyboard support, accessibility, mobile behaviour, and future improvements for free, and yours never will."
+quiz:
+  - q: "What does an unchecked checkbox send when its form is submitted?"
+    options: ["`name=off`", "`name=` (empty)", "Nothing at all"]
+    answer: 2
+    why: "Only successful controls are submitted. An unchecked checkbox is not successful, so the server must treat a missing name as false."
+  - q: "What is the default `type` of a `<button>` inside a `<form>`?"
+    options: ["`button`", "`submit`", "`reset`"]
+    answer: 1
+    why: "Buttons default to submit, the classic bug where a \"Show password\" button submits the form. Always write `type=\"button\"` for non-submitting buttons."
+  - q: "Which `autocomplete` token helps password managers suggest a strong password on sign-up?"
+    options: ["`current-password`", "`new-password`", "`password`"]
+    answer: 1
+    why: "`new-password` tells the manager to generate and save a password; `current-password` tells it to fill an existing one."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import Callout from '@learn/shared/components/Callout.astro';
+
+## The form as a protocol
+
+A `<form>` is a declarative HTTP request. `action` is the URL, `method` the verb and `enctype` the body format. **GET** puts the fields in the query string: idempotent, bookmarkable, right for search and filters. **POST** puts them in the body and is right for anything that changes state. `application/x-www-form-urlencoded` is the default body; `multipart/form-data` is required for files; `text/plain` is for debugging only.
+
+What gets sent is precise. Only **successful controls with a `name`** are submitted. Disabled controls are skipped (use `readonly` if you need the value sent), unchecked checkboxes and radios send nothing, and the **submitter button's** own `name=value` is included, so two buttons can mean two actions. A button can override the form with `formaction`, `formmethod`, `formenctype` and `formnovalidate`. A control outside the element joins a form with `form="form-id"`. All of this works with **no JavaScript at all**.
+
+<Playground
+  id="p3-protocol"
+  forms
+  title="See exactly what a form submits"
+  task="Check the newsletter box, then press each button. Notice the disabled field never appears, the unchecked box is absent, and the submitter's name/value decides the action. Then add a field outside the form joined with `form=`."
+  html={`<form id="order" action="/orders" method="post">\n  <label>Name <input name="name" value="Asha"></label>\n  <label>Coupon <input name="coupon" value="LOCKED" disabled></label>\n  <label><input type="checkbox" name="newsletter" value="yes"> Newsletter</label>\n  <button name="intent" value="save">Save draft</button>\n  <button name="intent" value="publish">Publish</button>\n  <button formmethod="get" formaction="/preview" name="intent" value="preview">Preview (GET)</button>\n</form>\n<pre><output form="order" id="wire">Press a button to see the request.</output></pre>`}
+  css={`form { display: grid; gap: .5rem; max-width: 22rem; }\npre { background: #f4f1ee; padding: .75rem; border-radius: .5rem; white-space: pre-wrap; }`}
+  js={`const form = document.getElementById('order');\nconst wire = document.getElementById('wire');\nform.addEventListener('submit', (event) => {\n  event.preventDefault();\n  const submitter = event.submitter;\n  const data = new FormData(form, submitter);\n  const method = (submitter.getAttribute('formmethod') || form.method).toUpperCase();\n  const action = submitter.getAttribute('formaction') || form.getAttribute('action');\n  const body = new URLSearchParams(data).toString();\n  wire.textContent = method === 'GET'\n    ? 'GET ' + action + '?' + body\n    : 'POST ' + action + '\\nContent-Type: ' + form.enctype + '\\n\\n' + body;\n});`}
+/>
+
+<Callout kind="note">The script above only *displays* the request; delete it and the form still submits (the preview sandbox just has nowhere to send it). That is the baseline every form should keep.</Callout>
+
+## Every input type and what it buys you
+
+The `type` attribute chooses the mobile keyboard, the autofill heuristics, built-in validation, the native picker and the accessibility role, all at once. `email` and `url` validate format and bring the `@` and `.com` keys; `tel` brings the phone pad without validating (phone formats vary too much); `search` adds a clear button and the `searchbox` role; `date`, `time`, `datetime-local`, `month` and `week` bring native pickers; `color` and `range` bring their widgets; `file` takes `accept`, `multiple` and `capture`.
+
+**`type="number"` is for quantities**, not for things that are merely digits. Card numbers, PINs, one-time codes and postcodes are identifiers: use `type="text"` with **`inputmode="numeric"`**, which gives the numeric keyboard without spinners, scroll-wheel changes or dropped leading zeros.
+
+<Playground
+  id="p3-types"
+  title="Input type gallery (open this page on a phone too)"
+  task='Change the card field to `type="number"`, type 0042 and scroll the mouse wheel over it. Then change it back and add `autocomplete="cc-number"`.'
+  html={`<form class="grid">\n  <label>Email <input type="email" autocomplete="email"></label>\n  <label>Website <input type="url" placeholder="https://"></label>\n  <label>Phone <input type="tel" autocomplete="tel"></label>\n  <label>Search <input type="search"></label>\n  <label>Quantity <input type="number" min="1" max="9" value="1"></label>\n  <label>Card number <input type="text" inputmode="numeric" pattern="[0-9 ]{12,23}"></label>\n  <label>Date <input type="date"></label>\n  <label>Time <input type="time"></label>\n  <label>Month <input type="month"></label>\n  <label>Colour <input type="color" value="#c2410c"></label>\n  <label>Volume <input type="range" min="0" max="10"></label>\n  <label>Photo <input type="file" accept="image/*" capture="environment"></label>\n</form>`}
+  css={`.grid { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }\nlabel { display: grid; gap: .2rem; font-size: .9rem; }\ninput { font: inherit; padding: .35rem; }`}
+/>
+
+<Try task="Pick the right markup for: a one-time SMS code, a UK postcode, a quantity of tickets, a date of birth, and a hex colour for a brand theme.">
+  One-time code: `type="text" inputmode="numeric" autocomplete="one-time-code"`. UK postcode: `type="text" autocomplete="postal-code"` (it has letters, so no `inputmode`). Tickets: `type="number" min="1" max="10"`. Date of birth: three labelled text fields or `type="date"` with `autocomplete="bday"`; memorable dates are often faster to type than to pick. Brand colour: `type="color"`.
+</Try>
+
+## Labels, groups and the other form elements
+
+A `<label>` gives a control its **accessible name** and a bigger click target. Associate it explicitly (`for` matching `id`) or implicitly by wrapping. `<fieldset>` + `<legend>` names a group: radio groups, address blocks, "Date of birth". `<fieldset disabled>` disables everything inside at once.
+
+The rest of the toolkit: `<select>` with `<option>`/`<optgroup>` (and `multiple`), `<textarea>` (with **`field-sizing: content`** it grows with its text), `<datalist>` for suggestions that still allow free text, `<output for>` for calculated results, `<meter>` for a gauge within a known range (disk usage, password strength) versus `<progress>` for task completion (indeterminate when it has no value). And the classic bug: **`<button>` defaults to `type="submit"`**, so a "Show password" button inside a form submits it.
+
+<Playground
+  id="p3-elements"
+  title="Fieldsets, datalist, output, meter vs progress"
+  task='Add a “Show password” button inside the form without `type`, press it and watch the console: the form submits. Then fix it with `type="button"`.'
+  forms
+  html={`<form id="f" oninput="total.value = Number(qty.value) * 450">\n  <fieldset>\n    <legend>Delivery speed</legend>\n    <label><input type="radio" name="speed" value="std" checked> Standard</label>\n    <label><input type="radio" name="speed" value="exp"> Express</label>\n  </fieldset>\n  <label>City <input list="cities" name="city"></label>\n  <datalist id="cities"><option value="Pune"><option value="Mumbai"><option value="Bengaluru"></datalist>\n  <label>Size <select name="size"><optgroup label="Regular"><option>S</option><option>M</option></optgroup><optgroup label="Tall"><option>M Tall</option></optgroup></select></label>\n  <label>Tickets <input type="number" id="qty" name="qty" value="1" min="1"></label>\n  <p>Total: ₹<output name="total" for="qty">450</output></p>\n  <label>Notes <textarea name="notes" rows="2"></textarea></label>\n  <label>Disk used <meter min="0" max="100" low="70" high="90" value="82">82%</meter></label>\n  <label>Upload <progress max="100" value="40">40%</progress></label>\n  <label>Working <progress>busy</progress></label>\n  <button>Submit</button>\n</form>`}
+  css={`form { display: grid; gap: .6rem; max-width: 24rem; }\nfieldset { display: flex; gap: 1rem; }\ntextarea { field-sizing: content; min-block-size: 2lh; }\ninput, select, textarea { font: inherit; }`}
+  js={`document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); console.log('Submitted by:', e.submitter.textContent); });`}
+/>
+
+## Autofill and `autocomplete` tokens
+
+`autocomplete` tokens tell browsers and password managers what each field *is*: `name`, `given-name`, `family-name`, `email`, `tel`, `street-address`, `address-line1`, `address-level2` (city), `postal-code`, `country`, `cc-name`, `cc-number`, `cc-exp`, `cc-csc`, `one-time-code`, `username`, `current-password`, `new-password`, `webauthn`. Prefix with **`shipping`** or **`billing`**, and with `section-*` to separate two addresses on one page. It is the single biggest improvement to form completion rates, and **WCAG 1.3.5 Identify Input Purpose** requires it for fields about the user.
+
+```html
+<form action="/checkout" method="post">
+  <fieldset>
+    <legend>Shipping address</legend>
+    <label for="n">Full name</label>
+    <input id="n" name="name" autocomplete="shipping name" required>
+    <label for="a">Address</label>
+    <textarea id="a" name="address" autocomplete="shipping street-address" required></textarea>
+    <label for="c">City</label>
+    <input id="c" name="city" autocomplete="shipping address-level2" required>
+    <label for="p">Postcode</label>
+    <input id="p" name="postcode" autocomplete="shipping postal-code" required>
+  </fieldset>
+  <label for="u">Email</label>
+  <input id="u" name="email" type="email" autocomplete="email" required>
+  <label for="pw">Create a password</label>
+  <input id="pw" name="password" type="password" autocomplete="new-password" minlength="12" required>
+  <button>Continue to payment</button>
+</form>
+```
+
+<Try task="A sign-in form has a username field, a password field and a separate 'enter the 6-digit code we texted you' step. Write the three `autocomplete` values.">
+  `autocomplete="username"` (add `webauthn` too if you support passkeys: `username webauthn`), `autocomplete="current-password"`, and `autocomplete="one-time-code"` with `inputmode="numeric"`. iOS and Android then offer the SMS code straight from the keyboard.
+</Try>
+
+## Constraint validation
+
+The browser validates before submit using attributes: `required`, `pattern` (anchored automatically), `min`/`max`/`step`, `minlength`/`maxlength`, and the type itself (`email`, `url`). The **Constraint Validation API** exposes it: `el.validity` (flags like `valueMissing`, `typeMismatch`, `patternMismatch`), `checkValidity()`, `reportValidity()` and `setCustomValidity(message)` for rules HTML can't express, such as "passwords match". Add `novalidate` to the form to keep the API but draw your own UI.
+
+Styling hooks: `:invalid`/`:valid` match immediately (so empty required fields are red on load), while **`:user-invalid`** and `:user-valid` match only after the user has interacted, which fixes "red before typing". Also `:required`, `:optional`, `:placeholder-shown`, `:in-range`/`:out-of-range`. And **client validation is UX, not security**: the server validates again (Part 22).
+
+<Playground
+  id="p3-validation"
+  forms
+  title=":user-invalid and setCustomValidity"
+  task="Swap `:user-invalid` for `:invalid` in the CSS and reload: every empty field is red before you touch it. Then make the confirm field match case-insensitively."
+  html={`<form id="signup">\n  <label>Email <input type="email" name="email" required></label>\n  <label>Username <input name="user" required pattern="[a-z0-9_]{3,16}" title="3 to 16 lowercase letters, digits or _"></label>\n  <label>Password <input type="password" id="pw" required minlength="8"></label>\n  <label>Confirm <input type="password" id="pw2" required></label>\n  <button>Create account</button>\n</form>`}
+  css={`form { display: grid; gap: .6rem; max-width: 20rem; }\nlabel { display: grid; }\ninput { font: inherit; padding: .35rem; border: 2px solid #999; border-radius: .35rem; }\ninput:user-invalid { border-color: #b91c1c; background: #fef2f2; }\ninput:user-valid { border-color: #15803d; }`}
+  js={`const pw = document.getElementById('pw');\nconst pw2 = document.getElementById('pw2');\nconst sync = () => pw2.setCustomValidity(pw2.value === pw.value ? '' : 'Passwords must match.');\npw.addEventListener('input', sync);\npw2.addEventListener('input', sync);\ndocument.getElementById('signup').addEventListener('submit', (e) => {\n  e.preventDefault();\n  console.log('Valid! The server must still re-check everything.');\n});`}
+/>
+
+## Accessible form patterns
+
+- **Visible labels** always. A placeholder is not a label: it disappears on typing, often fails contrast, and is not reliably announced.
+- **Hints** below the label, linked with `aria-describedby`, so they are read with the field.
+- **Required** stated in text ("required" or "optional"), not only by colour or an asterisk.
+- **Inline errors** next to the field, linked with `aria-describedby` (or `aria-errormessage`), and `aria-invalid="true"` on the field.
+- An **error summary** at the top on submit: a heading, a list of links to each field, and focus moved to the summary.
+- **Don't disable submit buttons**: people can't discover why. Let them submit and explain what's wrong.
+- Sensible tab order (DOM order), grouping with fieldsets, **one question per page** for complex flows (the GOV.UK pattern), and **no redundant entry** (WCAG 3.3.7: don't ask for the same information twice in one process).
+
+<Playground
+  id="p3-errors"
+  forms
+  title="Error summary that moves focus, with inline errors"
+  task="Submit empty, then use the summary links: each one focuses its field. Add a hint for the date field with `aria-describedby`."
+  html={`<div id="summary" class="summary" tabindex="-1" hidden>\n  <h2>There is a problem</h2>\n  <ul id="summary-list"></ul>\n</div>\n<form id="apply" novalidate>\n  <div class="field">\n    <label for="full">Full name (required)</label>\n    <p class="error" id="full-error" hidden></p>\n    <input id="full" name="full" required aria-describedby="full-error">\n  </div>\n  <div class="field">\n    <label for="mail">Email (required)</label>\n    <p class="hint" id="mail-hint">We only use this to send your receipt.</p>\n    <p class="error" id="mail-error" hidden></p>\n    <input id="mail" name="mail" type="email" required aria-describedby="mail-hint mail-error">\n  </div>\n  <button>Apply</button>\n</form>`}
+  css={`.summary { border: 4px solid #b91c1c; padding: .75rem 1rem; margin-bottom: 1rem; }\n.summary:focus { outline: 3px solid #f59e0b; }\n.summary h2 { margin: 0 0 .25rem; font-size: 1.1rem; }\n.field { display: grid; gap: .2rem; margin-bottom: .9rem; max-width: 22rem; }\n.hint { color: #555; margin: 0; }\n.error { color: #b91c1c; font-weight: 700; margin: 0; }\n[aria-invalid="true"] { border: 2px solid #b91c1c; }\ninput { font: inherit; padding: .35rem; }`}
+  js={`const form = document.getElementById('apply');\nconst summary = document.getElementById('summary');\nconst list = document.getElementById('summary-list');\nconst messages = { valueMissing: 'Enter your ', typeMismatch: 'Enter a valid ' };\nform.addEventListener('submit', (e) => {\n  e.preventDefault();\n  list.replaceChildren();\n  for (const input of form.querySelectorAll('input')) {\n    const error = document.getElementById(input.id + '-error');\n    const label = form.querySelector('label[for=' + input.id + ']').textContent.replace(' (required)', '').toLowerCase();\n    const key = input.validity.valueMissing ? 'valueMissing' : input.validity.typeMismatch ? 'typeMismatch' : '';\n    input.setAttribute('aria-invalid', String(Boolean(key)));\n    error.hidden = !key;\n    if (!key) continue;\n    error.textContent = messages[key] + label;\n    const li = document.createElement('li');\n    const a = document.createElement('a');\n    a.href = '#' + input.id;\n    a.textContent = error.textContent;\n    a.addEventListener('click', (ev) => { ev.preventDefault(); input.focus(); });\n    li.append(a);\n    list.append(li);\n  }\n  summary.hidden = list.children.length === 0;\n  if (!summary.hidden) summary.focus();\n  else console.log('Submitted');\n});`}
+/>
+
+## Native interactive elements
+
+The platform now ships the components teams used to hand-build. Each one comes with keyboard support, focus management and accessibility semantics.
+
+### `<details>` and `<summary>`
+
+A disclosure with no JavaScript: the `open` attribute reflects state, a shared **`name`** makes a group *exclusive* (an accordion where opening one closes the others), `::marker` styles the triangle and **`::details-content`** styles (and animates) the panel. Find-in-page opens a closed `<details>` when it contains the match.
+
+### `<dialog>`
+
+`show()` opens a non-modal dialog; **`showModal()`** puts it in the **top layer** (above every z-index), draws `::backdrop`, makes the rest of the page **inert**, moves focus inside and lets Escape close it. A `<form method="dialog">` closes the dialog and sets `dialog.returnValue` to the submitter's value. **`closedby="any"`** adds light dismiss (click outside) **[Frontier]**.
+
+<Playground
+  id="p3-details-dialog"
+  forms
+  title="Exclusive accordion and a modal dialog that returns a value"
+  task="Open two FAQ items: the first closes. Open the dialog, press Tab repeatedly: focus stays inside. Choose an option and check the console for returnValue."
+  html={`<details name="faq" open><summary>What is included?</summary><p>Everything in the box.</p></details>\n<details name="faq"><summary>Can I cancel?</summary><p>Any time, from settings.</p></details>\n<details name="faq"><summary>Is there a trial?</summary><p>Fourteen days.</p></details>\n\n<button id="open" type="button">Delete project…</button>\n<dialog id="confirm" closedby="any" aria-labelledby="dlg-title">\n  <form method="dialog">\n    <h2 id="dlg-title">Delete "Atlas"?</h2>\n    <p>This removes 42 files. You can't undo it.</p>\n    <button value="cancel">Cancel</button>\n    <button value="delete">Delete</button>\n  </form>\n</dialog>`}
+  css={`details { border-bottom: 1px solid #ddd; padding: .5rem 0; }\nsummary { cursor: pointer; font-weight: 600; }\ndetails::details-content { opacity: 0; transition: opacity .25s, content-visibility .25s allow-discrete; }\ndetails[open]::details-content { opacity: 1; }\ndialog { border: 0; border-radius: .75rem; padding: 1.25rem; max-width: 22rem; }\ndialog::backdrop { background: rgb(0 0 0 / .45); }\n#open { margin-top: 1rem; }`}
+  js={`const dialog = document.getElementById('confirm');\ndocument.getElementById('open').addEventListener('click', () => dialog.showModal());\ndialog.addEventListener('close', () => console.log('returnValue:', dialog.returnValue));`}
+/>
+
+### The Popover API
+
+`popover` (`auto` light-dismisses and closes other auto popovers, `manual` doesn't, `hint` for tooltips that don't close menus) plus **`popovertarget`** on a button makes a menu, tip or toast with no script. Popovers live in the top layer without modality. Style them with `:popover-open`, and animate entry and exit with **`@starting-style`** and `transition-behavior: allow-discrete`. Pair them with **anchor positioning** (Part 10) to attach them to their button.
+
+### Invoker commands **[Frontier]**
+
+**`commandfor`** + **`command`** wire a button to an element declaratively: `show-modal`, `close`, `request-close`, `toggle-popover`, `show-popover`, `hide-popover`, or your own `--custom` command that fires a `command` event. **`interestfor`** does the same for hover/focus interest (tooltips, link previews). Feature-detect and keep a fallback.
+
+<Playground
+  id="p3-popover"
+  title="Popover menu anchored to its button, with an invoker-opened dialog"
+  task='Press Escape or click outside to close the menu (light dismiss). Change `popover` to `popover="manual"` and compare. Then add a second button with `command="close"`.'
+  html={`<button popovertarget="menu" class="trigger">Options ▾</button>\n<div id="menu" popover>\n  <a href="#rename">Rename</a>\n  <a href="#duplicate">Duplicate</a>\n  <button commandfor="about" command="show-modal">About…</button>\n</div>\n<dialog id="about">\n  <p>Opened by <code>command="show-modal"</code>, no script.</p>\n  <button commandfor="about" command="close">Close</button>\n</dialog>\n<p><a href="#docs" interestfor="tip">Hover or focus me</a></p>\n<div id="tip" popover="hint">A tooltip via interestfor.</div>`}
+  css={`.trigger { anchor-name: --menu; }\n#menu { position-anchor: --menu; inset: auto; top: anchor(bottom); left: anchor(left); margin-top: .25rem; position-try-fallbacks: flip-block;\n  display: grid; padding: .35rem; border: 1px solid #ccc; border-radius: .5rem; box-shadow: 0 8px 24px rgb(0 0 0 / .15);\n  opacity: 1; translate: 0 0; transition: opacity .15s, translate .15s, display .15s allow-discrete, overlay .15s allow-discrete; }\n#menu a, #menu button { padding: .4rem .6rem; text-align: left; font: inherit; background: none; border: 0; color: inherit; }\n@starting-style { #menu:popover-open { opacity: 0; translate: 0 -4px; } }\n#menu:not(:popover-open) { opacity: 0; translate: 0 -4px; }\n#tip { margin: 0; padding: .3rem .5rem; background: #1d1a19; color: #fff; border: 0; border-radius: .35rem; }\n@media (prefers-reduced-motion: reduce) { #menu { transition: none; } }`}
+  js={`// Fallbacks for engines without invokers / interestfor: a few lines, only when missing.\nif (!('command' in HTMLButtonElement.prototype)) {\n  document.querySelectorAll('button[commandfor]').forEach((b) => b.addEventListener('click', () => {\n    const target = document.getElementById(b.getAttribute('commandfor'));\n    const cmd = b.getAttribute('command');\n    if (cmd === 'show-modal') target.showModal();\n    if (cmd === 'close') target.close();\n  }));\n}\nif (!('interestForElement' in HTMLAnchorElement.prototype)) {\n  document.querySelectorAll('[interestfor]').forEach((a) => {\n    const tip = document.getElementById(a.getAttribute('interestfor'));\n    const show = () => tip.showPopover();\n    const hide = () => tip.hidePopover();\n    a.addEventListener('mouseenter', show); a.addEventListener('focus', show);\n    a.addEventListener('mouseleave', hide); a.addEventListener('blur', hide);\n  });\n}`}
+/>
+
+### Customisable `<select>` **[Frontier]**
+
+Opt in with `appearance: base-select` on the select *and* its `::picker(select)`. Options can then contain rich content (icons, descriptions), the button shows the chosen option through `<selectedcontent>`, and every part is stylable. Engines without support render a normal select, so wrap the styling in `@supports (appearance: base-select)`: that is the progressive-enhancement story.
+
+<Playground
+  id="p3-select"
+  title="A rich select that falls back to the native one"
+  task="Add a fourth option with an emoji and a description. View it in a browser without support: you still get a working native select."
+  html={`<label for="plan">Plan</label>\n<select id="plan">\n  <button><selectedcontent></selectedcontent></button>\n  <option value="free"><span class="icon">🌱</span> Free <small>For trying things out</small></option>\n  <option value="pro" selected><span class="icon">🚀</span> Pro <small>For working teams</small></option>\n  <option value="ent"><span class="icon">🏛️</span> Enterprise <small>SSO, audit logs</small></option>\n</select>`}
+  css={`select { font: inherit; }\n@supports (appearance: base-select) {\n  select, ::picker(select) { appearance: base-select; }\n  select { border: 1px solid #aaa; border-radius: .5rem; padding: .4rem .6rem; min-width: 16rem; }\n  ::picker(select) { border: 1px solid #ccc; border-radius: .5rem; padding: .25rem; }\n  option { display: grid; grid-template-columns: auto 1fr; gap: 0 .5rem; padding: .4rem .5rem; border-radius: .35rem; }\n  option small { grid-column: 2; color: #666; }\n  option:checked { background: #fde7d9; }\n  selectedcontent small { display: none; }\n}`}
+/>
+
+## Styling form controls
+
+The quick win is **`accent-color`**: one line recolours checkboxes, radios, ranges and progress bars. **`color-scheme: light dark`** makes native controls follow dark mode. For full control, `appearance: none` on the input itself keeps the **native element** (focus, keyboard, form submission, accessibility) while you draw it; never hide the input and fake a checkbox with a `<div>`. Also `::file-selector-button`, `::placeholder` (keep it at contrast), and **focus styles** that meet WCAG 2.4.11/2.4.13 (a 2px solid ring with 3:1 contrast). Targets must be at least **24×24 CSS px** (WCAG 2.5.8); 44×44 is comfortable.
+
+<Playground
+  id="p3-styling"
+  title="accent-color, a custom checkbox that is still an input, and focus"
+  task="Tab through the controls: every one shows a clear ring. Change `--brand` and watch everything follow. Toggle `color-scheme: dark` on `html`."
+  html={`<fieldset>\n  <legend>Notifications</legend>\n  <label><input type="checkbox" checked> Quick win: accent-color</label>\n  <label><input type="checkbox" class="custom" checked> Custom, still a real input</label>\n  <label><input type="radio" name="r" checked> Radio</label>\n  <label>Volume <input type="range"></label>\n  <label>Avatar <input type="file"></label>\n</fieldset>`}
+  css={`:root { --brand: #c2410c; accent-color: var(--brand); color-scheme: light; }\nfieldset { display: grid; gap: .75rem; }\nlabel { display: flex; gap: .5rem; align-items: center; min-block-size: 24px; }\n.custom { appearance: none; inline-size: 1.4rem; block-size: 1.4rem; border: 2px solid currentColor; border-radius: .35rem; display: grid; place-content: center; margin: 0; }\n.custom::before { content: ""; inline-size: .8rem; block-size: .8rem; clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%); background: var(--brand); scale: 0; transition: scale .15s; }\n.custom:checked::before { scale: 1; }\n:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }\n::file-selector-button { font: inherit; border: 0; border-radius: .35rem; padding: .3rem .7rem; background: var(--brand); color: #fff; }\n@media (forced-colors: active) { .custom::before { background: CanvasText; } }`}
+/>
+
+## File uploads in HTML
+
+`<input type="file">` with `accept` (a hint, not a security check), `multiple` and `capture`, inside a `multipart/form-data` form, is the whole baseline. Drag-and-drop and instant previews are **enhancements** on top of the same input, so keyboard and screen-reader users keep the native picker. The server (Part 22) must re-check type by content, limit size, rename files and store them outside the web root.
+
+<Playground
+  id="p3-upload"
+  title="Native file input, enhanced with drop and previews"
+  task="Drop two images on the zone, or use the button. Then remove `multiple` and see the difference."
+  html={`<form method="post" enctype="multipart/form-data" action="/upload">\n  <label class="drop" id="drop">\n    <span>Drop photos here or choose files</span>\n    <input type="file" name="photos" accept="image/*" multiple id="files">\n  </label>\n  <ul id="previews" class="previews"></ul>\n  <button>Upload</button>\n</form>`}
+  css={`.drop { display: grid; gap: .5rem; place-items: center; padding: 1.5rem; border: 2px dashed #999; border-radius: .75rem; text-align: center; }\n.drop.over { border-color: #c2410c; background: #fff4ed; }\n.previews { display: flex; gap: .5rem; list-style: none; padding: 0; flex-wrap: wrap; }\n.previews img { inline-size: 6rem; block-size: 6rem; object-fit: cover; border-radius: .5rem; }`}
+  js={`const input = document.getElementById('files');\nconst drop = document.getElementById('drop');\nconst previews = document.getElementById('previews');\nconst show = () => {\n  previews.replaceChildren(...[...input.files].map((file) => {\n    const li = document.createElement('li');\n    const img = document.createElement('img');\n    img.src = URL.createObjectURL(file);\n    img.alt = file.name;\n    li.append(img);\n    return li;\n  }));\n  console.log([...input.files].map((f) => f.name + ' (' + Math.round(f.size / 1024) + ' KB, ' + f.type + ')').join('; '));\n};\ninput.addEventListener('change', show);\ndrop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });\ndrop.addEventListener('dragleave', () => drop.classList.remove('over'));\ndrop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); input.files = e.dataTransfer.files; show(); });`}
+/>

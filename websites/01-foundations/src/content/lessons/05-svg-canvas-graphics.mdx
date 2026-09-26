@@ -1,0 +1,234 @@
+---
+title: SVG, Canvas & Graphics on the Web
+source: L1-coding-html-css.md
+part: 5
+tier: Core → Deep
+summary: SVG as a language (viewBox, paths, painting, reuse, filters, text), styling and including SVG, accessible and optimised SVG, SVG animation, Canvas 2D, WebGL/WebGPU literacy, and choosing the right medium.
+anchors:
+  - "The `viewBox` is a camera pointed at an infinite canvas. `width`/`height` is the size of the photo you print. Almost every \"my SVG is the wrong size/cropped/blurry\" bug is a mismatch between the two."
+  - "SVG is retained mode (a DOM you can style and query). Canvas is immediate mode (pixels you paint and forget). Choose based on whether you need to talk to the shapes later."
+checks:
+  - q: "Hand-write an SVG icon (a checkmark in a circle) with paths, make it inherit text colour, and make it accessible in two contexts (standalone, and beside a text label)."
+    a: "`<svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M7 12.5l3 3 7-7\"/></svg>`. Standalone (it carries meaning): add `role=\"img\" aria-label=\"Completed\"` (or a `<title>`). Beside the text \"Completed\": add `aria-hidden=\"true\"` so it isn't announced twice."
+  - q: "Explain `viewBox=\"0 0 100 50\"` with `preserveAspectRatio=\"xMidYMid slice\"` in a 300×300 box."
+    a: "The camera sees a 100×50 world (2:1). Slice scales it until the box is *covered*: 300/50 = 6× (the larger of 300/100 and 300/50), so the world becomes 600×300. Centred (xMid), 150px is cropped on each side horizontally; only the middle 50×50 units of the world are visible. With `meet` it would scale 3× to 300×150 and letterbox 75px above and below."
+  - q: "Build a grain/noise texture with `feTurbulence` and apply it as an overlay."
+    a: "Define `<filter id=\"grain\"><feTurbulence type=\"fractalNoise\" baseFrequency=\"0.8\" numOctaves=\"3\" stitchTiles=\"stitch\"/><feColorMatrix type=\"saturate\" values=\"0\"/></filter>`, draw `<rect width=\"100%\" height=\"100%\" filter=\"url(#grain)\"/>` in an absolutely positioned SVG over the content with `pointer-events: none`, `mix-blend-mode: multiply` or `overlay`, and a low `opacity` such as 0.15."
+  - q: "Explain when an inline SVG sprite beats `<img>` icons and when it doesn't."
+    a: "An inline `<symbol>` sprite wins when icons must inherit `currentColor`, respond to hover/theme via CSS, or be animated, and when the set is small enough that inlining it once is cheap. `<img src=\"icon.svg\">` wins for large, rarely-reused or many-colour illustrations: the file is cached across pages, adds no DOM weight, and can't run scripts, but it can't be styled from the page."
+build: "An icon system and a chart: 20 hand-optimised icons in a `<symbol>` sprite coloured by `currentColor`, plus an accessible SVG line chart generated from data (axes, labels, a data-table alternative, and an animated line-draw that respects reduced motion)."
+steps:
+  - "Draw or export 20 icons on a 24×24 grid; hand-clean each (remove editor metadata, round to 1 decimal, keep viewBox)."
+  - "Combine them as `<symbol id>` elements in one sprite; use them with `<use href=\"#icon-name\">`."
+  - "Style every icon with `currentColor` and test in dark mode and forced colours."
+  - "Generate an SVG line chart from a JSON array: scales, axis ticks, labels, `role=\"img\"` with a summary."
+  - "Add the data as a real `<table>` in a `<details>` below the chart."
+  - "Animate the line with `stroke-dasharray`/`stroke-dashoffset`, disabled under reduced motion."
+taste: "Learn to read and hand-edit SVG. The designer-developer who can open an exported icon, delete 80% of it, and make it theme-aware owns a superpower that most teams outsource."
+quiz:
+  - q: "Which path command draws a cubic Bézier curve?"
+    options: ["`Q`", "`C`", "`A`"]
+    answer: 1
+    why: "`C` takes two control points and an end point; `Q` is quadratic (one control point); `A` is an elliptical arc."
+  - q: "Can a page's CSS custom properties restyle an SVG loaded with `<img src=\"icon.svg\">`?"
+    options: ["Yes", "No: an image is a separate document with no access to the page's styles"]
+    answer: 1
+    why: "Only inline SVG (and `<use>` of inline symbols) takes part in the page's cascade."
+  - q: "What does `transform-box: fill-box` fix?"
+    options: ["Blurry strokes", "Transform origins: percentages and `center` refer to the shape's own box instead of the SVG viewport", "Filter regions"]
+    answer: 1
+    why: "By default, SVG transform origins are relative to the viewport; `fill-box` makes `transform-origin: center` spin a shape around its own centre."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import ViewBoxLab from '../../components/demos/ViewBoxLab.astro';
+
+## SVG as a language: coordinates, viewBox and preserveAspectRatio
+
+SVG is an XML vocabulary you can write straight into HTML. It draws in **user units** on an infinite plane. **`viewBox="min-x min-y width height"`** chooses which rectangle of that plane you see (the camera); **`width`/`height`** set the size of the box on the page (the viewport). **`preserveAspectRatio`** decides what happens when their shapes differ: `meet` fits the whole view and letterboxes, `slice` fills the box and crops, `none` stretches, and the `xMin`/`xMid`/`xMax` + `YMin`/`YMid`/`YMax` alignment picks which part stays.
+
+<ViewBoxLab />
+
+## Shapes and paths
+
+`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>` and `<polygon>` cover simple shapes; everything else is **`<path d>`**. Its commands: **M** move, **L** line, **H**/**V** horizontal/vertical line, **C** cubic Bézier (two control points), **S** smooth cubic, **Q** quadratic, **T** smooth quadratic, **A** elliptical arc, **Z** close. Uppercase is absolute, lowercase relative to the current point. Read one icon path by hand and icons stop being black boxes.
+
+<Playground
+  id="p5-path"
+  title="Read and write path commands"
+  task="Complete the checkmark path inside the circle (hint: M7 12.5 l3 3 l7 -7). Then change the heart's C commands to lowercase and see why relative coordinates break it."
+  html={`<svg viewBox="0 0 24 24" width="120" height="120" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\n  <circle cx="12" cy="12" r="10"/>\n  <path d="M7 12.5"/>\n</svg>\n<svg viewBox="0 0 24 24" width="120" height="120">\n  <path d="M12 21 C 5 15, 2 11, 2 7.5 C 2 4.5, 4.5 2.5, 7 2.5 C 9 2.5, 11 4, 12 6 C 13 4, 15 2.5, 17 2.5 C 19.5 2.5, 22 4.5, 22 7.5 C 22 11, 19 15, 12 21 Z" fill="#c2410c"/>\n</svg>`}
+  css={`svg { color: #1d1a19; margin-right: 1rem; }`}
+  solution={{ html: `<svg viewBox="0 0 24 24" width="120" height="120" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\n  <circle cx="12" cy="12" r="10"/>\n  <path d="M7 12.5 l3 3 l7 -7"/>\n</svg>` }}
+/>
+
+## Painting: fill, stroke, gradients and markers
+
+`fill` and `stroke` paint shapes; `stroke-width`, `stroke-linecap` (`butt`, `round`, `square`) and `stroke-linejoin` shape the outline. **`stroke-dasharray` + `stroke-dashoffset`** create dashes, and animating the offset from the path length to 0 is the famous "line drawing" effect. `vector-effect: non-scaling-stroke` keeps strokes constant when the SVG scales; `paint-order: stroke` puts the stroke behind the fill (great for outlined text); `fill-rule` (`nonzero`/`evenodd`) decides holes. Gradients (`<linearGradient>`, `<radialGradient>`), `<pattern>` and `<marker>` (arrowheads) live in `<defs>`. `opacity` fades the whole element; `fill-opacity` only the fill.
+
+<Playground
+  id="p5-paint"
+  title="Line drawing with dasharray, gradients and markers"
+  task="Change the line caps to square and the join to bevel. Then add `vector-effect: non-scaling-stroke` to the wave and resize the SVG width to 600."
+  html={`<svg viewBox="0 0 200 80" width="400">\n  <defs>\n    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#c2410c"/></linearGradient>\n    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#c2410c"/></marker>\n  </defs>\n  <path class="wave" pathLength="1" d="M10 60 C 40 0, 70 0, 100 40 S 160 80, 190 20" fill="none" stroke="url(#g)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>\n</svg>`}
+  css={`.wave { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 2s ease-out forwards; }\n@keyframes draw { to { stroke-dashoffset: 0; } }\n@media (prefers-reduced-motion: reduce) { .wave { animation: none; stroke-dashoffset: 0; } }`}
+/>
+
+## Structure and reuse: groups, symbols, clipping and masks
+
+`<g>` groups and transforms; `<defs>` holds things that aren't drawn until referenced. **`<symbol>` + `<use href="#id">`** is the icon-sprite pattern: define once, stamp anywhere, each copy can have its own size and colour. `<clipPath>` cuts with a hard edge; **`<mask>`** uses luminance (white shows, black hides, grey is partial) so it can fade. `<foreignObject>` embeds HTML inside SVG.
+
+<Playground
+  id="p5-reuse"
+  title="A symbol sprite, a clip path and a gradient mask"
+  task="Add a third icon to the sprite (a minus sign) and use it at size 48 in a different colour."
+  html={`<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>\n  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" fill="currentColor"/></symbol>\n</svg>\n<p class="icons">\n  <svg width="24" height="24"><use href="#i-plus"/></svg>\n  <svg width="32" height="32" style="color:#c2410c"><use href="#i-star"/></svg>\n</p>\n<svg viewBox="0 0 200 100" width="320">\n  <defs>\n    <clipPath id="clip"><circle cx="50" cy="50" r="40"/></clipPath>\n    <linearGradient id="fade"><stop offset="0" stop-color="white"/><stop offset="1" stop-color="black"/></linearGradient>\n    <mask id="m"><rect x="110" y="10" width="80" height="80" fill="url(#fade)"/></mask>\n  </defs>\n  <rect x="0" y="0" width="100" height="100" fill="#c2410c" clip-path="url(#clip)"/>\n  <rect x="110" y="10" width="80" height="80" fill="#1d1a19" mask="url(#m)"/>\n</svg>`}
+  css={`.icons { display: flex; gap: 1rem; align-items: center; }`}
+/>
+
+## SVG filters
+
+Filter primitives chain like a node graph: **`feGaussianBlur`**, **`feColorMatrix`** (desaturate, tint, alpha tricks), **`feTurbulence`** (Perlin noise) with **`feDisplacementMap`** (liquid, torn-paper and glitch distortions), `feComposite`, `feMorphology` (thicken/thin), `feBlend` and `feDropShadow`. Set the filter region (`x`, `y`, `width`, `height`) so blurs aren't clipped. CSS can use them: `filter: url(#grain)`. This is where most "how did they do that texture" effects come from.
+
+<Playground
+  id="p5-filters"
+  title="Grain overlay and a displacement wobble"
+  task="Raise baseFrequency on the grain to 1.5 and lower the overlay opacity. Then change the displacement scale to 20."
+  html={`<div class="poster">\n  <h1 class="wobble">Grain</h1>\n  <svg class="grain" aria-hidden="true"><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#grain)"/></svg>\n</div>\n<svg width="0" height="0" aria-hidden="true"><filter id="wobble"><feTurbulence type="turbulence" baseFrequency="0.02" numOctaves="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="8"/></filter></svg>`}
+  css={`.poster { position: relative; isolation: isolate; display: grid; place-items: center; aspect-ratio: 16 / 9; max-width: 28rem; border-radius: 1rem; overflow: hidden; background: radial-gradient(circle at 30% 30%, #fdba74, #c2410c 60%, #431407); }\n.poster h1 { color: #fff7ed; font: 900 4rem/1 system-ui; margin: 0; }\n.wobble { filter: url(#wobble); }\n.grain { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .25; mix-blend-mode: overlay; pointer-events: none; }`}
+/>
+
+## SVG text and text on a path
+
+`<text>` places text at a point (`x`, `y`, `text-anchor`, `dominant-baseline`); `<tspan>` styles runs; **`<textPath href>`** flows text along any path. SVG text stays selectable, searchable and accessible, but it doesn't wrap, so paragraphs belong in HTML.
+
+<Playground
+  id="p5-text"
+  title="Text on a curve"
+  task='Make the text follow the circle the other way (hint: side="right" or reverse the path), and centre it with startOffset="50%" and text-anchor="middle".'
+  html={`<svg viewBox="0 0 200 200" width="240">\n  <path id="ring" d="M100 30 a70 70 0 1 1 -0.1 0" fill="none" stroke="#e7e5e4"/>\n  <text font-size="15" font-weight="700" letter-spacing="2" fill="#c2410c"><textPath href="#ring">HANDMADE · SINCE 2019 · PUNE ·</textPath></text>\n  <text x="100" y="108" text-anchor="middle" font-size="22">☕</text>\n</svg>`}
+/>
+
+## Styling and theming SVG with CSS
+
+Presentation attributes (`fill="red"`) have **zero specificity**, so any CSS rule beats them. **`currentColor`** makes icons inherit the text colour, so one icon works on any background and in dark mode. Custom properties cross into **inline** SVG (and into `<use>` instances by inheritance), but not into `<img src="icon.svg">`, which is a separate document. The shadow tree of `<use>` can't be selected from outside; style it through inherited properties.
+
+<Playground
+  id="p5-theme"
+  title="currentColor and custom properties theme inline SVG"
+  task="Add a dark theme: set `color` and `--accent` in a `.dark` class on the body and toggle it."
+  html={`<button class="btn"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Save</button>\n<button class="btn ghost"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="var(--accent)"/><path d="M12 7v6M12 16v1" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg> Warning</button>`}
+  css={`body { --accent: #c2410c; color: #1d1a19; }\n.btn { display: inline-flex; gap: .4rem; align-items: center; font: 600 1rem system-ui; padding: .5rem .9rem; border-radius: .6rem; border: 0; background: var(--accent); color: white; }\n.btn.ghost { background: transparent; color: var(--accent); border: 2px solid currentColor; }\n.btn:hover { --accent: #9a3412; }`}
+/>
+
+## Ways to include SVG
+
+| Method | Styleable from page | Cached | Scriptable | Best for |
+| --- | --- | --- | --- | --- |
+| Inline `<svg>` | Yes | No (part of HTML) | Yes | Icons that inherit colour, animated or interactive graphics, charts |
+| `<img src>` | No | Yes | No (safe) | Logos, illustrations, user-uploaded SVG |
+| CSS `background-image` | No | Yes | No | Decorative patterns |
+| CSS `mask-image` + `background-color` | Colour only | Yes | No | Single-colour icons from a file, coloured by CSS |
+| `<symbol>` sprite + `<use>` | Inherited props | If external sprite file | Partly | Icon systems |
+| `<object>` | No | Yes | Its own document | Rare, legacy |
+
+<Try task="Decide how to include: a 40-icon UI set, the company logo in the header, a hero illustration with 300 paths, an interactive map, and a user's uploaded avatar SVG.">
+  UI icons: an inline or external `<symbol>` sprite with `currentColor`. Logo: inline if it must change colour with the theme, otherwise `<img>`. Hero illustration: `<img>` (cached, no DOM weight). Interactive map: inline SVG (you need to script and style regions). Uploaded avatar: `<img>` only, never inline: untrusted SVG can contain scripts (Part 25).
+</Try>
+
+## Accessible SVG
+
+Meaningful graphics get **`role="img"`** plus a name: `aria-label`, or `aria-labelledby` pointing at a `<title>` (and `<desc>` for longer descriptions). Decorative icons next to text get **`aria-hidden="true"`**. `focusable="false"` was an IE fix. **Data visualisations** need a text alternative: a summary of the takeaway and the data as a table.
+
+```html
+<!-- Meaningful, standalone -->
+<svg role="img" aria-labelledby="t1 d1" viewBox="0 0 120 40">
+  <title id="t1">Sales, 2026</title>
+  <desc id="d1">Sales rose steadily from 12 in January to 48 in June.</desc>
+  <polyline points="0,36 24,30 48,26 72,18 96,10 120,4" fill="none" stroke="currentColor"/>
+</svg>
+
+<!-- Decorative, next to its label -->
+<button><svg aria-hidden="true" width="16" height="16"><use href="#i-trash"/></svg> Delete</button>
+```
+
+<Try task="An icon-only 'close' button uses an inline SVG. Write two accessible versions: one naming the button, one naming the SVG. Which is better?">
+  Better: name the button and hide the icon: `<button aria-label="Close"><svg aria-hidden="true">…</svg></button>` (or visually hidden text inside the button). Alternative: `<button><svg role="img" aria-label="Close">…</svg></button>`, which works because the button takes its name from content, but is more fragile. The name belongs to the control.
+</Try>
+
+## Optimising SVG
+
+Exports from design tools carry editor metadata, ids, hidden layers, transforms and 6-decimal coordinates. Run **SVGO** (or SVGOMG in the browser), round precision to 1–2 decimals, remove metadata and empty groups, and **never remove `viewBox`** (without it the SVG can't scale). Export from Figma with "outline stroke" off unless you need fills, and flatten only what must be flattened.
+
+```xml
+<!-- Before: 612 bytes exported -->
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24px" height="24px" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>icon/check</title>
+  <g id="Symbols" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+    <g id="icon/check" transform="translate(-0.000000, 0.000000)" stroke="#000000" stroke-width="2">
+      <polyline id="Path" points="4.00000 12.50000 9.00000 17.50000 20.00000 6.50000"></polyline>
+    </g>
+  </g>
+</svg>
+
+<!-- After: 118 bytes, theme-aware -->
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12.5l5 5 11-11"/></svg>
+```
+
+<Try task="Paste one exported SVG from any icon set into SVGOMG, compare the output with the original, and list which removals were safe and which (if any) changed the rendering.">
+  Typical safe removals: XML prolog, editor namespaces and ids, empty groups, default attribute values, redundant transforms, excess precision. Watch out for: removing `viewBox` (breaks scaling), merging paths that were animated separately, removing ids referenced by CSS or `<use>`, and collapsing groups that carried a `transform` or `opacity`.
+</Try>
+
+## SVG animation
+
+CSS transitions and animations work on SVG presentation properties (`fill`, `stroke`, `stroke-dashoffset`, `transform`, `opacity`). Set **`transform-box: fill-box`** so `transform-origin: center` means the shape's own centre. **SMIL** (`<animate>`, `<animateTransform>`, `<animateMotion>`) is legacy but still works everywhere and can animate path data and motion along a path. **Path morphing** needs matching command counts; libraries (Flubber, GSAP MorphSVG) handle the rest. Respect `prefers-reduced-motion`.
+
+<Playground
+  id="p5-anim"
+  title="transform-box, a CSS spinner and SMIL motion along a path"
+  task="Remove `transform-box: fill-box` and watch the gear orbit the SVG's corner instead of spinning. Then slow the SMIL dot to 6s."
+  html={`<svg viewBox="0 0 200 100" width="400">\n  <g class="gear"><circle cx="50" cy="50" r="22" fill="none" stroke="#c2410c" stroke-width="10" stroke-dasharray="8 6"/><circle cx="50" cy="50" r="10" fill="#c2410c"/></g>\n  <path id="track" d="M110 70 C 130 10, 170 10, 190 70" fill="none" stroke="#e7e5e4" stroke-width="2"/>\n  <circle r="6" fill="#1d1a19"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#track"/></animateMotion></circle>\n</svg>`}
+  css={`.gear { transform-box: fill-box; transform-origin: center; animation: spin 4s linear infinite; }\n@keyframes spin { to { rotate: 1turn; } }\n@media (prefers-reduced-motion: reduce) { .gear { animation: none; } }`}
+/>
+
+## Canvas 2D
+
+`<canvas>` is an **immediate-mode bitmap**: you issue drawing commands (paths, fills, images, text, compositing) and the canvas keeps only pixels. For crisp output, size the backing store by **`devicePixelRatio`** and scale the context. `OffscreenCanvas` moves drawing into a worker. A canvas is an image to assistive technology: give it a label and provide its content elsewhere.
+
+<Playground
+  id="p5-canvas"
+  title="A DPR-crisp canvas with 2,000 particles"
+  task="Comment out the devicePixelRatio lines and compare the sharpness of the text on a high-density screen. Then raise the count to 10,000."
+  html={`<canvas id="c" role="img" aria-label="Animated particle field"></canvas>`}
+  css={`canvas { inline-size: 100%; block-size: 240px; display: block; background: #1d1a19; border-radius: .75rem; }`}
+  js={`const canvas = document.getElementById('c');\nconst ctx = canvas.getContext('2d');\nconst dpr = window.devicePixelRatio || 1;\nconst resize = () => {\n  canvas.width = canvas.clientWidth * dpr;\n  canvas.height = canvas.clientHeight * dpr;\n  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);\n};\nresize();\nconst w = () => canvas.clientWidth, h = () => canvas.clientHeight;\nconst dots = Array.from({ length: 2000 }, () => ({ x: Math.random() * w(), y: Math.random() * h(), v: 0.2 + Math.random() }));\nconst still = matchMedia('(prefers-reduced-motion: reduce)').matches;\nconst frame = () => {\n  ctx.clearRect(0, 0, w(), h());\n  ctx.fillStyle = '#fdba74';\n  for (const d of dots) {\n    d.y = (d.y + (still ? 0 : d.v)) % h();\n    ctx.fillRect(d.x, d.y, 1.5, 1.5);\n  }\n  ctx.font = '600 18px system-ui';\n  ctx.fillStyle = '#fff';\n  ctx.fillText('2,000 particles, one bitmap', 16, 30);\n  if (!still) requestAnimationFrame(frame);\n};\nframe();`}
+/>
+
+## Beyond: WebGL, shaders, WebGPU, Lottie and Rive
+
+**WebGL** (and Three.js / React Three Fiber on top) draws 3D and runs **GLSL fragment shaders**: a small function executed for every pixel in parallel on the GPU, the basis of animated gradients, noise and generative backgrounds. **WebGPU** is the modern successor with compute shaders **[Frontier]**. **Lottie** plays After Effects exports; **Rive** plays interactive, state-machine-driven vector animation; Spline exports 3D scenes. Each costs bytes and main-thread time, so use them where they carry the idea, not as decoration.
+
+<Playground
+  id="p5-shader"
+  title="A fragment shader: one function, every pixel"
+  task="Change the colour mix in the shader (the vec3 values), and make the waves move faster by multiplying u_time."
+  html={`<canvas id="gl" role="img" aria-label="Animated gradient made by a fragment shader"></canvas>\n<p id="fallback" hidden>WebGL isn't available here, so this falls back to a CSS gradient.</p>`}
+  css={`canvas, #fallback { inline-size: 100%; block-size: 220px; display: block; border-radius: .75rem; background: linear-gradient(120deg, #fdba74, #c2410c); }`}
+  js={`const canvas = document.getElementById('gl');\nconst gl = canvas.getContext('webgl');\nif (!gl) { canvas.hidden = true; document.getElementById('fallback').hidden = false; }\nelse {\n  canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight;\n  const vs = 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }';\n  const fs = 'precision mediump float; uniform vec2 u_res; uniform float u_time;' +\n    'void main() { vec2 uv = gl_FragCoord.xy / u_res;' +\n    ' float wave = 0.5 + 0.5 * sin(uv.x * 6.0 + u_time) * cos(uv.y * 4.0 - u_time * 0.7);' +\n    ' vec3 col = mix(vec3(0.99, 0.73, 0.45), vec3(0.76, 0.25, 0.05), wave);' +\n    ' gl_FragColor = vec4(col, 1.0); }';\n  const compile = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };\n  const prog = gl.createProgram();\n  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));\n  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));\n  gl.linkProgram(prog); gl.useProgram(prog);\n  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());\n  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);\n  const loc = gl.getAttribLocation(prog, 'p');\n  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);\n  const res = gl.getUniformLocation(prog, 'u_res'), time = gl.getUniformLocation(prog, 'u_time');\n  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;\n  const draw = (t) => { gl.uniform2f(res, canvas.width, canvas.height); gl.uniform1f(time, still ? 0 : t / 1000); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); if (!still) requestAnimationFrame(draw); };\n  requestAnimationFrame(draw);\n}`}
+/>
+
+## Choosing the medium
+
+| Need | Medium |
+| --- | --- |
+| UI, text, forms, layout | HTML + CSS |
+| Resolution-independent shapes, icons, charts up to a few thousand elements, anything you need to style, query or make accessible | SVG |
+| Many thousands of moving objects, pixel manipulation, image processing | Canvas 2D (in a worker with OffscreenCanvas if heavy) |
+| 3D, shaders, heavy particles, generative backgrounds | WebGL / WebGPU |
+| Designer-authored vector animation with states | Rive or Lottie |
+
+<Try task="Choose a medium for: a stock chart with 50,000 points, a 12-bar bar chart in a report, an animated logo, a photo filter editor, and a 3D product viewer.">
+  50,000-point chart: Canvas (or WebGL), with an accessible summary and data download. 12-bar chart: SVG with a data table. Animated logo: SVG with CSS animation (or Rive if it's interactive and designer-owned). Photo filter editor: Canvas or WebGL shaders. 3D viewer: WebGL via Three.js, with a static image fallback.
+</Try>
