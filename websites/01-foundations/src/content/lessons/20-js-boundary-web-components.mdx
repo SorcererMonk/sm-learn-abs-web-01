@@ -1,0 +1,168 @@
+---
+title: The HTML/CSS ↔ JavaScript Boundary & Web Components
+source: L1-coding-html-css.md
+part: 20
+tier: Core → Deep
+summary: JavaScript flips state and CSS draws it; DOM essentials for styling, observers, UI events, CSS object APIs, web components with shadow DOM, slots, parts and Declarative Shadow DOM, when they win, progressive enhancement, and framework literacy.
+anchors:
+  - "JavaScript should flip state, and CSS should draw it. When JavaScript starts writing `style.top` and `style.opacity` every frame, you have moved design into the least declarative, least accessible, and least performant layer."
+  - "Shadow DOM is a wall with specific doors: inherited properties and custom properties pass through, `::part` opens a window, and everything else stays out. Design the doors deliberately."
+checks:
+  - q: "Build a pointer-follow spotlight effect where JavaScript only writes two custom properties and CSS does everything else."
+    a: "`el.addEventListener('pointermove', (e) => { const r = el.getBoundingClientRect(); el.style.setProperty('--x', e.clientX - r.left + 'px'); el.style.setProperty('--y', e.clientY - r.top + 'px'); })` and in CSS `background: radial-gradient(circle 12rem at var(--x, 50%) var(--y, 50%), rgb(255 255 255 / .2), transparent 70%), var(--surface);`. Keyboard users get a static glow on `:focus-visible`; reduced motion needs nothing because nothing animates on its own."
+  - q: "Build a custom element with shadow DOM, one named slot, two exposed parts, and a custom-property theming API, server-rendered with Declarative Shadow DOM."
+    a: "Server HTML: `<user-card><template shadowrootmode=\"open\"><style>:host { display: block; padding: var(--card-padding, 1rem); } [part=name] { color: var(--card-accent, inherit); }</style><img part=\"avatar\" alt=\"\"><h3 part=\"name\"><slot name=\"name\"></slot></h3><slot></slot></template><span slot=\"name\">Asha</span>Bio text</user-card>`. The shadow root exists before any JavaScript; `customElements.define('user-card', …)` later adds behaviour (and should reuse `this.shadowRoot`). Outside CSS themes it through `--card-accent` and `user-card::part(name)`."
+  - q: "Explain why invalid nesting in a server-rendered template causes a hydration mismatch."
+    a: "The server sends HTML text; the browser's parser repairs invalid nesting (a `<div>` inside a `<p>` closes the paragraph, a `<p>` inside a `<p>` becomes siblings, a table row outside `<tbody>` gets one inserted). The resulting DOM differs from the tree the framework expects from its virtual DOM, so hydration finds unexpected nodes and either throws, warns or re-renders the whole subtree on the client."
+build: "An \"HTML web components\" kit: five components that enhance existing markup (a disclosure-driven nav, a copy button, a table sorter, a tabs upgrade from headings and sections, a lazy video facade), each working without JavaScript, each styled from outside via custom properties and parts."
+steps:
+  - "Write the no-JS HTML for each first (nav links, a code block, a plain table, headings + sections, a link to the video)."
+  - "Wrap each in a custom element that upgrades the existing markup in `connectedCallback`."
+  - "Expose styling via custom properties (and `::part` for any shadow internals)."
+  - "Test each with JavaScript disabled, keyboard only, and a screen reader."
+taste: "Write the HTML that works, the CSS that makes it beautiful, and then the smallest JavaScript that makes it better. Reversing that order is how pages become slow, fragile, and inaccessible."
+quiz:
+  - q: "Which of these crosses a shadow boundary into a component?"
+    options: ["A class selector from the page", "Inherited properties like color, and custom properties", "Nothing at all"]
+    answer: 1
+    why: "Inheritance continues through the shadow boundary; selectors don't."
+  - q: "What does Declarative Shadow DOM enable?"
+    options: ["Shadow roots without a server", "Shadow roots in server-rendered HTML with no JavaScript", "Faster JavaScript"]
+    answer: 1
+    why: "`<template shadowrootmode=\"open\">` is parsed into a shadow root by the HTML parser."
+  - q: "Why is `getBoundingClientRect()` inside a loop that writes styles risky?"
+    options: ["It's deprecated", "Each read after a write forces a synchronous layout (layout thrashing)", "It returns strings"]
+    answer: 1
+    why: "Batch reads before writes (Part 21)."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## The division of labour
+
+**HTML holds structure and state** (attributes like `open`, `aria-expanded`, `hidden`, `data-state`), **CSS reacts** to that state with selectors, and **JavaScript only changes state**. Toggling an attribute, not writing inline styles, keeps the three languages honest: the state is inspectable, accessible and styleable.
+
+<Playground
+  id="p20-division"
+  title="JavaScript flips one attribute; CSS draws everything"
+  task="Compare the two menus. The second one writes styles from JavaScript: find the three things it forgot (ARIA state, focus styles, reduced motion). Then delete its script and style it from `[aria-expanded]` like the first."
+  html={`<nav class="good"><button aria-expanded="false" aria-controls="m1">Menu</button><ul id="m1"><li><a href="#a">Home</a></li><li><a href="#b">About</a></li></ul></nav>\n<nav class="bad"><button id="b2">Menu</button><ul id="m2"><li><a href="#a">Home</a></li><li><a href="#b">About</a></li></ul></nav>`}
+  css={`nav { margin-bottom: 1rem; }\n.good ul { display: grid; gap: .25rem; overflow: hidden; max-block-size: 0; opacity: 0; transition: max-block-size .3s, opacity .3s; }\n.good [aria-expanded="true"] + ul { max-block-size: 10rem; opacity: 1; }\n@media (prefers-reduced-motion: reduce) { .good ul { transition: none; } }\n.bad ul { display: none; }`}
+  js={`const b = document.querySelector('.good button');\nb.addEventListener('click', () => b.setAttribute('aria-expanded', String(b.getAttribute('aria-expanded') !== 'true')));\n// The anti-pattern: design decisions written in JavaScript\ndocument.getElementById('b2').addEventListener('click', () => {\n  const m = document.getElementById('m2');\n  const open = m.style.display === 'grid';\n  m.style.display = open ? 'none' : 'grid';\n  m.style.background = '#fff4ed';\n  m.style.padding = '8px';\n});`}
+/>
+
+## DOM essentials for styling
+
+`querySelector(All)`; `classList.toggle(name, force)`; `dataset`; `setAttribute`/`toggleAttribute`; **`element.style.setProperty('--x', value)`** to pass values (pointer position, scroll progress, measured sizes) into CSS; `getComputedStyle`; `getBoundingClientRect()` (and its layout cost); and **`matchMedia`** with change listeners for media queries in JavaScript.
+
+<Playground
+  id="p20-spotlight"
+  title="A spotlight where JavaScript writes two custom properties"
+  task="Change the glow's size and colour in CSS only. Then use `matchMedia('(pointer: coarse)')` to skip the listener on touch devices."
+  html={`<button class="spot">Move your pointer over me (or focus me)</button>`}
+  css={`.spot { --x: 50%; --y: 50%; width: 100%; height: 10rem; border: 0; border-radius: 1rem; font: 600 1rem system-ui; color: white;\n  background: radial-gradient(circle 10rem at var(--x) var(--y), oklch(0.75 0.15 50 / .45), transparent 70%), #1d1a19; }\n.spot:focus-visible { outline: 3px solid #fdba74; outline-offset: 3px; }`}
+  js={`const spot = document.querySelector('.spot');\nspot.addEventListener('pointermove', (e) => {\n  const r = spot.getBoundingClientRect();\n  spot.style.setProperty('--x', e.clientX - r.left + 'px');\n  spot.style.setProperty('--y', e.clientY - r.top + 'px');\n});`}
+/>
+
+## Observers
+
+The modern replacement for scroll and resize listeners: **`IntersectionObserver`** (lazy loading, reveal animations, active-section navigation), **`ResizeObserver`** (component sizes, now mostly replaced by container queries), and **`MutationObserver`** (react to DOM changes). They're batched and asynchronous, so they don't force layout on every scroll event.
+
+<Playground
+  id="p20-observer"
+  title="Active-section navigation with IntersectionObserver"
+  task="Scroll the preview: the nav highlights the section in view by setting `aria-current`. Change the rootMargin so a section activates when it reaches the top third."
+  html={`<nav class="toc"><a href="#one">One</a><a href="#two">Two</a><a href="#three">Three</a></nav>\n<section id="one"><h2>One</h2></section><section id="two"><h2>Two</h2></section><section id="three"><h2>Three</h2></section>`}
+  css={`.toc { position: sticky; top: 0; display: flex; gap: 1rem; padding: .5rem; background: white; border-bottom: 1px solid #ddd; }\n.toc a[aria-current="true"] { font-weight: 800; color: #c2410c; }\nsection { min-height: 70vh; padding: 1rem; }\nsection:nth-child(odd) { background: #fff4ed; }`}
+  js={`const links = new Map([...document.querySelectorAll('.toc a')].map((a) => [a.hash.slice(1), a]));\nconst io = new IntersectionObserver((entries) => {\n  for (const e of entries) {\n    if (!e.isIntersecting) continue;\n    links.forEach((a) => a.removeAttribute('aria-current'));\n    links.get(e.target.id)?.setAttribute('aria-current', 'true');\n  }\n}, { rootMargin: '-40% 0px -55% 0px' });\ndocument.querySelectorAll('section').forEach((s) => io.observe(s));`}
+/>
+
+## Events relevant to UI
+
+**Pointer events** unify mouse, touch and pen (`pointerdown`, `pointermove`, `pointerup`, `setPointerCapture`); CSS `pointer-events: none` and **`touch-action`** (which gestures the browser handles). Keyboard events and `key` values; focus events (`focusin`/`focusout` bubble); `transitionend`/`animationend`; **`toggle`/`beforetoggle`** for popovers and details; `command` events **[Frontier]**; and **passive listeners** for scroll and touch.
+
+<Playground
+  id="p20-events"
+  title="A draggable chip with pointer capture, touch-action and a toggle listener"
+  task="Drag the chip with mouse or touch; `touch-action: none` stops the page scrolling while you drag. Open the details: the toggle event logs its new state."
+  html={`<div class="track"><span class="chip" tabindex="0">Drag me (or use ← →)</span></div>\n<details id="d"><summary>Toggle me</summary><p>Details content.</p></details>`}
+  css={`.track { position: relative; height: 3rem; background: #f4f1ee; border-radius: 99px; margin-bottom: 1rem; }\n.chip { position: absolute; top: .4rem; left: 0; padding: .4rem .8rem; background: #c2410c; color: white; border-radius: 99px; touch-action: none; cursor: grab; user-select: none; translate: var(--x, 0) 0; }\n.chip:focus-visible { outline: 3px solid #1d1a19; outline-offset: 2px; }`}
+  js={`const chip = document.querySelector('.chip');\nlet x = 0, start = 0;\nconst set = (v) => { x = Math.max(0, Math.min(v, chip.parentElement.clientWidth - chip.offsetWidth)); chip.style.setProperty('--x', x + 'px'); };\nchip.addEventListener('pointerdown', (e) => { chip.setPointerCapture(e.pointerId); start = e.clientX - x; });\nchip.addEventListener('pointermove', (e) => { if (chip.hasPointerCapture(e.pointerId)) set(e.clientX - start); });\nchip.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') set(x + 20); if (e.key === 'ArrowLeft') set(x - 20); });\ndocument.getElementById('d').addEventListener('toggle', (e) => console.log('details is now', e.newState));`}
+/>
+
+## CSS object APIs
+
+**`CSS.supports()`** for feature detection; **`CSS.registerProperty()`** (the JavaScript form of `@property`); the **CSS Typed OM** (`el.attributeStyleMap.set('width', CSS.px(10))`: typed values, no string parsing); **constructable stylesheets** (`new CSSStyleSheet()`, `replaceSync`, `adoptedStyleSheets`: shared styles for many shadow roots); `document.fonts`; `element.animate()` (Part 16); `document.startViewTransition()` (Part 17); and the **Houdini Paint API** (`paint()` worklets: Chromium-only, a curiosity).
+
+<Playground
+  id="p20-cssom"
+  title="Feature detection, typed OM and a constructable stylesheet"
+  task="Read the console. Then adopt the same constructable sheet into a second element's shadow root to see one stylesheet shared by two components."
+  html={`<div id="box">Box</div>\n<div id="host"></div>`}
+  css={`#box { background: #fed7aa; padding: .5rem; }`}
+  js={`console.log('has :has()?', CSS.supports('selector(:has(a))'));\nconsole.log('has anchor positioning?', CSS.supports('anchor-name: --a'));\nconst box = document.getElementById('box');\nif (box.attributeStyleMap) {\n  box.attributeStyleMap.set('width', CSS.px(160));\n  console.log('typed width:', box.attributeStyleMap.get('width').toString());\n}\nconst sheet = new CSSStyleSheet();\nsheet.replaceSync(':host { display: block; margin-top: 1rem; padding: .75rem; border-radius: .5rem; background: #1d1a19; color: white; }');\nconst root = document.getElementById('host').attachShadow({ mode: 'open' });\nroot.adoptedStyleSheets = [sheet];\nroot.innerHTML = 'Styled by an adopted, shareable stylesheet';`}
+/>
+
+## Web components
+
+**Custom elements** (`customElements.define`, lifecycle callbacks, `observedAttributes`), **shadow DOM** (`attachShadow`, open vs closed, style encapsulation both ways), **`<slot>`** and named slots, **Declarative Shadow DOM** (`<template shadowrootmode="open">`) for server rendering without JavaScript. Styling across the boundary: inherited and custom properties pass in; **`::part()`** exposes internals; `::slotted()` styles light-DOM children one level deep; `:host`/`:host()` style the element itself; `exportparts`. Use **`:defined`** to avoid flashes of unstyled components, **`ElementInternals`** for form participation and default ARIA, custom states with **`:state()`**, and scoped custom element registries **[Frontier]**.
+
+<Playground
+  id="p20-wc"
+  title="A server-rendered component: Declarative Shadow DOM, a named slot, parts and a theming API"
+  task="The shadow root exists before any script runs. Theme the card from outside: change `--card-accent`, then restyle `::part(name)`. Toggle the 'online' custom state."
+  html={`<user-card>\n  <template shadowrootmode="open">\n    <style>\n      :host { display: block; max-width: 20rem; padding: var(--card-padding, 1rem); border-radius: 1rem; background: var(--card-bg, #fff4ed); font-family: system-ui; }\n      [part="name"] { margin: 0; color: var(--card-accent, #c2410c); }\n      [part="status"] { font-size: .8rem; color: #78716c; }\n      :host(:state(online)) [part="status"]::before { content: "● "; color: #15803d; }\n    </style>\n    <h3 part="name"><slot name="name">Anonymous</slot></h3>\n    <p part="status">Status</p>\n    <slot></slot>\n  </template>\n  <span slot="name">Asha Rao</span>\n  <p>Designs type systems and writes about CSS.</p>\n</user-card>\n<button id="online">Toggle online</button>`}
+  css={`user-card { --card-accent: #1d4ed8; }\nuser-card::part(status) { text-transform: uppercase; letter-spacing: .05em; }\nuser-card:not(:defined) { opacity: .6; }`}
+  js={`customElements.define('user-card', class extends HTMLElement {\n  #internals = this.attachInternals();\n  toggleOnline() {\n    const s = this.#internals.states;\n    s.has('online') ? s.delete('online') : s.add('online');\n  }\n});\ndocument.getElementById('online').addEventListener('click', () => document.querySelector('user-card').toggleOnline());`}
+/>
+
+## When web components win, and when they're awkward
+
+They **win** for design systems shared across frameworks, long-lived widgets embedded in unknown pages (third-party embeds), and **"HTML web components"** that wrap and enhance existing markup instead of rendering it. They're **awkward** for SSR-heavy apps without Declarative Shadow DOM, for accessibility across shadow boundaries (ID references like `aria-labelledby` can't cross them yet; reference target is **[Frontier]**), and for the boilerplate of form participation.
+
+<Playground
+  id="p20-html-wc"
+  title="An HTML web component: a copy button that enhances existing markup"
+  task="Without JavaScript this is just a code block. The element adds a copy button in connectedCallback, with no shadow DOM. Add a `label` attribute to customise the button text."
+  html={`<copy-code>\n  <pre><code>npm create astro@latest</code></pre>\n</copy-code>`}
+  css={`copy-code { display: flex; gap: .5rem; align-items: center; }\ncopy-code pre { margin: 0; padding: .5rem .75rem; background: #1d1a19; color: #fde68a; border-radius: .5rem; }\ncopy-code button { font: inherit; }`}
+  js={`customElements.define('copy-code', class extends HTMLElement {\n  connectedCallback() {\n    const code = this.querySelector('code');\n    const button = document.createElement('button');\n    button.type = 'button';\n    button.textContent = 'Copy';\n    const status = document.createElement('span');\n    status.setAttribute('role', 'status');\n    button.addEventListener('click', async () => {\n      try { await navigator.clipboard.writeText(code.textContent); status.textContent = 'Copied'; }\n      catch { status.textContent = 'Select the text and press Ctrl+C'; }\n    });\n    this.append(button, status);\n  }\n});`}
+/>
+
+## Progressive enhancement
+
+The HTML works first: links navigate, forms submit, details open. JavaScript upgrades it: fetch instead of a full reload, richer widgets. Feature-detect instead of sniffing browsers. `<noscript>` is rarely needed when the baseline already works.
+
+<Playground
+  id="p20-pe"
+  title="A search form that works without JavaScript and upgrades with it"
+  task="The form is a normal GET form (it would navigate to /search?q=…). The script upgrades it to update results in place. Delete the script: it still works as a form."
+  forms
+  html={`<form action="/search" method="get" id="search">\n  <label for="q">Search recipes</label>\n  <input id="q" name="q" value="dal">\n  <button>Search</button>\n</form>\n<ul id="results" aria-live="polite"></ul>`}
+  css={`form { display: flex; gap: .5rem; align-items: center; }\ninput { font: inherit; padding: .3rem; }`}
+  js={`const recipes = ['Dal tadka', 'Dal makhani', 'Masala dosa', 'Chana masala', 'Palak paneer'];\nconst form = document.getElementById('search');\nform.addEventListener('submit', (e) => {\n  e.preventDefault(); // enhanced path: no reload\n  const q = new FormData(form).get('q').toLowerCase();\n  const hits = recipes.filter((r) => r.toLowerCase().includes(q));\n  document.getElementById('results').innerHTML = hits.map((r) => '<li>' + r + '</li>').join('') || '<li>No matches</li>';\n  // on a real site: history.replaceState(null, '', '?q=' + encodeURIComponent(q)) keeps the URL shareable\n});`}
+/>
+
+## Framework literacy for markup authors
+
+JSX and templates compile to DOM operations. Frameworks warn about **keys** because list identity decides whether elements are moved or recreated (focus and state follow). **`dangerouslySetInnerHTML`** is an XSS risk (Part 25). **Hydration mismatches** come from markup that differs between server and client: dates and times, random IDs, `typeof window` branches, and **invalid nesting the parser rewrites**.
+
+```tsx
+// Hydration mismatch: the parser moves the <div> out of the <p> on the server HTML
+export function Price({ amount }: { amount: number }) {
+  return (
+    <p>
+      Total: <div className="big">{amount}</div>   {/* invalid: <div> in <p> */}
+    </p>
+  );
+}
+
+// Also mismatches: different output on server and client
+const id = Math.random().toString(36);           // use React's useId() instead
+const now = new Date().toLocaleTimeString();     // render on the client, or pass the server time down
+```
+
+<Try task="View source on a React or Vue app and compare it with the Elements panel after load. Find one place where the parser or hydration changed the DOM (hint: search the source for a <div> or <p> inside a <p>, or a <tr> directly in a <table>).">
+  The server HTML text is parsed by the browser's HTML parser, which fixes invalid nesting: `<p>…<div>` closes the paragraph early, and `<table><tr>` gets a `<tbody>` inserted. The DOM no longer matches the framework's expected tree, so hydration warns ("did not match") and may re-render. The fix is valid nesting: `<span>` inside `<p>`, explicit `<tbody>`.
+</Try>

@@ -1,0 +1,230 @@
+---
+title: CSS Architecture, Design Tokens & Design Systems
+source: L1-coding-html-css.md
+part: 19
+tier: Deep
+summary: Why CSS gets hard at scale, methodologies from OOCSS to CUBE, utility-first, scoping approaches, pre- and postprocessors, the modern native architecture, design tokens, theming, component APIs, design systems as products, headless UI, systems worth studying, maintenance and framework styling.
+anchors:
+  - "Tokens are the contract between design and code. When the Figma variable, the CSS custom property, and the native app constant share a name and a value, \"design drift\" becomes a build error instead of a meeting."
+  - "Every CSS methodology is a strategy for the same three problems: scope (what does this rule touch?), specificity (who wins?), and order (who comes later?). Native CSS now has a direct answer to each: `@scope`, `:where()`, and `@layer`."
+checks:
+  - q: "Explain the ITCSS triangle and map it onto a `@layer` declaration."
+    a: "ITCSS orders CSS from broad, low-specificity, far-reaching rules to narrow, high-specificity, local ones: Settings (variables) → Tools (mixins) → Generic (resets) → Elements (bare HTML) → Objects (layout patterns) → Components → Utilities (overrides). Settings and tools produce no CSS in native terms, so: `@layer reset, tokens, base, layout, components, utilities;` where tokens are custom properties, base styles bare elements, layout holds the objects/primitives. This site's order is `reset, tokens, base, layout, components, motion, site, demos, print`."
+  - q: "Design a three-tier token set for colour, space, and type, with light and dark modes, in DTCG JSON, and build it to CSS with Style Dictionary."
+    a: "Primitives: `color.orange.600`, `color.stone.50/900`, `space.1…8` (a 4px-based or geometric scale), `font.size.0…5`. Semantic: `color.action` → `{color.orange.600}` (dark: `{color.orange.300}`), `color.surface`, `color.text`, `space.stack.m` → `{space.4}`, `text.body` → `{font.size.0}`. Component: `button.bg` → `{color.action}`, `card.padding` → `{space.stack.m}`. Style Dictionary (or this site's own pipeline, try it in the token lab) emits `--color-action: light-dark(var(--color-orange-600), var(--color-orange-300));` etc."
+  - q: "Refactor a BEM component to use `@scope` and custom-property APIs, and compare the result."
+    a: "BEM: `.card`, `.card__title`, `.card__body`, `.card--featured` with rules for each. Scoped: `@scope (.card) to (.card__slot) { :scope { padding: var(--card-padding, 1rem); background: var(--card-bg, white); } h3 { … } p { … } }` and `.card[data-variant=featured] { --card-bg: var(--color-accent-subtle); }`. Class names shrink to the root, children are styled by element inside the scope, the donut protects slotted content, and variants become custom-property changes rather than new selectors."
+  - q: "Argue for and against Tailwind for a specific team and product, with concrete costs."
+    a: "For: a product team of 6 building a SaaS dashboard with a component library: consistent scale out of the box, no naming debates, styles co-located with markup, dead CSS eliminated automatically, v4 is CSS-first with native layers. Against: a content-heavy marketing site edited by designers, or a design system shared across frameworks: long class strings hide intent, variants need a component layer anyway, designers can't read or tweak it easily, and theming beyond tokens needs escape hatches. Costs to name: onboarding time, markup verbosity, the component abstraction you must build to avoid duplication."
+build: "A design system from scratch: tokens in DTCG format → CSS custom properties (light, dark, and a second brand), a layered native CSS architecture, 25 accessible components on native elements with ARIA-driven state styling, a documentation site with live examples, visual regression and axe tests, a Figma library whose variables match the tokens, and a versioned package release."
+steps:
+  - "Tokens in DTCG JSON with three tiers and two modes, plus a second brand."
+  - "A build step to CSS custom properties (Style Dictionary or a small script like this site's)."
+  - "Layers: reset, tokens, base, layout, components, utilities."
+  - "25 components on native elements; state from ARIA attributes and pseudo-classes."
+  - "Docs site with live examples; axe and visual regression tests in CI."
+  - "Figma variables named exactly like the tokens; publish a versioned package."
+taste: "A design system's quality is measured by what teams *don't* have to decide. Make the right thing the easy thing (good defaults, few knobs, excellent docs) and resist adding every variant someone asks for."
+quiz:
+  - q: "In BEM, what does `card__title--large` mean?"
+    options: ["A block called title", "The title element of the card block, in its large modifier", "A utility class"]
+    answer: 1
+    why: "block__element--modifier: flat, single-class specificity through naming."
+  - q: "Which native feature is the descendant of ITCSS's ordering idea?"
+    options: ["`@scope`", "`@layer`", "`@container`"]
+    answer: 1
+    why: "Layers make the order of CSS explicit and independent of specificity."
+  - q: "A semantic token is…"
+    options: ["A raw value like blue-600", "A value with a job, like color-action-primary", "A component's padding"]
+    answer: 1
+    why: "Primitive → semantic → component: semantic tokens name purpose, so themes can remap them."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import TokenLab from '@learn/shared/components/demos/TokenLab.astro';
+
+## Why CSS gets hard at scale
+
+A **global namespace**, **specificity escalation** (each fix a little more specific than the last), **ordering dependencies** (it works because this file loads later), **dead code** nobody dares delete, **inconsistent values** ("47 shades of grey") and components that **break when moved**. Every methodology answers some subset of these.
+
+<Playground
+  id="p19-scale"
+  title="A tiny codebase that already has every problem"
+  task="Find the specificity war, the ordering dependency, the magic numbers and the inconsistent greys. Then fix it with layers, one class per component and tokens."
+  html={`<div id="sidebar"><div class="card"><h3 class="title">Card</h3><p>Text</p></div></div>\n<div class="card promo"><h3 class="title">Promo</h3><p>Text</p></div>`}
+  css={`#sidebar .card .title { color: #333; }\n.card .title { color: #444; margin-top: 13px; }\n.promo .title { color: #c2410c !important; }\n.card { border: 1px solid #ccc; padding: 11px; color: #555; }\n.card { border-color: #cdcdcd; }\n#sidebar .card { padding: 9px; }`}
+  solution={{ css: `@layer tokens, components, variants;\n@layer tokens { :root { --grey-700: #44403c; --grey-300: #d6d3d1; --space-s: .75rem; --accent: #c2410c; } }\n@layer components {\n  .card { border: 1px solid var(--grey-300); padding: var(--space-s); color: var(--grey-700); --title-color: var(--grey-700); }\n  .card .title { color: var(--title-color); margin: 0 0 var(--space-s); }\n}\n@layer variants { .card.promo { --title-color: var(--accent); } }` }}
+/>
+
+## Methodologies, and what survives
+
+**OOCSS** (separate structure from skin, container from content), **SMACSS** (base, layout, module, state, theme), **BEM** (`block__element--modifier`: flat specificity through naming), **ITCSS** (an inverted triangle ordered by specificity and reach: settings → tools → generic → elements → objects → components → utilities, the ancestor of `@layer`), SUIT CSS, **Atomic/Functional CSS**, and **CUBE CSS** (Composition, Utility, Block, Exception: embrace the cascade, use layout primitives, keep blocks small). What survives: flat specificity, ordering by reach, layout primitives, and small components.
+
+<Playground
+  id="p19-cube"
+  title="CUBE CSS: composition, utility, block, exception"
+  task="Add an exception for a card that's out of stock using a data attribute, not a new class, and without raising specificity."
+  html={`<ul class="auto-grid" role="list">\n  <li class="card flow" data-state="in-stock"><h3>Lamp</h3><p class="text-muted">₹2,400</p></li>\n  <li class="card flow" data-state="out-of-stock"><h3>Chair</h3><p class="text-muted">₹7,900</p></li>\n</ul>`}
+  css={`/* Composition */\n.auto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; list-style: none; padding: 0; }\n.flow > * + * { margin-block-start: .5rem; }\n/* Utility */\n.text-muted { color: #78716c; }\n/* Block */\n.card { padding: 1rem; border-radius: .75rem; background: #fff4ed; }\n.card h3 { margin: 0; }\n/* Exception */`}
+  solution={{ css: `.auto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; list-style: none; padding: 0; }\n.flow > * + * { margin-block-start: .5rem; }\n.text-muted { color: #78716c; }\n.card { padding: 1rem; border-radius: .75rem; background: #fff4ed; }\n.card h3 { margin: 0; }\n.card[data-state="out-of-stock"] { opacity: .55; background: #f4f1ee; }` }}
+/>
+
+## Utility-first CSS
+
+**Tailwind's model**: atomic classes composed in markup, a token-driven scale, unused styles removed at build, and in v4 a CSS-first config (`@theme`) with native cascade layers. Trade-offs: co-location and consistency vs verbose markup and abstraction pushed into components. `@apply` is usually a smell (you've recreated a component class). A core skill: **reading Tailwind as CSS**.
+
+```html
+<!-- Tailwind -->
+<button class="inline-flex items-center gap-2 rounded-lg bg-orange-700 px-4 py-2 font-semibold text-white hover:bg-orange-800 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
+  Save
+</button>
+```
+
+```css
+/* The same, read as CSS */
+.button {
+  display: inline-flex; align-items: center; gap: .5rem;
+  border-radius: .5rem; background: var(--color-orange-700);
+  padding: .5rem 1rem; font-weight: 600; color: white;
+}
+.button:hover { background: var(--color-orange-800); }
+.button:focus-visible { outline: 2px solid; outline-offset: 2px; }
+.button:disabled { opacity: .5; }
+```
+
+<Try task="Translate this Tailwind class list into plain CSS: `grid grid-cols-1 gap-6 md:grid-cols-3 max-w-5xl mx-auto px-4 text-balance`.">
+  `.x { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1.5rem; max-width: 64rem; margin-inline: auto; padding-inline: 1rem; text-wrap: balance; } @media (width >= 48rem) { .x { grid-template-columns: repeat(3, minmax(0, 1fr)); } }`. Note Tailwind's `grid-cols-*` uses `minmax(0, 1fr)`: it already avoids the 1fr trap from Part 12.
+</Try>
+
+## Scoping approaches
+
+Naming conventions (BEM); **CSS Modules** (build-time hashed class names); **runtime CSS-in-JS** (styled-components, Emotion: flexible, with runtime cost and Server Component friction) vs **zero-runtime** (vanilla-extract, Linaria, Panda CSS, StyleX: typed and extracted at build time); framework-scoped styles (Vue, Svelte, **Astro**: this site's demos use Astro's scoped styles); **shadow DOM**; and native **`@scope`**. Choose by team, framework and performance needs.
+
+<Playground
+  id="p19-scoping"
+  title="Three ways to stop .title leaking: BEM, scoped attribute, @scope"
+  task="All three cards style a `.title`. Add a global `.title { color: red }` at the end: which ones are affected, and why?"
+  html={`<article class="card-bem"><h3 class="card-bem__title">BEM</h3></article>\n<article class="card-hash" data-s-x7f2><h3 class="title" data-s-x7f2>Hashed (like Astro/CSS Modules)</h3></article>\n<article class="card-scope"><h3 class="title">@scope</h3></article>`}
+  css={`.card-bem__title { color: #15803d; }\n.title[data-s-x7f2] { color: #1d4ed8; }\n@scope (.card-scope) { .title { color: #7c3aed; } }\narticle { padding: .5rem 1rem; border: 1px solid #ddd; margin-bottom: .5rem; }`}
+/>
+
+## Preprocessors and postprocessors
+
+**Sass** is still widely used (modules with `@use`, mixins, functions, maps), though much of it is native now (variables → custom properties, nesting, `color-mix()`, math functions). Less is legacy. **PostCSS** runs plugins (autoprefixer, custom transforms). **Lightning CSS** transforms, minifies and lowers modern syntax for older browsers, fast. Decide what still needs a build step: often only bundling, minification and syntax lowering.
+
+```scss
+// Sass that native CSS now covers
+$brand: #c2410c;                          // → --brand: #c2410c;
+.card { &:hover { color: darken($brand, 10%); } }   // → nesting + oklch(from var(--brand) calc(l - .1) c h)
+@mixin stack($space) { > * + * { margin-top: $space; } }  // → a .stack class with --space
+.grid { width: math.div(100%, 3); }       // → calc(100% / 3)
+// Still Sass-only: loops generating many classes, maps, compile-time functions
+```
+
+<Try task="Take a Sass file you know (or any open-source one) and mark each feature as 'native now', 'native soon' or 'still needs Sass'.">
+  Variables, nesting, colour functions and arithmetic are native now. Mixins are partly native via custom properties and `@function` **[Frontier]** for values; loops (`@each` generating utility classes) and maps still need Sass or a script. Most modern codebases keep a build step only for bundling, minification, and lowering new syntax for older browsers (Lightning CSS).
+</Try>
+
+## The modern native architecture
+
+Zero dependencies: **`@layer`** for ordering (reset, tokens, base, layout primitives, components, utilities, overrides), **custom properties** for tokens and component APIs, **`@scope`** or conventions for component boundaries, **nesting** for readability, **container queries** for component responsiveness, and **`:where()`** for low-specificity defaults. This site is built this way: `@layer reset, tokens, base, layout, components, motion, site, demos, print`.
+
+<Playground
+  id="p19-native"
+  title="A complete native architecture in one stylesheet"
+  task="Add a `utilities` layer with `.visually-hidden` and a `.text-center`, and prove a utility beats a component rule without !important."
+  html={`<article class="card" data-variant="featured"><h3>Native architecture</h3><p class="text-center">Layers, tokens, scope, nesting, :where().</p></article>`}
+  css={`@layer reset, tokens, base, components;\n@layer reset { *, *::before, *::after { box-sizing: border-box; } * { margin: 0; } }\n@layer tokens { :root { --accent: oklch(0.55 0.18 40); --surface: oklch(0.97 0.01 60); --space: 1rem; } }\n@layer base { :where(body) { font: 1rem/1.5 system-ui; padding: var(--space); } :where(h3) { font-size: 1.25rem; } }\n@layer components {\n  @scope (.card) {\n    :scope { padding: var(--card-padding, var(--space)); background: var(--card-bg, var(--surface)); border-radius: .75rem; }\n    :scope[data-variant="featured"] { --card-bg: oklch(from var(--accent) 0.94 0.04 h); }\n    h3 { color: var(--accent); }\n    p { text-align: start; }\n  }\n}`}
+/>
+
+## Design tokens
+
+Design decisions as **data**: colour, type, space, radius, shadow, motion, z-index, breakpoints. **Tiers**: primitive/reference tokens (`blue-600`) → semantic/system tokens (`color-action-primary`) → component tokens (`button-bg`). The **W3C Design Tokens Community Group format** (JSON with `$value`, `$type` and `{aliases}`). Pipelines (**Style Dictionary**, Tokens Studio, Figma variables export) turn tokens into CSS custom properties, iOS and Android constants, per mode (light/dark, brands, density). This site's tokens live in one DTCG file compiled by a small pipeline; the lab below runs that same pipeline in your browser.
+
+<TokenLab />
+
+## Theming
+
+Swap tokens per `[data-theme]` or a `:root` class; **`light-dark()`** for colour schemes; multi-brand white-labelling (a different primitive set behind the same semantic names); **user-customisable themes** (an accent picker feeding relative colour); **density modes** (compact/comfortable); and no flash of the wrong theme (a blocking inline script reading a cookie or localStorage before first paint, as this site does).
+
+<Playground
+  id="p19-theming"
+  title="Brands, density and a user accent from the same semantic tokens"
+  task="Switch brand and density. Pick a custom accent: every derived colour follows via relative colour syntax."
+  html={`<div class="app" data-brand="sunrise" data-density="comfortable">\n  <label>Brand <select id="brand"><option>sunrise</option><option>ocean</option></select></label>\n  <label>Density <select id="density"><option>comfortable</option><option>compact</option></select></label>\n  <label>Accent <input type="color" id="accent" value="#c2410c"></label>\n  <ul class="list"><li>Inbox</li><li>Drafts</li><li>Sent</li></ul>\n  <button class="primary">Compose</button>\n</div>`}
+  css={`[data-brand="sunrise"] { --accent: #c2410c; --surface: oklch(0.98 0.01 60); --font: Georgia, serif; }\n[data-brand="ocean"] { --accent: #0369a1; --surface: oklch(0.98 0.01 230); --font: system-ui, sans-serif; }\n[data-density="comfortable"] { --pad: .75rem; }\n[data-density="compact"] { --pad: .25rem; }\n.app { background: var(--surface); padding: 1rem; font-family: var(--font); display: grid; gap: .5rem; }\n.list { list-style: none; padding: 0; }\n.list li { padding: var(--pad) .5rem; border-bottom: 1px solid oklch(from var(--accent) 0.9 0.03 h); }\n.primary { background: var(--accent); color: white; border: 0; padding: var(--pad) 1rem; border-radius: .5rem; justify-self: start; }\n.primary:hover { background: oklch(from var(--accent) calc(l - .08) c h); }`}
+  js={`const app = document.querySelector('.app');\ndocument.getElementById('brand').addEventListener('change', (e) => { app.dataset.brand = e.target.value; app.style.removeProperty('--accent'); });\ndocument.getElementById('density').addEventListener('change', (e) => (app.dataset.density = e.target.value));\ndocument.getElementById('accent').addEventListener('input', (e) => app.style.setProperty('--accent', e.target.value));`}
+/>
+
+## Component API design in CSS
+
+Variants (`data-variant`, classes or props), sizes, **states driven by ARIA attributes and pseudo-classes**, **custom properties as the public styling API** (`--button-padding`), sensible defaults via `:where()`, composition over configuration, slots for content, and resilience rules: no fixed heights, no magic numbers, logical properties, intrinsic sizing.
+
+<Playground
+  id="p19-api"
+  title="A button whose public API is data attributes and custom properties"
+  task='Add a `data-size="lg"` variant by only setting custom properties. Then override `--button-radius` from outside for one instance.'
+  html={`<button class="button">Default</button>\n<button class="button" data-variant="ghost">Ghost</button>\n<button class="button" data-size="sm">Small</button>\n<button class="button" aria-pressed="true">Toggled</button>\n<button class="button" disabled>Disabled</button>`}
+  css={`:where(.button) {\n  --button-bg: #1d1a19; --button-fg: white; --button-pad-y: .6rem; --button-pad-x: 1rem; --button-radius: .6rem;\n  font: 600 1rem system-ui; padding: var(--button-pad-y) var(--button-pad-x); border-radius: var(--button-radius);\n  border: 2px solid var(--button-bg); background: var(--button-bg); color: var(--button-fg); margin: .25rem;\n}\n:where(.button)[data-variant="ghost"] { --button-fg: #1d1a19; background: transparent; }\n:where(.button)[data-size="sm"] { --button-pad-y: .3rem; --button-pad-x: .6rem; font-size: .85rem; }\n:where(.button)[aria-pressed="true"] { --button-bg: #c2410c; }\n:where(.button):disabled { opacity: .5; }`}
+/>
+
+## Design systems as products
+
+**Foundations** (tokens, type, colour, grid, motion, iconography), **components**, **patterns** (forms, navigation, empty states), content guidelines, **accessibility guarantees per component**, documentation (Storybook, Zeroheight, custom docs sites), contribution and governance models, versioning and deprecation, adoption metrics, and **design–code parity** (Figma components mirrored by code components, Code Connect).
+
+<Try task="Write a one-page component spec for a Toast: purpose, anatomy, variants, states, tokens used, accessibility guarantees, do/don't, and its version and deprecation policy.">
+  Purpose: brief, non-blocking status after an action. Anatomy: icon, message, optional action, close. Variants: info, success, error. States: entering, visible, paused on hover/focus, exiting. Tokens: `toast.bg`, `toast.radius`, motion `enter`/`exit`. Accessibility: rendered into a pre-existing `role="status"` region (errors: `role="alert"`), never auto-dismissed while focused, at least 5 s, dismissible by keyboard, no essential info only in a toast. Don't: stack more than 3, use for errors that need action. Versioning: semver, deprecated props warned for one minor version.
+</Try>
+
+## Headless and composable UI
+
+**Headless behaviour libraries** (Radix Primitives, React Aria, Ark UI, Headless UI, Base UI) provide keyboard, focus and ARIA behaviour while you own the styling. The **shadcn/ui model** copies component source into your codebase so you own it. Choose between a full component library (fast, generic look), a headless library (behaviour solved, look yours) and building on native elements (smallest, when the platform covers it).
+
+<Try task="For each of these, choose native, headless or full library, and justify: a date picker, a combobox with async search, a disclosure, a modal dialog, a data grid with virtualisation.">
+  Date picker: headless (React Aria's calendar) unless `<input type="date">` is acceptable. Async combobox: headless (hard keyboard and ARIA contract). Disclosure: native `<details>`. Modal: native `<dialog>` with `showModal()`. Data grid with virtualisation: a full library (TanStack Table + a virtualiser, or AG Grid): behaviour and performance are the product.
+</Try>
+
+## Design systems worth studying
+
+Read their docs *and* their CSS: **GOV.UK Design System** (accessibility and research-driven patterns), **Material Design 3** (tokens, motion, dynamic colour), **Apple Human Interface Guidelines**, **IBM Carbon**, **Shopify Polaris**, **GitHub Primer**, Atlassian, Adobe Spectrum, Salesforce Lightning, **Radix Themes**, **Open Props** (tokens as custom properties) and **Pico/classless CSS** (styling semantic HTML directly).
+
+<Try task="Pick two systems from the list. For the same component (a button or text input), compare: token names, number of variants, how states are expressed in CSS, and their accessibility notes.">
+  E.g. GOV.UK's button has few variants (default, secondary, warning, start), explicit research notes and a tall focus style using a yellow background; Primer's has many sizes and variants driven by data attributes and CSS variables like `--button-primary-bgColor-rest`. GOV.UK optimises for clarity with minimal choice; Primer for product breadth. Both style state from pseudo-classes and ARIA rather than extra classes.
+</Try>
+
+## Maintaining CSS
+
+Dead-code detection (DevTools Coverage, PurgeCSS-style analysis), **CSS stats** (unique colours, font sizes, a specificity graph), **visual regression tests** as a refactoring safety net, **Stylelint** rules that enforce the architecture (no IDs, maximum nesting, token-only values), and deprecation paths.
+
+<Playground
+  id="p19-stats"
+  title="CSS stats for any stylesheet"
+  task="Paste some real CSS into the style block and read the report: how many unique colours and font sizes? Which selector has the highest specificity?"
+  html={`<pre id="report">Analysing…</pre>`}
+  css={`.a { color: #333; font-size: 14px; }\n.b { color: #333333; font-size: 15px; }\n#nav .item a:hover { color: rgb(51, 51, 51); font-size: 14px; }\n.c { color: #444; font-size: 13px; }\n.d .e .f { color: #c2410c; }`}
+  js={`const rules = [...document.styleSheets].flatMap((s) => { try { return [...s.cssRules]; } catch { return []; } }).filter((r) => r.selectorText);\nconst colours = new Set(), sizes = new Set();\nconst probe = document.createElement('i'); document.body.append(probe);\nfor (const r of rules) {\n  if (r.style.color) { probe.style.color = r.style.color; colours.add(getComputedStyle(probe).color); }\n  if (r.style.fontSize) sizes.add(r.style.fontSize);\n}\nconst spec = (sel) => [(sel.match(/#[\\w-]+/g) || []).length, (sel.match(/(\\.[\\w-]+|\\[[^\\]]+\\]|:(?!:)[\\w-]+)/g) || []).length, (sel.match(/(^|[\\s>+~])[a-z]+/gi) || []).length];\nconst top = rules.map((r) => [r.selectorText, spec(r.selectorText)]).sort((a, b) => b[1][0] - a[1][0] || b[1][1] - a[1][1] || b[1][2] - a[1][2])[0];\ndocument.getElementById('report').textContent = 'Rules: ' + rules.length + '\\nUnique colours (normalised): ' + colours.size + ' ' + [...colours].join(', ') + '\\nUnique font sizes: ' + sizes.size + ' ' + [...sizes].join(', ') + '\\nMost specific: ' + top[0] + ' (' + top[1].join(',') + ')';`}
+/>
+
+## Styling in frameworks
+
+**JSX** differences (`className`, `htmlFor`, style objects with camelCase and numbers as px, boolean attributes); **React 19** stylesheet precedence and hoisting (`<link rel="stylesheet" precedence="default">`); Vue and Svelte scoped styles and `:global`; **Astro's** scoped styles and islands (this site); and Server Components' preference for static, extractable CSS over runtime CSS-in-JS.
+
+```tsx
+// React 19: the stylesheet is hoisted into <head>, deduplicated and ordered by precedence
+export function Chart() {
+  return (
+    <>
+      <link rel="stylesheet" href="/chart.css" precedence="default" />
+      <figure className="chart" style={{ '--bars': 12, aspectRatio: '16 / 9' } as React.CSSProperties}>
+        <label htmlFor="range">Range</label>
+        <input id="range" type="range" disabled={false} />
+      </figure>
+    </>
+  );
+}
+```
+
+<Try task='Convert this HTML to valid JSX: `<label for="q" class="sr-only">Search</label><input id="q" autofocus style="margin-top: 4px; --gap: 1rem">`.'>
+  `<label htmlFor="q" className="sr-only">Search</label><input id="q" autoFocus style={{ marginTop: 4, '--gap': '1rem' } as React.CSSProperties} />`: `for` → `htmlFor`, `class` → `className`, camelCased attributes, a style object with camelCase properties, numbers as px, custom properties as string keys, and self-closing void elements.
+</Try>

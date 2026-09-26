@@ -120,6 +120,10 @@ pre {
   border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
 }
+/* short tokens (marked at build time) never split at their hyphens */
+:not(pre) > code.nowrap {
+  white-space: nowrap;
+}
 
 kbd {
   border: 1px solid var(--color-border-strong);

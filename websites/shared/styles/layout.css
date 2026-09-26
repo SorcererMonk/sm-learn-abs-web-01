@@ -67,6 +67,8 @@
 .switcher > * {
   flex-grow: 1;
   flex-basis: calc((var(--switcher-threshold, 40rem) - 100%) * 999);
+  /* let long content (code, URLs) scroll inside instead of widening the item */
+  min-inline-size: 0;
 }
 
 /* Cover: vertically centred principal element with optional header/footer. */

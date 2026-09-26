@@ -1,0 +1,182 @@
+---
+/**
+ * The squint and greyscale tests: blur and desaturate a screen to see its hierarchy as value
+ * and mass. Two versions of the same card, one shouting and one de-emphasising.
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+---
+
+<Demo title="Squint test: what do you see first?">
+  <div class="stack" data-squint>
+    <div class="controls">
+      <Control id="sq-blur" label="Squint (blur)" min={0} max={8} step={0.5} value={0} unit="px" />
+      <label class="control sq-check" for="sq-grey">
+        <input type="checkbox" id="sq-grey" />
+        <span>Greyscale</span>
+      </label>
+    </div>
+    <div class="sq-pair" data-sq-stage>
+      <article class="sq-card sq-shout">
+        <p class="sq-eyebrow">NEW PLAN!!</p>
+        <h4>Team plan</h4>
+        <p class="sq-price">
+          ₹2,400 <span>/ month</span>
+        </p>
+        <ul>
+          <li>Unlimited projects</li>
+          <li>Priority support</li>
+          <li>SSO and audit logs</li>
+        </ul>
+        <div class="sq-actions">
+          <span class="sq-btn">Start trial</span>
+          <span class="sq-btn sq-btn--alt">Compare plans</span>
+          <span class="sq-btn sq-btn--alt2">Contact sales</span>
+        </div>
+      </article>
+      <article class="sq-card sq-calm">
+        <p class="sq-eyebrow">Most popular</p>
+        <h4>Team plan</h4>
+        <p class="sq-price">
+          ₹2,400 <span>/ month</span>
+        </p>
+        <ul>
+          <li>Unlimited projects</li>
+          <li>Priority support</li>
+          <li>SSO and audit logs</li>
+        </ul>
+        <div class="sq-actions">
+          <span class="sq-btn">Start trial</span>
+          <span class="sq-link">Compare plans</span>
+        </div>
+      </article>
+    </div>
+  </div>
+  <p slot="note">
+    Blurred and grey, the left card is a uniform buzz: everything competes. The right card shows one
+    heavy price and one dark button, because the secondary content was de-emphasised rather than the
+    primary made louder.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-squint]').forEach((root) => {
+    const stage = need<HTMLElement>(root, '[data-sq-stage]');
+    bindControls(root, () => {
+      const grey = need<HTMLInputElement>(root, '#sq-grey').checked;
+      stage.style.filter = `blur(${num(root, '#sq-blur')}px)${grey ? ' grayscale(1)' : ''}`;
+    });
+  });
+</script>
+
+<style>
+  .sq-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--space-s);
+    padding: var(--space-xs);
+    background: #f5f2ef;
+    border-radius: var(--radius-md);
+    color: #1d1a19;
+  }
+  .sq-card {
+    padding: 1.25rem;
+    border-radius: 1rem;
+    background: #fff;
+  }
+  .sq-card ul {
+    padding-inline-start: 1.1rem;
+    margin-block: 0.75rem;
+  }
+  .sq-card h4 {
+    margin: 0;
+  }
+  .sq-eyebrow {
+    margin: 0;
+    font-size: 0.75rem;
+  }
+  .sq-price span {
+    font-size: 0.85rem;
+  }
+  .sq-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .sq-btn {
+    padding: 0.5rem 0.9rem;
+    border-radius: 0.5rem;
+    background: #1d1a19;
+    color: #fff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .sq-shout {
+    border: 3px solid #1d4ed8;
+  }
+  .sq-shout .sq-eyebrow {
+    color: #b91c1c;
+    font-weight: 800;
+  }
+  .sq-shout h4 {
+    color: #1d4ed8;
+    font-size: 1.5rem;
+    font-weight: 800;
+  }
+  .sq-shout .sq-price {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #15803d;
+  }
+  .sq-shout li {
+    font-weight: 700;
+  }
+  .sq-shout .sq-btn--alt {
+    background: #1d4ed8;
+  }
+  .sq-shout .sq-btn--alt2 {
+    background: #b91c1c;
+  }
+  .sq-calm {
+    box-shadow:
+      0 1px 2px rgb(29 26 25 / 0.08),
+      0 8px 24px rgb(29 26 25 / 0.08);
+  }
+  .sq-calm .sq-eyebrow {
+    color: #9a3412;
+    font-weight: 600;
+  }
+  .sq-calm h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #57534e;
+  }
+  .sq-calm .sq-price {
+    font-size: 2.25rem;
+    font-weight: 750;
+    margin-block: 0.25rem;
+  }
+  .sq-calm .sq-price span {
+    color: #78716c;
+    font-weight: 400;
+  }
+  .sq-calm li {
+    color: #57534e;
+  }
+  .sq-link {
+    color: #57534e;
+  }
+  .sq-check {
+    display: flex;
+    gap: var(--space-2xs);
+    align-items: center;
+  }
+  @media (forced-colors: active) {
+    .sq-pair {
+      forced-color-adjust: none;
+    }
+  }
+</style>

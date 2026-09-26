@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { escapeHtml, safeUrl } from '../lib/escape.ts';
 import { renderInline, stripInline } from '../lib/inline-md.ts';
+import { rehypeShortCode } from '../lib/rehype-short-code.ts';
 import { hashId, parseBlocks, parseCurriculum, topicLead } from '../lib/md-source.ts';
 import { renderBlocks, renderDojo } from '../lib/render-md.ts';
 import { renderQuiz } from '../lib/render-quiz.ts';
@@ -27,14 +28,20 @@ describe('escaping', () => {
 describe('inline markdown', () => {
   it('renders code, bold and italic, and escapes everything else', () => {
     expect(renderInline('**Bold** and *em* with `<div>`')).toBe(
-      '<strong>Bold</strong> and <em>em</em> with <code>&lt;div&gt;</code>',
+      '<strong>Bold</strong> and <em>em</em> with <code class="nowrap">&lt;div&gt;</code>',
     );
   });
   it('never renders raw HTML from source text', () => {
     expect(renderInline('<img src=x onerror=alert(1)>')).not.toContain('<img');
   });
   it('does not treat asterisks inside code as emphasis', () => {
-    expect(renderInline('`a * b * c`')).toBe('<code>a * b * c</code>');
+    expect(renderInline('`a * b * c`')).toBe('<code class="nowrap">a * b * c</code>');
+  });
+  it('keeps short code unbroken but lets long code wrap', () => {
+    expect(renderInline('`--card-accent`')).toContain('class="nowrap"');
+    expect(renderInline('`repeat(auto-fill, minmax(min(100%, 16rem), 1fr))`')).toBe(
+      '<code>repeat(auto-fill, minmax(min(100%, 16rem), 1fr))</code>',
+    );
   });
   it('makes safe links only', () => {
     expect(renderInline('[x](javascript:alert(1))')).toContain('href="#"');
@@ -121,5 +128,28 @@ describe('quiz and playground renderers', () => {
     const out = renderPlayground({ id: 'p', title: 'T', html: '<form></form>', forms: true });
     expect(out).toContain('sandbox="allow-scripts allow-forms"');
     expect(out).not.toContain('allow-same-origin');
+  });
+});
+
+describe('rehypeShortCode', () => {
+  it('marks short inline code but not code blocks or long snippets', () => {
+    const code = (value: string) => ({
+      type: 'element',
+      tagName: 'code',
+      properties: {},
+      children: [{ type: 'text', value }],
+    });
+    const tree = {
+      type: 'root',
+      children: [
+        { type: 'element', tagName: 'p', children: [code('--x'), code('x'.repeat(40))] },
+        { type: 'element', tagName: 'pre', children: [code('short')] },
+      ],
+    };
+    rehypeShortCode()(tree);
+    const [p, pre] = tree.children as { children: { properties: { className?: string[] } }[] }[];
+    expect(p?.children[0]?.properties.className).toEqual(['nowrap']);
+    expect(p?.children[1]?.properties.className).toBeUndefined();
+    expect(pre?.children[0]?.properties.className).toBeUndefined();
   });
 });

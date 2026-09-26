@@ -3,6 +3,7 @@
  * *italic*, [links](url). Everything else is escaped, so source text can never inject markup.
  */
 import { escapeHtml, safeUrl } from './escape.ts';
+import { SHORT_CODE_LENGTH } from './rehype-short-code.ts';
 
 function renderEmphasis(escaped: string): string {
   return escaped
@@ -21,7 +22,7 @@ export function renderInline(text: string): string {
     .split(/(`[^`]+`)/g)
     .map((part) =>
       part.startsWith('`') && part.endsWith('`') && part.length > 1
-        ? `<code>${escapeHtml(part.slice(1, -1))}</code>`
+        ? `<code${part.length - 2 <= SHORT_CODE_LENGTH ? ' class="nowrap"' : ''}>${escapeHtml(part.slice(1, -1))}</code>`
         : renderEmphasis(escapeHtml(part)),
     )
     .join('');

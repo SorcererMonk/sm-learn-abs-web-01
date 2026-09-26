@@ -1,0 +1,154 @@
+---
+/**
+ * Token lab: edit DTCG JSON (primitive → semantic → component tiers, with a dark mode) and
+ * watch it compile to custom properties with the same pipeline that builds this site's tokens
+ * (lib/tokens.ts), styling a live component preview.
+ */
+import Demo from '../Demo.astro';
+
+const initial = JSON.stringify(
+  {
+    color: {
+      orange: {
+        '300': { $type: 'color', $value: 'oklch(0.8 0.12 55)' },
+        '600': { $type: 'color', $value: 'oklch(0.55 0.18 40)' },
+      },
+      stone: {
+        '50': { $type: 'color', $value: 'oklch(0.98 0.005 60)' },
+        '900': { $type: 'color', $value: 'oklch(0.22 0.01 60)' },
+      },
+      action: {
+        $type: 'color',
+        $value: '{color.orange.600}',
+        $extensions: { 'learn.dark': '{color.orange.300}' },
+      },
+      surface: {
+        $type: 'color',
+        $value: '{color.stone.50}',
+        $extensions: { 'learn.dark': '{color.stone.900}' },
+      },
+      text: {
+        $type: 'color',
+        $value: '{color.stone.900}',
+        $extensions: { 'learn.dark': '{color.stone.50}' },
+      },
+    },
+    radius: { m: { $type: 'dimension', $value: '0.6rem' } },
+    button: {
+      bg: { $type: 'color', $value: '{color.action}' },
+      radius: { $type: 'dimension', $value: '{radius.m}' },
+    },
+  },
+  null,
+  2,
+);
+---
+
+<Demo title="Token lab: DTCG JSON to custom properties">
+  <div class="stack" data-token-lab>
+    <div class="switcher" style="--switcher-threshold: 44rem">
+      <label class="control" for="tl-json">
+        <span>tokens.json (DTCG)</span>
+        <textarea id="tl-json" rows="22" spellcheck="false">{initial}</textarea>
+      </label>
+      <div class="stack stack-sm">
+        <span class="control">
+          <span>Generated CSS</span>
+        </span>
+        <pre class="tl-css" data-tl-css></pre>
+        <p class="tl-problems" role="status" data-tl-problems></p>
+      </div>
+    </div>
+    <div class="cluster">
+      <label class="tl-check">
+        <input type="checkbox" data-tl-dark /> Preview in dark mode
+      </label>
+    </div>
+    <div class="tl-preview" data-tl-preview>
+      <p>Components read only tokens:</p>
+      <button type="button" class="tl-button">
+        Button uses --button-bg
+      </button>
+    </div>
+  </div>
+  <p slot="note">
+    Primitive tokens name raw values (<code>orange.600</code>), semantic tokens give them a job (
+    <code>color.action</code>), component tokens say where they're used (<code>button.bg</code>).
+    Change one primitive and everything downstream follows; break an alias and the build reports it.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '../../client/controls.ts';
+  import { brokenAliases, tokenDeclarations, type Tree } from '../../lib/tokens.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-token-lab]').forEach((root) => {
+    const input = need<HTMLTextAreaElement>(root, '#tl-json');
+    const out = need<HTMLElement>(root, '[data-tl-css]');
+    const problems = need<HTMLElement>(root, '[data-tl-problems]');
+    const preview = need<HTMLElement>(root, '[data-tl-preview]');
+    const dark = need<HTMLInputElement>(root, '[data-tl-dark]');
+    const style = document.createElement('style');
+    document.head.append(style);
+    const render = (): void => {
+      preview.style.colorScheme = dark.checked ? 'dark' : 'light';
+      let tree: Tree;
+      try {
+        tree = JSON.parse(input.value) as Tree;
+      } catch (error) {
+        problems.textContent = `JSON error: ${(error as Error).message}`;
+        return;
+      }
+      const lines = tokenDeclarations(tree);
+      out.textContent = `:root {\n${lines
+        .map((l) => l.trimStart())
+        .map((l) => `  ${l}`)
+        .join('\n')}\n}`;
+      const broken = brokenAliases(tree);
+      problems.textContent = broken.length ? broken.join('\n') : 'All aliases resolve.';
+      problems.dataset.ok = String(!broken.length);
+      style.textContent = `[data-tl-preview] {\n${lines.join('\n')}\n}`;
+    };
+    input.addEventListener('input', render);
+    dark.addEventListener('change', render);
+    render();
+  });
+</script>
+
+<style>
+  .tl-css {
+    max-block-size: 24rem;
+    overflow: auto;
+    font-size: var(--step-n2);
+    margin: 0;
+  }
+  .tl-problems {
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+    color: var(--color-danger);
+  }
+  .tl-problems[data-ok='true'] {
+    color: var(--color-success);
+  }
+  .tl-check {
+    display: flex;
+    gap: var(--space-2xs);
+    align-items: center;
+  }
+  .tl-preview {
+    padding: var(--space-m);
+    border-radius: var(--radius-md);
+    background: var(--color-surface, #fff);
+    color: var(--color-text, #000);
+    border: 1px solid var(--color-border);
+  }
+  .tl-button {
+    font: 600 1rem var(--font-sans);
+    padding: 0.6rem 1rem;
+    border: 0;
+    color: var(--color-surface, #fff);
+    background: var(--button-bg, gray);
+    border-radius: var(--button-radius, 0);
+  }
+</style>

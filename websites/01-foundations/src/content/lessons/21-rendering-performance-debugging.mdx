@@ -1,0 +1,217 @@
+---
+title: Rendering Performance, Tooling & Debugging for HTML/CSS
+source: L1-coding-html-css.md
+part: 21
+tier: Core → Deep
+summary: Render-blocking CSS, style recalculation, layout thrashing, containment, compositing, layout shift, paint-heavy styles, CSS payload, DevTools mastery, systematic debugging, tooling and measurement.
+anchors:
+  - "CSS performance is almost never \"this selector is slow\". It is \"this page has 8,000 elements\", \"this animation triggers layout\", or \"this stylesheet blocks the first paint\". Look for those three first."
+  - "The Computed panel tells you what won. The Styles panel tells you what competed. Debug from Computed backwards."
+checks:
+  - q: "Given a trace with long \"Recalculate Style\" and \"Layout\" entries on scroll, list the likely causes and the fixes."
+    a: "Causes: a scroll listener that reads layout (`offsetTop`, `getBoundingClientRect`) and writes styles in the same frame (thrashing); classes toggled on `<body>` or a large ancestor on scroll (invalidating the whole tree); a huge DOM; animating layout properties (top, height) for sticky or parallax effects; `:has()` or sibling selectors on a hot subtree. Fixes: scroll-driven animations or IntersectionObserver instead of scroll listeners, batch reads before writes (or `requestAnimationFrame`), toggle state on the smallest element, `content-visibility: auto` on off-screen sections, and animate `transform`/`opacity` only."
+  - q: "Apply `content-visibility: auto` to a long document, measure rendering time before and after, and name one side effect you had to handle."
+    a: "Add `section { content-visibility: auto; contain-intrinsic-size: auto 600px; }` and compare the initial Layout and Paint times in a Performance trace (often several times faster on long pages). Side effects: the scrollbar jumps as sections render at their real height (fixed by a realistic `contain-intrinsic-size` with `auto` so the last-rendered size is remembered), and anchors or in-page links landing in the wrong place until sections render. Find-in-page and the accessibility tree still work in current engines, but test them."
+  - q: "Explain why a `z-index`, `width`, or `justify-self` declaration can be \"inactive\", with one example each."
+    a: "`z-index` on a `position: static` element that isn't a flex or grid item does nothing (no stacking participation). `width` on a non-replaced inline element (a `<span>` with `display: inline`) is ignored: inline boxes size to content. `justify-self` inside a flex container is ignored: flexbox aligns items on the main axis with `justify-content` and auto margins. Firefox shows each of these as \"inactive CSS\" with the reason."
+  - q: "Inline critical CSS for a landing page and measure the first-paint difference under throttling."
+    a: "Extract the rules needed for above-the-fold content (with a tool like Critical, or by hand for a small page), put them in a `<style>` in the head, and load the full stylesheet without blocking (`<link rel=\"stylesheet\" href=\"/site.css\" media=\"print\" onload=\"this.media='all'\">` or split by route). With Slow 4G throttling, compare First Contentful Paint in Lighthouse or a Performance trace: typically hundreds of milliseconds to seconds earlier, because the first paint no longer waits for a stylesheet round trip."
+build: "A performance-tuned long-form site: critical CSS inlined, the rest split by route, zero CLS from fonts and images, `content-visibility` on sections, compositor-only animations verified by trace, a CSS Overview audit reduced to a tight palette and type scale, and Stylelint enforcing tokens."
+steps:
+  - "Build a long article page with 30 sections, images and web fonts."
+  - "Inline critical CSS; load the rest per route; measure FCP under Slow 4G before and after."
+  - "Zero CLS: image dimensions, metric-matched font fallbacks, reserved embed space."
+  - "`content-visibility: auto` on sections; measure initial rendering time."
+  - "Compositor-only animations, verified with a trace."
+  - "Run CSS Overview; reduce colours and font sizes to tokens; enforce with Stylelint."
+taste: "Make the first paint cheap and the steady state quiet. Beautiful sites that jank on a mid-range phone are unfinished, and the fix is almost always less: fewer nodes, fewer layers, fewer effects."
+quiz:
+  - q: "Why does `@import` inside a stylesheet slow the first paint?"
+    options: ["It's parsed slower", "The imported file is only discovered after the first one downloads: a serial waterfall", "It disables caching"]
+    answer: 1
+    why: "Each import adds a round trip before the CSSOM is complete."
+  - q: "Reading `el.offsetHeight` right after changing `el.style.width` causes…"
+    options: ["Nothing", "A forced synchronous layout", "A repaint only"]
+    answer: 1
+    why: "The browser must run layout immediately to answer the read accurately."
+  - q: "Which change can run on the compositor alone?"
+    options: ["`width`", "`transform`", "`box-shadow`"]
+    answer: 1
+    why: "transform and opacity change an already painted layer."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import PipelineStepper from '../../components/demos/PipelineStepper.astro';
+
+## CSS is render-blocking
+
+The browser won't paint until it has the CSSOM for every stylesheet that applies. So: keep critical CSS small, **inline critical CSS** for the first paint where it pays, load non-critical styles without blocking (a `media` attribute that doesn't match, or per-route splitting), **avoid `@import` chains** (serial waterfalls), and put stylesheets before scripts. This site inlines small stylesheets automatically and ships one bundled stylesheet per page.
+
+```html
+<head>
+  <!-- 1. Critical CSS for the first screen, inline: no request needed -->
+  <style>/* header, hero, type, colours: a few KB */</style>
+
+  <!-- 2. Everything else, without blocking the first paint -->
+  <link rel="stylesheet" href="/css/site.css" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="/css/site.css"></noscript>
+
+  <!-- A print stylesheet never blocks screen rendering -->
+  <link rel="stylesheet" href="/css/print.css" media="print">
+</head>
+
+<!-- Avoid: a.css → @import b.css → @import c.css: three round trips before first paint -->
+```
+
+<Try task="In DevTools → Network, throttle to Slow 4G and reload any content site. How long is the gap between the HTML arriving and the first paint, and which stylesheet requests sit on the critical path?">
+  Look at the waterfall: every `<link rel="stylesheet">` in the head (and anything they `@import`) must finish before First Contentful Paint. On slow connections that's often 1–3 seconds of blank screen. Inlining the few KB needed for the first screen and deferring the rest usually moves FCP to right after the HTML arrives.
+</Try>
+
+## Style recalculation cost
+
+Recalculation cost is roughly **elements × rules that might match**. The usual problem is a **large DOM** (thousands of nodes; a common guideline is under ~1,500), not selector cleverness. Watch `:has()` and sibling-combinator invalidation on hot subtrees, avoid toggling classes on `<body>` in hot paths, and use DevTools' **selector stats** when recalculation shows up in traces.
+
+<Playground
+  id="p21-recalc"
+  title="Toggling a class on body vs on one element, with 3,000 nodes"
+  task="Compare the two timings in the console. Then add `:has(li:hover)` to the body rule and hover the list to feel the invalidation cost."
+  html={`<button id="body">Toggle class on body</button> <button id="one">Toggle class on one item</button>\n<ul id="list"></ul>`}
+  css={`body.dim li { opacity: .6; }\nli.on { background: #fde68a; }\n#list { columns: 6; font-size: 10px; }`}
+  js={`const list = document.getElementById('list');\nlist.innerHTML = Array.from({ length: 3000 }, (_, i) => '<li>Item ' + i + '</li>').join('');\nconst time = (label, fn) => { const t = performance.now(); fn(); document.body.offsetHeight; console.log(label + ': ' + (performance.now() - t).toFixed(2) + ' ms'); };\ndocument.getElementById('body').addEventListener('click', () => time('body class (restyles 3,000 items)', () => document.body.classList.toggle('dim')));\ndocument.getElementById('one').addEventListener('click', () => time('one item', () => list.children[42].classList.toggle('on')));`}
+/>
+
+## Layout cost and layout thrashing
+
+Properties trigger different amounts of work: **layout** (geometry: `width`, `height`, `margin`, `padding`, `top`, `font-size`, `display`), **paint** (`color`, `background`, `box-shadow`, changing `border-radius`), or only **composite** (`transform`, `opacity`, some `filter`). **Forced synchronous layout** happens when you read geometry after writing styles; in a loop, that's **layout thrashing**. Batch all reads, then all writes.
+
+<PipelineStepper title="Which stages does a property change re-run?" />
+
+<Playground
+  id="p21-thrash"
+  title="Layout thrashing vs batched reads and writes"
+  task="Run both. The thrashing version reads offsetWidth after every write, forcing layout 500 times. Then write a version using requestAnimationFrame for the writes."
+  html={`<button id="thrash">Thrash</button> <button id="batch">Batch</button>\n<div id="boxes"></div>`}
+  css={`#boxes div { height: 4px; background: #c2410c; margin: 1px 0; width: 50%; }`}
+  js={`const boxes = document.getElementById('boxes');\nboxes.innerHTML = '<div></div>'.repeat(500);\nconst els = [...boxes.children];\nconst time = (label, fn) => { const t = performance.now(); fn(); console.log(label + ': ' + (performance.now() - t).toFixed(1) + ' ms'); };\ndocument.getElementById('thrash').addEventListener('click', () => time('thrash (read after each write)', () => {\n  for (const el of els) { el.style.width = (el.offsetWidth % 300) + 10 + 'px'; }\n}));\ndocument.getElementById('batch').addEventListener('click', () => time('batch (all reads, then all writes)', () => {\n  const widths = els.map((el) => el.offsetWidth);\n  els.forEach((el, i) => (el.style.width = (widths[i] % 300) + 10 + 'px'));\n}));`}
+/>
+
+## Containment and skipping work
+
+`contain: layout | paint | size | inline-size | style | content | strict` promises what a subtree can't affect, so the browser can skip work. **`content-visibility: auto`** with `contain-intrinsic-size: auto 500px` skips rendering off-screen sections of long pages (big wins; test find-in-page, anchors and accessibility). `content-visibility: hidden` keeps cached off-screen views (tabs, routes) without the cost of rendering them.
+
+<Playground
+  id="p21-content-visibility"
+  title="Measure content-visibility on 400 sections"
+  task="Read the render time, then set `--cv: visible` and reload (Reset). Scroll and watch the scrollbar: remove `auto` from contain-intrinsic-size to see it jump."
+  html={`<div id="doc"></div>`}
+  css={`:root { --cv: auto; }\nsection { content-visibility: var(--cv); contain-intrinsic-size: auto 180px; padding: 1rem; border-bottom: 1px solid #eee; }`}
+  js={`const doc = document.getElementById('doc');\nconst para = '<p>' + 'Long-form text with enough words to cost layout. '.repeat(12) + '</p>';\nconst t = performance.now();\ndoc.innerHTML = Array.from({ length: 400 }, (_, i) => '<section><h3>Section ' + (i + 1) + '</h3>' + para + '</section>').join('');\ndoc.getBoundingClientRect();\nrequestAnimationFrame(() => console.log('First render: ' + (performance.now() - t).toFixed(1) + ' ms (content-visibility: ' + getComputedStyle(document.documentElement).getPropertyValue('--cv').trim() + ')'));`}
+/>
+
+## Compositing and layers
+
+Elements can be promoted to their own **compositor layer** (transforms and opacity animations, `will-change`, video, canvas, fixed elements). Layers make animation cheap and memory expensive. **`will-change` is a hint, not magic**: add it just before an animation and remove it after. Many animated elements cause **layer explosion**; overlapping content can be promoted implicitly. Inspect with the Layers panel and "Layer borders" in the Rendering panel.
+
+<Playground
+  id="p21-layers"
+  title="A will-change that comes and goes"
+  task="Open DevTools → Rendering → Layer borders, then hover the cards: each gets a layer only while it's about to animate. Put `will-change: transform` on every card permanently and compare the layer count."
+  html={`<div class="cards">${Array.from({ length: 12 }, (_, i) => '<div class="card">' + (i + 1) + '</div>').join('')}</div>`}
+  css={`.cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: .5rem; }\n.card { height: 4rem; display: grid; place-items: center; background: #fed7aa; border-radius: .5rem; transition: transform .2s; }\n.card:hover { will-change: transform; transform: translateY(-4px) scale(1.04); }`}
+/>
+
+## Layout shift (CLS) from markup and CSS
+
+Causes: images without dimensions, ads and embeds without reserved space, **web fonts swapping metrics** (fix with metric overrides, Part 14), content injected above existing content, animating layout properties, and scrollbars appearing (**`scrollbar-gutter: stable`**). Measure with the Layout Shift Regions overlay and the Performance panel's "Layout shifts" track.
+
+<Playground
+  id="p21-cls"
+  title="Three shifts, three fixes"
+  task="Press Load: a banner pushes content down, the embed has no reserved space, and a badge grows the line. Fix each: reserve space with min-height, give the embed an aspect-ratio, and position the badge absolutely or reserve its width."
+  html={`<button id="load">Load</button>\n<div id="banner"></div>\n<p>Article text that you're reading when things arrive above it.</p>\n<div id="embed"></div>\n<p>Price <span id="price">₹4,999</span></p>`}
+  css={`#embed { background: #f4f1ee; }\n#banner { background: #fde68a; }`}
+  js={`document.getElementById('load').addEventListener('click', () => {\n  document.getElementById('banner').textContent = 'Free shipping this weekend!';\n  document.getElementById('banner').style.padding = '1rem';\n  document.getElementById('embed').innerHTML = '<div style="height:160px;background:#1d1a19;color:white;padding:1rem">Video embed</div>';\n  document.getElementById('price').textContent = '₹4,999 · Only 2 left in stock';\n});`}
+  solution={{ css: `#banner { background: #fde68a; min-height: 3.2rem; padding: 1rem; box-sizing: border-box; }\n#embed { background: #f4f1ee; aspect-ratio: 16 / 9; max-width: 18rem; }\n#embed > div { height: 100% !important; }` }}
+/>
+
+## Paint-heavy styles
+
+Large `box-shadow` blurs, `filter: blur()`, `backdrop-filter`, and big gradients on scrolling layers can be expensive to paint every frame. **Measure with paint flashing** (Rendering panel) and the Performance panel, not by folklore: many "expensive" effects are fine when static.
+
+<Playground
+  id="p21-paint"
+  title="Paint flashing: what repaints on hover?"
+  task="Turn on DevTools → Rendering → Paint flashing, then hover each card. The first repaints its big shadow every frame; the second animates a pre-painted pseudo-element's opacity instead."
+  html={`<div class="row"><div class="c shadow-anim">Animates box-shadow</div><div class="c shadow-opacity">Animates opacity of a shadow layer</div></div>`}
+  css={`.row { display: flex; gap: 1rem; padding: 1rem; }\n.c { position: relative; width: 12rem; height: 7rem; padding: 1rem; background: white; border-radius: 1rem; }\n.shadow-anim { box-shadow: 0 2px 6px rgb(0 0 0 / .1); transition: box-shadow .3s; }\n.shadow-anim:hover { box-shadow: 0 30px 60px rgb(0 0 0 / .3); }\n.shadow-opacity::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 30px 60px rgb(0 0 0 / .3); opacity: 0; transition: opacity .3s; z-index: -1; }\n.shadow-opacity { isolation: isolate; box-shadow: 0 2px 6px rgb(0 0 0 / .1); }\n.shadow-opacity:hover::after { opacity: 1; }`}
+/>
+
+## CSS payload
+
+Find **unused CSS** with the Coverage panel; remove duplication; minify and serve with **Brotli**; **split by route or component**; purge utility frameworks. CSS bytes are usually cheaper than JavaScript bytes, but they **block rendering**, so the first-screen CSS matters most.
+
+<Try task="Open DevTools → Coverage (Ctrl/Cmd+Shift+P → 'Coverage'), reload this page, and read the CSS rows. What percentage of this page's CSS is unused, and why might that be acceptable here?">
+  A lesson page loads the shared stylesheet, so rules for the home page, dojo, coverage table and other lessons' demos show as unused (often 50–70%). It's acceptable because the file is small, compressed, cached across every page after the first visit, and splitting it further would add requests. On a large app with a 300 KB stylesheet, the same number would justify route-level splitting.
+</Try>
+
+## DevTools mastery for CSS
+
+Each browser has strengths. The **Styles** pane (toggle, edit, `:hov` state forcing, colour picker with contrast and gamut info, easing and shadow editors); **Computed** (the winning value and why); the box-model diagram; **flex and grid overlays**; **Firefox's inactive-CSS hints** and font panel; the **Changes** tab; **CSS Overview** (colours, fonts, unused declarations, media queries); the **Animations** panel (slow down, scrub); the **Rendering** panel (paint flashing, layout-shift regions, layer borders, emulate `prefers-*`, forced colours, vision deficiencies, print media, auto dark mode); the Accessibility pane; Recorder; and **Local Overrides** for testing CSS against production.
+
+<Try task="On this page: (1) force :hover and :focus-visible on a button with :hov, (2) open CSS Overview and count the unique colours, (3) emulate prefers-reduced-motion and forced-colors in Rendering, (4) slow the Animations panel to 10% and hover the theme toggle.">
+  You should see the button's focus ring without tabbing; a small, token-driven palette in CSS Overview (a sign of a disciplined system); motion reduced to fades and borders reappearing in forced colours; and each transition's easing curve in the Animations panel, matching the 150/250/400 ms tokens.
+</Try>
+
+## Debugging CSS systematically
+
+1. **Reproduce in isolation**: a reduced test case in a blank HTML file or a CodePen.
+2. **Does the rule apply?** Selector matches? Which layer? Specificity? Valid value? Typos?
+3. **Can the property apply?** Inactive properties: `z-index` on a static element, `width` on an inline, `justify-self` in flex.
+4. **Which algorithm is in charge?** Flow, flex, grid, table, positioned.
+5. **Containing block and formatting context?**
+6. **Browser support?**
+
+And the classic debug style: `* { outline: 1px solid red }`.
+
+<Playground
+  id="p21-debug"
+  title="Three inactive declarations to find"
+  task="Each rule below 'does nothing'. Use the checklist to find why (hint: z-index, width, justify-self), fix each with one change, and toggle the outline debugger to see the boxes."
+  html={`<label><input type="checkbox" id="dbg"> Outline everything</label>\n<div class="stack-demo"><div class="a">A (z-index: 2)</div><div class="b">B</div></div>\n<p>Inline <span class="pill">span with width: 10rem</span> text.</p>\n<div class="flex"><div class="right">justify-self: end</div></div>`}
+  css={`.stack-demo .a { z-index: 2; margin-bottom: -1rem; background: #fdba74; }\n.stack-demo .b { position: relative; background: #1d1a19; color: white; }\n.pill { width: 10rem; background: #fde68a; }\n.flex { display: flex; background: #f4f1ee; }\n.right { justify-self: end; background: #fed7aa; }\nbody.debug * { outline: 1px solid red; }`}
+  js={`document.getElementById('dbg').addEventListener('change', (e) => document.body.classList.toggle('debug', e.target.checked));`}
+  solution={{ css: `.stack-demo .a { position: relative; z-index: 2; margin-bottom: -1rem; background: #fdba74; }\n.stack-demo .b { position: relative; background: #1d1a19; color: white; }\n.pill { display: inline-block; width: 10rem; background: #fde68a; }\n.flex { display: flex; background: #f4f1ee; }\n.right { margin-inline-start: auto; background: #fed7aa; }\nbody.debug * { outline: 1px solid red; }` }}
+/>
+
+## Tooling
+
+**Stylelint** (with ordering and token-enforcement rules), Prettier or Biome, **browserslist** as the shared target definition, **Lightning CSS** or PostCSS for lowering modern syntax, autoprefixer (mostly unnecessary now), bundler CSS handling (Vite, CSS Modules, code-split CSS), **Baseline** status in editors and linters, and `@supports` for feature detection.
+
+```jsonc
+// .stylelintrc.json: enforce the architecture, not just formatting
+{
+  "extends": ["stylelint-config-standard"],
+  "rules": {
+    "selector-max-id": 0,
+    "max-nesting-depth": 3,
+    "declaration-no-important": true,
+    "color-no-hex": [true, { "message": "Use a colour token: var(--color-…)" }],
+    "declaration-property-value-disallowed-list": {
+      "/^(margin|padding|gap)/": ["/^\\d+px$/"]
+    }
+  }
+}
+```
+
+<Try task="Write three Stylelint rules that would have prevented bugs you've shipped, and a browserslist query for a product whose analytics show 98% evergreen browsers.">
+  E.g. `selector-max-id: 0` (specificity wars), `declaration-no-important` (override chains), a disallowed-values rule forcing tokens for spacing and colour (47 greys). Browserslist: `"> 0.5%, last 2 versions, not dead"` or, stricter and Baseline-aligned, `"baseline widely available"`. Share it with Lightning CSS/PostCSS so syntax lowering matches the real audience.
+</Try>
+
+## Measuring what matters
+
+**Lighthouse** for lab signals and regressions, the **Performance panel** for the truth about a frame, **WebPageTest** filmstrips for perceived loading, and **field data** (CrUX, RUM) for everything else (`L18-cs-web-engineering.md` Part 5). This site's end-to-end checks run Lighthouse on mobile settings and fail if performance drops below 90.
+
+<Try task="Run Lighthouse (mobile, simulated throttling) on this page, then record a Performance trace with 4× CPU throttling while scrolling. Compare what each tells you.">
+  Lighthouse gives a lab score, LCP, CLS and TBT under one simulated condition, plus opportunities (render-blocking resources, unused CSS). The trace shows what actually happens per frame: long tasks, style recalculation, layout and paint during scroll. Lab tools find regressions; only field data from real users tells you what they experience.
+</Try>

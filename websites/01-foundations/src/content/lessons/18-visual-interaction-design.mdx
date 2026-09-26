@@ -1,0 +1,243 @@
+---
+title: Visual & Interaction Design Fundamentals for the Designer-Developer
+source: L1-coding-html-css.md
+part: 18
+tier: Core → Deep
+summary: The design-engineer role, Gestalt, hierarchy, space and composition, type and colour as design, elevation, iconography, interaction states, UX laws, IA, microcopy, forms and data display, responsive thinking, process, Figma fluency, critique, visual literacy and brand.
+anchors:
+  - "Spacing *is* grouping. Most layouts that \"feel off\" have equal space between things that are related and things that aren't. Fix the spacing, and the hierarchy appears."
+  - "Good interface design is mostly subtraction: fewer colours, fewer sizes, fewer borders, fewer words, fewer choices. When stuck, remove something and look again."
+checks:
+  - q: "Take a cluttered screen and redesign it using only spacing, weight, and value changes (no new colours, no new elements). Explain each change with a Gestalt principle or heuristic."
+    a: "Typical moves: tighten space inside each group and widen space between groups (proximity), so sections read as units without borders; lighten secondary text to a mid-grey and keep one heavy element per group (visual hierarchy, figure–ground); reduce three competing buttons to one filled primary and text links for the rest (Hick's law, one primary action); align everything to two or three edges (continuity). Check the result with the squint test on this page."
+  - q: "List every state of a text input and a button, and design each."
+    a: "Input: default, hover, focus (visible ring), filled, placeholder-shown, disabled, read-only, invalid (after interaction, with message), valid, loading (async validation), autofilled, and long content (overflow). Button: default, hover, focus-visible, active/pressed, disabled (prefer explaining over disabling), loading (spinner + label kept, `aria-busy`), success, selected/toggled (`aria-pressed`), and long label (wraps or truncates gracefully). The states playground on this page covers most of them."
+  - q: "Run a heuristic evaluation of a real product against Nielsen's ten heuristics and prioritise the findings."
+    a: "For each heuristic (visibility of system status, match with the real world, user control and freedom, consistency and standards, error prevention, recognition over recall, flexibility and efficiency, aesthetic and minimalist design, help users recover from errors, help and documentation), walk key tasks and log violations with a screenshot, the heuristic, and severity (0–4: frequency × impact × persistence). Prioritise by severity and cost: fix 3–4 severity issues on core tasks first."
+  - q: "Critique a famous landing page's hierarchy using the squint test, and redesign its hero."
+    a: "Blur the hero (or squint): name the first, second and third things you see. If the first isn't the value proposition, or the primary CTA doesn't survive the blur, the hierarchy fails. Redesign by removing competing elements (secondary CTAs to text links, decorative badges gone), increasing the headline's size/weight contrast against the subhead, and giving the CTA the only saturated colour on the screen."
+build: "A \"design eye\" portfolio: ten redesigns of real screens (before/after, with written rationale), a style tile for a fictional brand, a Figma file whose auto layout and variables map one-to-one onto your CSS, and a usability test with five people on one of your builds, with findings and fixes."
+steps:
+  - "Pick ten real screens; screenshot each, redesign it, and write a paragraph of rationale per change."
+  - "Make a style tile: type pairing, colour, one component, texture, voice."
+  - "Build one screen in Figma with auto layout and variables, then in CSS with the same tokens."
+  - "Run a five-person usability test (task-based, think-aloud), log findings by severity."
+  - "Fix the top three findings and retest."
+taste: "Copy masters deliberately, then make it yours. Recreating great interfaces pixel for pixel teaches spacing, type, and restraint faster than any theory. Your own style emerges from what you consistently keep and what you consistently remove."
+quiz:
+  - q: "Which Gestalt principle is the most powerful grouping tool in UI?"
+    options: ["Similarity", "Proximity", "Closure"]
+    answer: 1
+    why: "Things close together read as a group; spacing is structure."
+  - q: "Fitts's law says a target is faster to hit when it is…"
+    options: ["Brightly coloured", "Bigger and closer", "Animated"]
+    answer: 1
+    why: "Time to acquire grows with distance and shrinks with size; screen edges act as infinitely large targets."
+  - q: "Why design with real content rather than lorem ipsum?"
+    options: ["It's more fun", "Lorem ipsum hides every layout problem: real lengths, words and languages break designs", "Clients prefer it"]
+    answer: 1
+    why: "Real names, prices and headlines expose overflow, wrapping and hierarchy problems early."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import SquintTest from '@learn/shared/components/demos/SquintTest.astro';
+
+## The role: the design engineer
+
+A designer-developer (design engineer) closes the gap between intent and implementation: making design decisions in code, knowing when a design won't survive real content, and being fluent in both Figma and CSS. The superpower is **iteration speed without a handoff**; the obligation is **design judgement**, not just implementation fidelity.
+
+<Try task="Take a design you've been handed (or any Figma community file). List five places where it won't survive real content or real devices, and propose a design decision for each, not just an implementation.">
+  Common finds: a card title that wraps to three lines in German; a price that doesn't fit when it has seven digits; an avatar row that breaks with 50 members; a hero image cropped badly on a phone; a hover-only menu with no touch equivalent. For each, propose the design answer (clamp titles to two lines with a tooltip, tabular numbers and a smaller currency, "+47 more", art direction, a tap target), then build it.
+</Try>
+
+## Perception and Gestalt
+
+**Proximity** (the most powerful grouping tool, so spacing *is* structure), **similarity**, **common region** (cards and backgrounds), **continuity**, **closure**, **figure–ground**, **common fate** (things that move together belong together), and **focal point**.
+
+<Playground
+  id="p18-gestalt"
+  title="Proximity does the work borders were doing"
+  task="The left form uses equal spacing and borders to group. Make the right form group its fields using only spacing (internal gap small, between-group gap large) and no borders."
+  html={`<div class="cols">\n<form class="a"><fieldset><label>Name <input></label><label>Email <input></label></fieldset><fieldset><label>Street <input></label><label>City <input></label></fieldset></form>\n<form class="b"><div class="group"><label>Name <input></label><label>Email <input></label></div><div class="group"><label>Street <input></label><label>City <input></label></div></form>\n</div>`}
+  css={`.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }\nlabel { display: grid; font-size: .85rem; }\ninput { font: inherit; padding: .3rem; }\n.a fieldset { display: grid; gap: 1rem; border: 1px solid #999; margin: 0 0 1rem; }\n.b .group { display: grid; gap: 1rem; margin-bottom: 1rem; }`}
+  solution={{ css: `.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }\nlabel { display: grid; font-size: .85rem; }\ninput { font: inherit; padding: .3rem; }\n.a fieldset { display: grid; gap: 1rem; border: 1px solid #999; margin: 0 0 1rem; }\n.b .group { display: grid; gap: .5rem; }\n.b .group + .group { margin-top: 2rem; }` }}
+/>
+
+## Visual hierarchy
+
+Levers: size, weight, colour and value contrast, position, space and depth. **De-emphasise secondary content instead of shouting the primary** (the *Refactoring UI* lesson). Test with the **squint test** and the **greyscale test**. One primary action per view.
+
+<SquintTest />
+
+## Space and layout
+
+A **spacing scale** (a 4/8-point base or a geometric scale) used exclusively; more whitespace than feels comfortable at first; **internal ≤ external** (space inside a group is smaller than space between groups); alignment to few edges; grids (columns, gutters, margins; 12 columns as a tool, not a religion); **optical vs mathematical alignment** (icons and round shapes need nudging); and **composition**: balance, asymmetry, tension, rhythm, the rule of thirds, and reading flow (F- and Z-patterns).
+
+<Playground
+  id="p18-space"
+  title="A spacing scale and optical alignment"
+  task="Replace every arbitrary value in `.a` with the scale (--s1…--s5). Then nudge the play triangle right until it looks centred (optical), not measured centred."
+  html={`<article class="a"><h3>Weekly digest</h3><p class="meta">Every Monday</p><p>Five links worth your time, chosen by humans.</p><button>Subscribe</button></article>\n<div class="plays"><span class="play math">▶</span><span class="play optical">▶</span></div>`}
+  css={`:root { --s1: .25rem; --s2: .5rem; --s3: 1rem; --s4: 1.5rem; --s5: 2.5rem; }\n.a { padding: 13px 19px; border: 1px solid #ddd; border-radius: .75rem; max-width: 20rem; }\n.a h3 { margin: 7px 0 3px; }\n.a .meta { margin: 0 0 11px; color: #78716c; }\n.a p { margin-bottom: 17px; }\n.plays { display: flex; gap: 1rem; margin-top: 1rem; }\n.play { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 50%; background: #1d1a19; color: white; }\n.optical { padding-left: 0; }`}
+  solution={{ css: `:root { --s1: .25rem; --s2: .5rem; --s3: 1rem; --s4: 1.5rem; --s5: 2.5rem; }\n.a { padding: var(--s3) var(--s4); border: 1px solid #ddd; border-radius: .75rem; max-width: 20rem; }\n.a h3 { margin: 0 0 var(--s1); }\n.a .meta { margin: 0 0 var(--s3); color: #78716c; }\n.a p { margin: 0 0 var(--s4); }\n.plays { display: flex; gap: 1rem; margin-top: 1rem; }\n.play { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 50%; background: #1d1a19; color: white; }\n.optical { padding-left: .2rem; }` }}
+/>
+
+## Typography as design
+
+(Mechanics in Part 14.) A **type scale with 5–7 steps** is enough for most products. Build hierarchy with the fewest variables, pair faces deliberately, and remember each typeface's emotional tone. Text is the primary interface material.
+
+<Playground
+  id="p18-type"
+  title="Too many sizes vs a five-step scale"
+  task="Count the distinct font sizes in the first block (there are nine). Restyle it using only the five scale steps defined in :root."
+  html={`<section class="messy"><h2>Account</h2><h3>Profile</h3><p class="label">Display name</p><p class="value">Asha Rao</p><p class="help">Shown on your posts.</p><h3>Billing</h3><p class="label">Plan</p><p class="value">Team</p><p class="small">Renews 1 Jan</p></section>`}
+  css={`:root { --t-1: .8125rem; --t0: 1rem; --t1: 1.25rem; --t2: 1.5625rem; --t3: 1.953rem; }\n.messy h2 { font-size: 29px; } .messy h3 { font-size: 21px; } .messy .label { font-size: 13px; } .messy .value { font-size: 17px; } .messy .help { font-size: 12px; } .messy .small { font-size: 11px; }\np { margin: .2rem 0; }`}
+/>
+
+## Colour as design
+
+(Mechanics in Part 15.) Design in **greyscale first**, then add **one accent**; semantic colour (success, warning, danger) for meaning, not decoration; and **design** dark-mode palettes rather than deriving them.
+
+<Playground
+  id="p18-colour"
+  title="Greyscale first, then one accent"
+  task="Remove every colour except the one primary action, then check the hierarchy still works with `filter: grayscale(1)` on body."
+  html={`<div class="panel"><h3>Invite teammates</h3><p>They'll get an email with a link.</p><label>Email <input></label><div class="row"><button class="primary">Send invite</button><button class="secondary">Copy link</button><button class="tertiary">Cancel</button></div></div>`}
+  css={`.panel { max-width: 22rem; padding: 1rem; border-radius: .75rem; background: #eff6ff; border: 2px solid #7c3aed; }\n.panel h3 { color: #15803d; margin-top: 0; }\n.panel p { color: #b45309; }\nlabel { display: grid; margin: .5rem 0; }\ninput { font: inherit; padding: .35rem; }\n.row { display: flex; gap: .5rem; }\nbutton { font: inherit; padding: .4rem .8rem; border-radius: .4rem; border: 0; color: white; }\n.primary { background: #1d4ed8; } .secondary { background: #db2777; } .tertiary { background: #0891b2; }`}
+  solution={{ css: `.panel { max-width: 22rem; padding: 1rem; border-radius: .75rem; background: #fafaf9; border: 1px solid #e7e5e4; }\n.panel h3 { color: #1d1a19; margin-top: 0; }\n.panel p { color: #57534e; }\nlabel { display: grid; margin: .5rem 0; }\ninput { font: inherit; padding: .35rem; }\n.row { display: flex; gap: .5rem; align-items: center; }\nbutton { font: inherit; padding: .4rem .8rem; border-radius: .4rem; border: 0; background: none; color: #1d1a19; }\n.primary { background: #c2410c; color: white; }\n.secondary { border: 1px solid #d6d3d1; }\n.tertiary { color: #57534e; text-decoration: underline; }` }}
+/>
+
+## Depth, elevation and surfaces
+
+An **elevation scale** (flat, raised, overlay, modal); shadows from **one light source**; and separation tools used from lightest to heaviest: **space, then a background shift, then a border, then a shadow**. The design movements that shaped surfaces: skeuomorphism → flat → Material → neumorphism (and its contrast failure) → glassmorphism → today's soft, layered minimalism.
+
+<Playground
+  id="p18-elevation"
+  title="Four elevation levels from one light source"
+  task="Add a neumorphic card (same-colour background, light and dark shadows) and check its contrast. Then use a background shift instead of a border for the flat level."
+  html={`<div class="levels"><div class="e0">Flat</div><div class="e1">Raised</div><div class="e2">Overlay</div><div class="e3">Modal</div></div>`}
+  css={`body { background: oklch(0.96 0.01 60); }\n.levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; padding: 1rem; }\n.levels div { padding: 1.5rem .5rem; text-align: center; border-radius: .75rem; background: white; font: 600 .9rem system-ui; }\n.e0 { border: 1px solid oklch(0.9 0.01 60); }\n.e1 { box-shadow: 0 1px 2px oklch(0.3 0.03 60 / .1), 0 2px 6px oklch(0.3 0.03 60 / .06); }\n.e2 { box-shadow: 0 4px 8px oklch(0.3 0.03 60 / .08), 0 12px 24px oklch(0.3 0.03 60 / .1); }\n.e3 { box-shadow: 0 8px 16px oklch(0.3 0.03 60 / .1), 0 24px 56px oklch(0.3 0.03 60 / .18); }`}
+/>
+
+## Iconography and imagery
+
+Consistent icon sets (one stroke width, corner radius, grid size and optical size), **icons paired with labels** (icons alone are rarely clear), a consistent illustration style, photography art direction and image treatment, and avatars and empty-state illustrations that match.
+
+<Playground
+  id="p18-icons"
+  title="Mismatched icons vs one consistent set, with labels"
+  task="The top row mixes stroke widths, fills and sizes. Make the bottom row consistent (24px grid, 2px stroke, round caps) and add visible labels."
+  html={`<div class="bad"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8M5 10v10h14V10" fill="none" stroke="currentColor" stroke-width="1"/></svg><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="M16 16l5 5" stroke="currentColor" stroke-width="3.5"/></svg><svg viewBox="0 0 24 24"><path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-3 4.5 4.5 0 0 1 8 3c0 6-8 11-8 11z" fill="currentColor"/></svg></div>\n<div class="good"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8M5 10v10h14V10"/></svg><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/></svg><svg viewBox="0 0 24 24"><path d="M12 21s-8-5-8-11a4.5 4.5 0 0 1 8-3 4.5 4.5 0 0 1 8 3c0 6-8 11-8 11z"/></svg></div>`}
+  css={`.bad, .good { display: flex; gap: 1.5rem; margin-bottom: 1rem; }\n.bad svg:nth-child(1) { width: 30px; } .bad svg:nth-child(2) { width: 18px; } .bad svg:nth-child(3) { width: 26px; }\n.good svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }`}
+/>
+
+## Interaction design and component states
+
+**Affordances and signifiers** (Norman): what looks clickable must be clickable, and vice versa. Feedback for every action, natural mapping, constraints. And design **every state** of every component: default, hover, focus, active/pressed, selected, disabled, loading, error, success, empty, skeleton, read-only, dragged, and "long content".
+
+<Playground
+  id="p18-states"
+  title="A button and an input in every state"
+  task="Add the missing 'success' state for the button and a 'read-only' state for the input."
+  html={`<div class="grid">\n<button>Default</button><button class="hover">Hover</button><button class="focus">Focus</button><button class="active">Pressed</button><button aria-pressed="true">Selected</button><button disabled>Disabled</button><button aria-busy="true"><span class="spin" aria-hidden="true"></span> Saving…</button><button>A much longer label that has to wrap gracefully</button>\n<input placeholder="Placeholder"><input value="Filled"><input class="focus" value="Focused"><input aria-invalid="true" value="bad@"><input disabled value="Disabled">\n</div>`}
+  css={`.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .6rem; align-items: start; }\nbutton, input { font: inherit; padding: .5rem .8rem; border-radius: .5rem; }\nbutton { border: 0; background: #1d1a19; color: white; }\nbutton.hover { background: #44403c; }\nbutton.focus, input.focus { outline: 2px solid #c2410c; outline-offset: 2px; }\nbutton.active { scale: .97; background: #0c0a09; }\nbutton[aria-pressed="true"] { background: #c2410c; }\nbutton:disabled { background: #d6d3d1; color: #57534e; }\n.spin { display: inline-block; width: .8em; height: .8em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }\n@keyframes spin { to { rotate: 1turn; } }\ninput { border: 1px solid #a8a29e; }\ninput[aria-invalid="true"] { border: 2px solid #b91c1c; background: #fef2f2; }\ninput:disabled { background: #f4f1ee; color: #78716c; }\n@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }`}
+/>
+
+## UX laws and heuristics
+
+Use them as lenses, not rules. **Nielsen's 10 usability heuristics**; **Fitts's law** (big, close targets for frequent actions; screen edges are infinitely deep); **Hick's law** (fewer choices, progressive disclosure); **Jakob's law** (users spend most of their time on *other* sites, so follow conventions); the aesthetic-usability effect; **Tesler's law** (complexity is conserved: someone has to deal with it); the **Doherty threshold** (feedback under 400 ms); the peak-end rule; the serial-position effect; and cognitive load.
+
+<Try task="Pick one app you use daily. Find one violation each of Fitts's, Hick's and Jakob's laws, and one Nielsen heuristic, with a proposed fix for each.">
+  Examples: Fitts: a tiny "×" close button in a corner far from the thumb (make it 44px or add swipe-to-dismiss). Hick: a settings page with 40 toggles on one screen (group and progressively disclose). Jakob: a logo that doesn't link home, or a cart icon on the left (follow the convention). Nielsen #1, visibility of system status: an upload with no progress indicator (add a determinate progress bar and an `aria-live` message).
+</Try>
+
+## Information architecture and navigation
+
+Content inventories, **card sorting**, hierarchies and labels, navigation patterns (top bar, sidebar, tabs, a bottom tab bar on mobile, breadcrumbs, mega menus, **command palettes**), wayfinding (you-are-here signals with `aria-current`), and search vs browse.
+
+<Try task="Run a five-minute open card sort on paper: write 15 features of a product on cards, group them without labels, then name each group. Compare your groups with the product's actual navigation.">
+  You'll usually find the product's navigation mirrors its org chart ("Admin", "Workspace settings", "Account") while your groups follow tasks ("Invite people", "Pay", "Get help"). Task-based labels and fewer top-level items (5–7) are the typical fix; put rarely used items in a command palette and search.
+</Try>
+
+## UX writing and microcopy
+
+Buttons say what they do ("Save changes", not "OK"); **error messages say what happened and how to fix it**; empty states teach the next step; onboarding copy is short; tone of voice is consistent. And **real content in designs**: lorem ipsum hides every layout problem.
+
+<Try task="Rewrite these: a button 'Submit', an error 'Invalid input', an empty state 'No data', and a confirmation dialog 'Are you sure?' with buttons 'Yes' / 'No'.">
+  "Create account"; "Enter a date in the future, like 12/10/2026"; "No invoices yet. When a customer pays, their invoice appears here. [Create an invoice]"; "Delete 'Atlas'? This removes 42 files for everyone and can't be undone." with buttons "Delete project" / "Keep project". Verbs name the outcome, errors tell people how to recover, and buttons still make sense when read alone.
+</Try>
+
+## Forms and data display as design problems
+
+Single-column forms; label placement above fields; **input widths that hint expected length** (a postcode field is short); sensible defaults. Tables designed for **scanning**: text left, **numbers right with tabular figures**, zebra stripes vs rules, density modes. Charts with honest scales and **direct labels** instead of legends. Dashboards with a hierarchy.
+
+<Playground
+  id="p18-table"
+  title="A table designed for scanning"
+  task="Right-align the numbers with tabular figures, remove the vertical borders, and add a compact density toggle."
+  html={`<table>\n<thead><tr><th>Region</th><th>Orders</th><th>Revenue</th><th>Change</th></tr></thead>\n<tbody><tr><td>North</td><td>1,204</td><td>₹18,40,000</td><td>+12.4%</td></tr><tr><td>South</td><td>98</td><td>₹1,20,500</td><td>−3.1%</td></tr><tr><td>West</td><td>11,870</td><td>₹2,04,11,000</td><td>+0.8%</td></tr></tbody>\n</table>`}
+  css={`table { border-collapse: collapse; font-family: system-ui; }\nth, td { border: 1px solid #999; padding: .5rem; text-align: center; }`}
+  solution={{ css: `table { border-collapse: collapse; font-family: system-ui; font-variant-numeric: tabular-nums; }\nth, td { padding: .5rem .9rem; border-bottom: 1px solid #e7e5e4; text-align: left; }\nth { font-size: .8rem; color: #57534e; font-weight: 600; }\ntd:not(:first-child), th:not(:first-child) { text-align: right; }\ntbody tr:hover { background: #fafaf9; }` }}
+/>
+
+## Responsive and adaptive design thinking
+
+Content priority per context; touch vs pointer; **one-handed mobile use** (thumb zones: primary actions within reach at the bottom); and designing the **smallest and largest layouts first**, then filling in between.
+
+<Try task="Sketch the smallest (320px) and largest (1920px) versions of one screen before any middle size. Where does the primary action live on each, and can a thumb reach it on the phone?">
+  On the phone, move the primary action to a bottom bar or a sticky footer button within the thumb zone, collapse secondary navigation into a menu or tab bar, and stack content by priority. On the large screen, use the width for a second column (context, preview, filters), not wider paragraphs; keep the measure readable and the primary action near the content it acts on.
+</Try>
+
+## Design process for one person
+
+Brief → research (collect 20 references in a **swipe file**) → sketches (paper is fastest) → low-fidelity wireframes → a visual direction on one key screen (a **style tile** or element collage) → build in the browser → critique → iterate. Evidence: **usability testing with five users** (Nielsen), hallway testing, and A/B tests.
+
+<Try task="Make a style tile for a fictional brand in 30 minutes: one headline + body type pairing, a 5-colour palette, one button, one card, a texture or image treatment, and three adjectives for the voice.">
+  A good tile answers "what does this brand feel like?" without designing a page: e.g. "calm, precise, warm" → Fraunces headlines with Instrument Sans body, stone neutrals with one terracotta accent, a softly rounded button with an inner highlight, a card with layered shadows, and subtle grain. Validate it by showing two tiles to someone and asking which fits the adjectives.
+</Try>
+
+## Figma fluency for developers
+
+| Figma | CSS / code |
+| --- | --- |
+| Frame + constraints | A positioned container; constraints ≈ `inset` values |
+| **Auto layout** | Flexbox (hug = `fit-content`, fill = `flex: 1`) |
+| Layout grids, guides | CSS grid with named lines |
+| Components, variants, properties | A component API (props, `data-variant`) |
+| **Variables and modes** | Design tokens and themes (custom properties, `[data-theme]`) |
+| Styles | Shared text/effect tokens |
+| Dev Mode, inspect | Specs; verify against tokens, never copy raw values |
+| Plugins | Contrast checkers, token exporters |
+
+<Try task="Open any Figma community UI kit. Find one component and write down: its variants and properties (the API), which auto-layout settings map to which flex properties, and which values should be tokens but aren't.">
+  E.g. a Button with variants Type (primary/secondary/ghost), Size (sm/md/lg), State (default/hover/disabled) and a boolean Icon property → `data-variant`, `data-size`, CSS states from pseudo-classes, and a slot. Auto layout horizontal, gap 8, padding 12/16, hug → `display: inline-flex; gap: .5rem; padding: .75rem 1rem`. Hard-coded hex fills and 13px text that should be tokens get flagged back to design.
+</Try>
+
+## Design critique
+
+Give and receive critique **objective-led**: "does this achieve the goal?", not "I like it". Use the vocabulary: hierarchy, rhythm, contrast, balance, alignment, density, consistency. Critique your own work after a break, and defend decisions with **reasons**, not taste claims.
+
+<Try task="Critique one screen you built last month using this format: the goal, what works (with the principle), what doesn't (with the principle), one change you'd make first and why.">
+  "Goal: get a new user to create their first project. Works: the empty state has one clear action (Hick's law) and friendly copy. Doesn't: the heading, the helper text and the button have similar weight (weak hierarchy), and the illustration pulls the eye first (focal point on the wrong thing). First change: de-emphasise the illustration and helper text so the button is the only high-contrast element."
+</Try>
+
+## Visual literacy and influences
+
+The **Swiss/International Typographic Style** (Müller-Brockmann's grids), **Bauhaus**, **Dieter Rams's ten principles**, Massimo Vignelli's canon, Japanese design (**ma**: meaningful negative space), editorial magazine design, brutalism on the web, and contemporary product design (Linear, Stripe, Vercel, Apple, Things, Arc) studied as case studies.
+
+<Playground
+  id="p18-swiss"
+  title="A Swiss-style poster on a grid"
+  task="Move the headline to start on column 2 and span 4 columns; keep everything on the grid lines. Then remove the red and see if the composition still works."
+  html={`<div class="poster">\n  <h2 class="title">Konkrete<br>Kunst</h2>\n  <p class="date">12.10 — 30.11.2026</p>\n  <p class="place">Kunsthalle<br>Basel</p>\n  <div class="circle"></div>\n</div>`}
+  css={`.poster { display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(8, 2.5rem); gap: .5rem; padding: 1rem; aspect-ratio: 3 / 4; max-width: 22rem; background: #f5f2ea; font-family: "Helvetica Neue", Arial, sans-serif; }\n.title { grid-column: 1 / 5; grid-row: 1 / 3; margin: 0; font-size: 2.2rem; line-height: .95; letter-spacing: -.03em; }\n.date { grid-column: 1 / 4; grid-row: 7; margin: 0; font-weight: 700; }\n.place { grid-column: 5 / 7; grid-row: 7 / 9; margin: 0; }\n.circle { grid-column: 3 / 7; grid-row: 3 / 7; border-radius: 50%; background: #e0301e; }`}
+/>
+
+## Brand and identity basics
+
+Logo usage (clear space, minimum size, allowed colourways), a brand's **type and colour system**, **voice**, and turning a brand guide into **tokens and components**, so the brand is enforced by code rather than by memory.
+
+<Try task="Take any public brand guide (many are online as PDFs). Convert its colours, type and spacing rules into a small DTCG token file with primitive and semantic tiers.">
+  Primitives come straight from the guide (`color.brand.red.500: #e0301e`, `font.family.display: "Neue Haas"`), semantic tokens give them jobs (`color.action.primary → {color.brand.red.500}`, `color.text.default`), and rules that can't be tokens (logo clear space, "never place the logo on red") become component constraints and docs. Part 19 turns that file into CSS.
+</Try>
