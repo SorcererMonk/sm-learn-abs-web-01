@@ -1,0 +1,243 @@
+---
+title: "CSS Core: The Cascade, Inheritance, Values & Custom Properties"
+source: L1-coding-html-css.md
+part: 8
+tier: Core → Deep
+summary: CSS anatomy, the full cascade in order, exact specificity, cascade layers, inheritance keywords, the value pipeline, units, math functions, custom properties and @property, conditional CSS, the at-rule inventory, counters, and resets.
+anchors:
+  - "The cascade is a sorting algorithm. For each property on each element, gather every declaration that applies, sort by origin → context → style attribute → layer → specificity → proximity → order, and take the first. Nothing else happens."
+  - "Custom properties are not Sass variables. Sass variables are replaced at build time. Custom properties live in the cascade, inherit through the DOM, and change at runtime, which is why they can theme, animate, and respond to context."
+checks:
+  - q: "Compute the specificity of ten selectors, including `:is(#a, .b) p`, `:where(.x) .y`, and `a:not(.c, #d)`."
+    a: "`:is(#a, .b) p` = (1,0,1): `:is()` takes its most specific argument (#a) plus the type p. `:where(.x) .y` = (0,1,0): `:where()` is zero, `.y` is one class. `a:not(.c, #d)` = (1,0,1): `:not()` also takes its most specific argument (#d) plus a. Check the rest in the calculator on this page."
+  - q: "Explain why a rule in an unlayered stylesheet beats a more specific rule inside `@layer components`, and design a layer order for reset, third-party, base, components, utilities, and overrides."
+    a: "Layers are compared before specificity, and for normal declarations unlayered styles form an implicit final layer that beats every named layer, so specificity is never consulted. A sensible order: `@layer reset, third-party, base, components, utilities, overrides;` with third-party CSS imported via `@import url(vendor.css) layer(third-party);`. Keep app code layered too, so nothing unlayered accidentally outranks everything."
+  - q: "Explain \"invalid at computed-value time\" with an example where the fallback you expected doesn't happen."
+    a: "`p { color: red; color: var(--brand); }` with `--brand: 20px`. Parsing accepts the second declaration (anything with `var()` is assumed valid), so it wins the cascade and the first is discarded. At computed-value time `20px` isn't a colour, so the property becomes `unset` (inherited colour, e.g. black), not red. Fallbacks by repetition only work for declarations the parser can reject; use `var(--brand, red)` or `@property` with a `<color>` syntax instead."
+  - q: "Explain the difference between `initial`, `unset`, `revert`, and `revert-layer` on `display` for a `<div>`."
+    a: "`initial` uses the spec's initial value, `inline`, so the div becomes inline. `unset` acts as `inherit` for inherited properties and `initial` for others; display isn't inherited, so also `inline`. `revert` rolls back to the user-agent stylesheet: `block`. `revert-layer` rolls back to whatever the previous cascade layer said (and to `revert` behaviour if no earlier layer set it)."
+  - q: "Explain why `padding-top: 50%` produces a box whose height depends on its width."
+    a: "Percentages in padding and margin, on all four sides, resolve against the containing block's inline size (its width in horizontal writing modes). So 50% padding-top is half the width, which made the classic aspect-ratio hack. Today, use `aspect-ratio: 2 / 1` instead."
+build: "Your own reset + base layer, written from scratch and documented line by line with the bug each line prevents, followed by a \"cascade lab\" page that demonstrates each cascade step winning over the next."
+steps:
+  - "Read Chromium's `html.css` user-agent stylesheet once, noting surprises (e.g. `h1` sizes inside `article`)."
+  - "Write `reset.css` in `@layer reset`, one comment per line naming the bug it prevents (this site's reset is a model)."
+  - "Write `base.css` in `@layer base`: typography, links, focus, forms."
+  - "Build a cascade-lab page with one demo per step: origin, style attribute, layers, specificity, scope proximity, order."
+  - "Add an `!important` example that shows layer order reversing."
+taste: "Keep specificity flat and ordering explicit: classes and `:where()` for almost everything, layers for ordering, and IDs and `!important` essentially never in author CSS. The best CSS codebases are the ones where you can predict the winner by reading."
+quiz:
+  - q: "Which wins: `#nav a` in `@layer components`, or `a` unlayered?"
+    options: ["`#nav a`: higher specificity", "`a`: unlayered beats layered for normal declarations", "Whichever comes later"]
+    answer: 1
+    why: "Layers are compared before specificity; unlayered is the implicit last (strongest) layer."
+  - q: "What does `display: initial` give a `<div>`?"
+    options: ["`block`", "`inline`", "`none`"]
+    answer: 1
+    why: "The initial value of display in the spec is inline; the block you're used to comes from the user-agent stylesheet."
+  - q: "Padding percentages resolve against…"
+    options: ["The element's own height", "The containing block's width (inline size), on all sides", "The viewport"]
+    answer: 1
+    why: "Even padding-top and padding-bottom use the containing block's inline size."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import CascadeLab from '../../components/demos/CascadeLab.astro';
+import SpecificityCalc from '../../components/demos/SpecificityCalc.astro';
+
+## Anatomy: rules, declarations and shorthands
+
+A **rule** is a selector plus a **declaration block**; each **declaration** is a property and a value; **at-rules** (`@media`, `@layer`…) wrap or configure rules. **Shorthands** set every longhand they cover, including the ones you didn't mention: `background: red` resets `background-size` and `background-image`; `font: 16px serif` resets `line-height` to `normal`. And **invalid declarations are dropped individually**, which is the basis of fallback by repetition: write the safe value first, the modern one second.
+
+<Playground
+  id="p8-anatomy"
+  title="Shorthands reset longhands; invalid declarations are skipped"
+  task="Swap the order of the two background declarations in `.b` and explain the result. Then add `color: oklch(60% 0.2 30)` after a hex fallback on `.c`."
+  html={`<p class="a">font shorthand resets line-height</p>\n<div class="b">background shorthand resets size</div>\n<p class="c">fallback by repetition</p>`}
+  css={`.a { line-height: 2; font: 1rem serif; outline: 1px dashed #aaa; }\n.b { background-size: 20px 20px; background: repeating-linear-gradient(45deg, #fed7aa 0 10px, #fff 10px 20px); padding: 1rem; }\n.c { color: #c2410c; color: color-mix(in nonsense, red, blue); }`}
+/>
+
+## The cascade, in order
+
+For each property on each element, the browser gathers every declaration that applies and sorts them:
+
+1. **Origin and importance**: user-agent → user → author for normal declarations, *reversed* for `!important`; animations and transitions have their own positions (transitions beat everything).
+2. **Context**: shadow DOM encapsulation (outer-context normal styles beat inner; `!important` reverses).
+3. **Element-attached styles**: the `style` attribute.
+4. **Cascade layers**.
+5. **Specificity**.
+6. **Scope proximity** (`@scope`).
+7. **Order of appearance**.
+
+Most people only know steps 5 and 7, and that's why CSS feels arbitrary to them.
+
+<CascadeLab />
+
+## Specificity, exactly
+
+Specificity is a triple **(ID, CLASS, TYPE)** compared column by column. Attribute selectors and pseudo-classes count as classes; pseudo-elements as types; `*` and combinators count zero. **`:is()`, `:not()` and `:has()` take their most specific argument**; **`:where()` is always zero**, which makes it the tool for overridable defaults. Inline styles sit above all selectors (step 3), `!important` jumps origins (step 1) rather than adding specificity, and nesting behaves like `:is()`.
+
+<SpecificityCalc />
+
+<Try task="Predict, then check in the calculator: `ul li:nth-child(2 of .done)`, `a:not(.c, #d)`, `:where(.x) .y`, `input[type=email]:focus-visible`, `.card:has(> img, #hero)`.">
+  (0,2,2): nth-child adds a pseudo-class plus its `of S` argument (.done). (1,0,1): `:not()` takes #d. (0,1,0): `:where()` is zero. (0,2,1): attribute + pseudo-class + type. (1,1,0): `.card` plus `:has()` taking its most specific argument, #hero.
+</Try>
+
+## Cascade layers
+
+Declare the order once, up front: **`@layer reset, base, components, utilities;`**. Later layers beat earlier ones regardless of specificity. Anonymous layers (`@layer { … }`) can't be added to later; nested layers are addressed as `framework.base`; **`@import url(vendor.css) layer(vendor)`** puts third-party CSS in a low layer. **Unlayered styles beat all layered styles** for normal declarations; `!important` **reverses** layer order, so a reset can protect itself. `revert-layer` rolls a property back to the previous layer. This site uses `@layer reset, tokens, base, layout, components, motion, site, demos, print`.
+
+<Playground
+  id="p8-layers"
+  title="Layer order beats specificity"
+  task="Move `utilities` before `components` in the @layer statement and predict the colour. Then make the reset's rule `!important` and see it beat everything layered."
+  html={`<button id="buy" class="btn text-green">Buy now</button>`}
+  css={`@layer reset, components, utilities;\n\n@layer reset { button { color: black; } }\n@layer components { #buy.btn { color: crimson; } }\n@layer utilities { .text-green { color: seagreen; } }\n\nbutton { font: 700 1.25rem system-ui; padding: .6rem 1rem; border-radius: .6rem; border: 2px solid currentColor; background: white; }`}
+/>
+
+## Inheritance and the explicit keywords
+
+Mostly **text properties inherit**: `color`, `font-*`, `line-height`, `letter-spacing`, `text-align`, `visibility`, `cursor`, and all custom properties. **Box properties don't**: margins, padding, borders, backgrounds, sizing, layout. The keywords: **`inherit`** (take the parent's), **`initial`** (the *spec* initial value: `display: initial` is `inline`), **`unset`** (inherit if inherited, else initial), **`revert`** (back to the user-agent style), **`revert-layer`** (back to the previous layer). `all: unset` or `all: revert` resets a component in one line.
+
+<Playground
+  id="p8-keywords"
+  title="initial vs unset vs revert on display and color"
+  task="Predict each box's display and colour before looking. Then add `all: revert` to a fifth div."
+  html={`<section style="color: #c2410c">\n  <div class="k initial">initial</div>\n  <div class="k unset">unset</div>\n  <div class="k revert">revert</div>\n  <div class="k inherit">inherit</div>\n</section>`}
+  css={`.k { display: flex; color: #1d1a19; border: 2px solid; padding: .25rem .5rem; margin: .25rem; }\n.initial { display: initial; color: initial; }\n.unset { display: unset; color: unset; }\n.revert { display: revert; color: revert; }\n.inherit { color: inherit; }`}
+/>
+
+## The value pipeline
+
+Each value passes through stages: **declared** (everything that applies) → **cascaded** (the winner) → **specified** (winner or default) → **computed** (relative units resolved where possible, keywords resolved; this is what inherits) → **used** (after layout: percentages against real sizes) → **actual** (rounded to device pixels). `getComputedStyle()` returns *resolved* values: a historical mix of computed and used.
+
+<Playground
+  id="p8-pipeline"
+  title="What inherits is the computed value"
+  task="Change the parent's `line-height` from `1.5em` to `1.5` and compare the child's line-height. Unitless numbers inherit as numbers; em lengths inherit as computed pixels."
+  html={`<div class="parent">Parent at 16px\n  <p class="child">Child at 32px: is its line-height 24px or 48px?</p>\n</div>\n<pre id="out"></pre>`}
+  css={`.parent { font-size: 16px; line-height: 1.5em; }\n.child { font-size: 32px; background: #fff4ed; }`}
+  js={`const show = () => {\n  const child = document.querySelector('.child');\n  const cs = getComputedStyle(child);\n  document.getElementById('out').textContent = 'child font-size: ' + cs.fontSize + '\\nchild line-height: ' + cs.lineHeight;\n};\nshow();\nnew MutationObserver(show).observe(document.head, { subtree: true, childList: true, characterData: true });`}
+/>
+
+## Units
+
+- **Absolute**: `px` is the *reference pixel* (1/96 inch at arm's length), not a device pixel.
+- **Font-relative**: `em` (compounds through nesting), `rem` (root), `ch` (width of "0"), `ex`, `cap`, `ic`, `lh`, `rlh`.
+- **Viewport**: `vw`/`vh`, and the mobile-address-bar-aware **`svh`** (small), **`lvh`** (large), **`dvh`** (dynamic); `vi`/`vb` (logical); `vmin`/`vmax`.
+- **Container units**: `cqi`, `cqb`, `cqw`, `cqh`, `cqmin`, `cqmax` (Part 13).
+- **Percentages** resolve against something different per property: **padding and margin use the containing block's width, even vertically**.
+- `fr` (grid), angles (`deg`, `turn`, `rad`), time (`s`, `ms`), resolution (`dppx`, `x`).
+
+<Playground
+  id="p8-units"
+  title="em compounds, rem doesn't; padding % uses width; container units"
+  task="Resize the container by editing its width: the cqi text scales with the container, not the viewport."
+  html={`<ul class="em"><li>1.2em<ul><li>1.2em of 1.2em<ul><li>…compounding</li></ul></li></ul></li></ul>\n<ul class="rem"><li>1.2rem<ul><li>still 1.2rem<ul><li>still 1.2rem</li></ul></li></ul></li></ul>\n<div class="ratio"><span>padding-top: 50%</span></div>\n<div class="box"><p>I scale with my container (5cqi)</p></div>`}
+  css={`.em li { font-size: 1.2em; }\n.rem li { font-size: 1.2rem; }\n.ratio { width: 12rem; padding-top: 50%; position: relative; background: #fed7aa; }\n.ratio span { position: absolute; inset: .5rem; }\n.box { container-type: inline-size; width: 70%; border: 2px dashed #c2410c; margin-top: 1rem; }\n.box p { font-size: 5cqi; margin: .5rem; }`}
+/>
+
+## Math and functions
+
+`calc()` mixes units (spaces are required around `+` and `-`). **`min()`, `max()` and `clamp(min, preferred, max)`** make values responsive without media queries. `round()`, `mod()`, `rem()` step values; `abs()`, `sign()`; **trigonometry** (`sin()`, `cos()`, `atan2()`) places items on a circle; `pow()`, `sqrt()`, `hypot()`, `log()`, `exp()` build modular type scales in pure CSS. Also `var()`, `env()` (safe-area and keyboard insets), typed **`attr()`**, `progress()`, `sibling-index()`/`sibling-count()` for staggering, and `calc-size()` **[Frontier]**.
+
+<Playground
+  id="p8-math"
+  title="A modular scale with pow(), a circle with sin/cos, and clamp()"
+  task="Change `--ratio` to 1.5 and `--n` on the clock to 8. Replace the hard-coded `--i` values with `sibling-index()` if your browser supports it."
+  html={`<h1 class="s3">Heading step 3</h1>\n<h2 class="s2">Heading step 2</h2>\n<p class="s0">Body step 0</p>\n<div class="clock" style="--n: 6">\n  <span style="--i:0">1</span><span style="--i:1">2</span><span style="--i:2">3</span><span style="--i:3">4</span><span style="--i:4">5</span><span style="--i:5">6</span>\n</div>`}
+  css={`:root { --ratio: 1.25; --base: clamp(1rem, 0.9rem + 0.5vw, 1.2rem); }\n.s0 { font-size: var(--base); }\n.s2 { font-size: calc(var(--base) * pow(var(--ratio), 2)); }\n.s3 { font-size: calc(var(--base) * pow(var(--ratio), 3)); }\n.clock { position: relative; width: 10rem; aspect-ratio: 1; border-radius: 50%; border: 2px solid #c2410c; margin: 1rem; }\n.clock span { --angle: calc(var(--i) / var(--n) * 1turn); position: absolute; left: calc(50% + 4rem * sin(var(--angle)) - .75rem); top: calc(50% - 4rem * cos(var(--angle)) - .75rem); width: 1.5rem; text-align: center; }`}
+/>
+
+## Custom properties in depth
+
+Custom properties are **cascaded and inherited** like any property, resolved at computed-value time, and **scoped to the element tree**: set them on a component and its children see them. `var(--x, fallback)` uses the fallback when `--x` is the **guaranteed-invalid value** (unset). If a `var()` substitution produces an invalid value, the property becomes **invalid at computed-value time** and behaves as `unset`; it does *not* fall back to an earlier declaration. Use them as **component APIs** (`--button-bg`), theme hooks and runtime switches (`style.setProperty('--x', …)`). Changing one on `:root` restyles everything that uses it.
+
+<Playground
+  id="p8-vars"
+  title="Invalid at computed-value time, and a component API"
+  task="Why is the first paragraph black, not red? Fix it with a var() fallback. Then give the second card a different `--card-accent` without touching `.card`."
+  html={`<p class="iacvt">I wanted red as a fallback</p>\n<div class="card">Default card</div>\n<div class="card special">Special card</div>`}
+  css={`:root { --brand: 20px; }\n.iacvt { color: red; color: var(--brand); }\n.card { --card-accent: #c2410c; border-left: 6px solid var(--card-accent); padding: .5rem .75rem; margin: .5rem 0; background: color-mix(in oklch, var(--card-accent) 12%, white); }`}
+  solution={{ css: `:root { --brand: 20px; }\n.iacvt { color: var(--brand-color, red); }\n.card { --card-accent: #c2410c; border-left: 6px solid var(--card-accent); padding: .5rem .75rem; margin: .5rem 0; background: color-mix(in oklch, var(--card-accent) 12%, white); }\n.special { --card-accent: #0f766e; }` }}
+/>
+
+## `@property`: typed, animatable custom properties
+
+Registering a property with **`syntax`** (`<length>`, `<color>`, `<angle>`, `<percentage>`, `<number>`, `*`), **`inherits`** and **`initial-value`** makes it type-checked (invalid values fall back to the initial value), **animatable and interpolable** (animated gradients, conic progress rings), and optionally non-inheriting (a performance win in deep trees).
+
+<Playground
+  id="p8-property"
+  title="A conic progress ring that animates because --p is a registered <percentage>"
+  task="Delete the @property rule and hover again: the ring jumps instead of animating, because unregistered custom properties can't interpolate."
+  html={`<div class="ring" tabindex="0" aria-label="Progress: 72%"><span>72%</span></div>`}
+  css={`@property --p { syntax: "<percentage>"; inherits: false; initial-value: 0%; }\n.ring { --p: 20%; width: 8rem; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(closest-side, white 78%, transparent 80%), conic-gradient(#c2410c var(--p), #fde7d9 0); transition: --p .8s cubic-bezier(.2, 0, 0, 1); font: 700 1.25rem system-ui; }\n.ring:hover, .ring:focus-visible { --p: 72%; }\n@media (prefers-reduced-motion: reduce) { .ring { transition: none; } }`}
+/>
+
+## Conditional CSS
+
+`@media` (Part 13), **`@supports`** (including `selector(:has(a))` and `font-tech(color-COLRv1)`), `@container` (Part 13), the new **`if()`** function with `style()`, `media()` and `supports()` tests, and custom functions with **`@function`** **[Frontier]**. They replace old hacks such as the "space toggle" custom-property trick.
+
+<Playground
+  id="p8-conditional"
+  title="@supports selector(), and if() with a fallback"
+  task="Add a `@supports not selector(:has(a))` block with a message for older engines."
+  html={`<div class="note">Checking what this engine supports…</div>\n<button class="pill" style="--variant: danger">Danger</button>\n<button class="pill">Default</button>`}
+  css={`.note::after { content: " :has() is NOT supported."; }\n@supports selector(:has(a)) { .note::after { content: " :has() is supported."; } }\n.pill { font: 600 1rem system-ui; border: 0; border-radius: 99px; padding: .4rem .9rem; color: white; background: #57534e;\n  background: if(style(--variant: danger): #b91c1c; else: #57534e); }`}
+/>
+
+## The at-rule inventory
+
+| At-rule | Purpose |
+| --- | --- |
+| `@charset`, `@namespace` | Encoding of the stylesheet; XML namespaces (rare) |
+| `@import` | Loads another stylesheet: creates render-blocking waterfalls, so prefer `<link>` or bundling |
+| `@media`, `@supports`, `@container` | Conditions (Parts 8, 13) |
+| `@layer`, `@scope` | Cascade ordering and proximity (Parts 8, 9) |
+| `@font-face`, `@font-feature-values`, `@font-palette-values` | Fonts (Part 14) |
+| `@keyframes`, `@starting-style`, `@view-transition` | Motion (Parts 16, 17) |
+| `@property`, `@function` | Typed custom properties; custom functions |
+| `@counter-style` | Custom list markers |
+| `@page` | Print pages (Part 23) |
+| `@position-try` | Anchor positioning fallbacks (Part 10) |
+
+<Try task="Find three at-rules in this site's own CSS (view source or DevTools → Sources) and say what each does. Which one decides that print styles beat everything else here?">
+  You'll find `@layer` (the order statement at the top), `@font-face` (Fraunces and Instrument Sans with metric-adjusted fallbacks), `@media (prefers-reduced-motion)`, `@supports (animation-timeline: view())` and `@view-transition`. Print styles win because `print` is the *last* layer in the `@layer` statement.
+</Try>
+
+## Counters and generated content
+
+`counter-reset`, `counter-increment` and `counter()`/`counters()` number anything (headings, figures, nested lists as "2.3.1"). **`@counter-style`** defines custom markers in any symbol system or language. `content` takes strings, `attr()`, `open-quote`/`close-quote`, images, counters, and alt text after a slash.
+
+<Playground
+  id="p8-counters"
+  title="Section numbering and a custom counter style"
+  task="Make the list count in Devanagari digits (`list-style-type: devanagari`), then define your own @counter-style with emoji symbols."
+  html={`<article>\n  <h2>Setup</h2><h3>Install</h3><h3>Configure</h3>\n  <h2>Usage</h2><h3>First run</h3>\n</article>\n<ol class="steps"><li>Mix</li><li>Knead</li><li>Bake</li></ol>`}
+  css={`article { counter-reset: h2; }\nh2 { counter-increment: h2; counter-reset: h3; }\nh2::before { content: counter(h2) ". "; color: #c2410c; }\nh3 { counter-increment: h3; font-weight: 500; }\nh3::before { content: counter(h2) "." counter(h3) " "; color: #78716c; }\n@counter-style thumbs { system: cyclic; symbols: "👉"; suffix: " "; }\n.steps { list-style: thumbs; }`}
+/>
+
+## Resets and defaults
+
+Browsers ship a **user-agent stylesheet** (read Chromium's `html.css` once). normalize.css made browsers consistent; a **modern reset** fixes the defaults that cause bugs: `box-sizing: border-box` for everything, deliberate margins, `img { display: block; max-width: 100% }`, form controls inheriting fonts, `text-wrap: pretty` on paragraphs, and reduced-motion defaults. It lives in the **lowest layer** so everything overrides it. This site's reset, abridged:
+
+```css
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }      /* widths include padding and border */
+  * { margin: 0; }                                         /* spacing is set deliberately, by layout */
+  html { -webkit-text-size-adjust: none; text-size-adjust: none; } /* no surprise font inflation on iOS */
+  body { min-block-size: 100svh; line-height: 1.5; }       /* readable default leading */
+  img, picture, video, canvas, svg { display: block; max-inline-size: 100%; } /* no inline gaps, no overflow */
+  input, button, textarea, select { font: inherit; }       /* form controls use the page font */
+  p, li, figcaption { text-wrap: pretty; }                 /* fewer orphans */
+  h1, h2, h3, h4 { text-wrap: balance; }                   /* balanced headlines */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
+}
+```
+
+<Try task="Pick one line of the reset above, delete it from a page you built, and describe the bug that appears.">
+  Without `box-sizing: border-box`, a `width: 100%` input with padding overflows its container. Without `img { display: block }`, images sit on the text baseline with a few pixels of gap below. Without `font: inherit` on controls, buttons and inputs use the system font at 13.33px. Without `min-block-size` on body, a short page's footer floats mid-screen.
+</Try>

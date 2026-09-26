@@ -1,0 +1,168 @@
+---
+title: Flexbox
+source: L1-coding-html-css.md
+part: 11
+tier: Core → Deep
+summary: The one-dimensional model, the flex shorthand, the flex layout algorithm at mechanism depth, the automatic minimum size, alignment and auto margins, gap, order and accessibility, patterns from memory, when not to use flex, and flexbox in Yoga and Figma.
+anchors:
+  - "Flexbox is *content-out*: items say how big they want to be, and the container negotiates. Grid is *layout-in*: the container defines tracks, and items are placed into them. Pick the one that matches who should be in charge."
+  - "When a flex item refuses to shrink, it isn't flexbox being stubborn. It's `min-width: auto` protecting content from being crushed. Decide whether the content may be crushed, then say so with `min-width: 0`."
+checks:
+  - q: "Given three items with bases 100/200/300 px and `flex-shrink: 1` in a 400 px container, compute the final sizes by hand, then verify."
+    a: "Free space = 400 − 600 = −200. Scaled shrink factors = shrink × basis = 100, 200, 300 (sum 600). Each item loses 200 × its share: A loses 200 × 100/600 ≈ 33.33 → 66.67px; B loses 66.67 → 133.33px; C loses 100 → 200px. Total 400. The calculator on this page starts with exactly this case."
+  - q: "Explain why a long URL inside a flex item overflows its container, and fix it two ways."
+    a: "A flex item's `min-width` is `auto`, which resolves to its min-content width: the unbreakable URL. The item can't shrink below that, so it overflows. Fix 1: `min-width: 0` on the item (let it shrink) plus `overflow-wrap: anywhere` on the text (let the URL break). Fix 2: `overflow: hidden` on the item (a non-visible overflow sets the automatic minimum to 0) with `text-overflow: ellipsis` on a single line."
+  - q: "Build a responsive \"switcher\" that goes vertical below a container width without any media or container queries, and explain the math."
+    a: "`.switcher { display: flex; flex-wrap: wrap; } .switcher > * { flex-grow: 1; flex-basis: calc((30rem - 100%) * 999); }`. When the container is wider than 30rem, `30rem − 100%` is negative, so the basis is a huge negative number, clamped to 0: items sit in one row and grow equally. When narrower, it's a huge positive basis, so each item wants to be enormous and wraps onto its own line: vertical. The ×999 makes the switch instant at exactly 30rem."
+  - q: "Explain the difference between `align-items`, `align-content`, and `justify-content` in a wrapping flex container."
+    a: "`justify-content` distributes items along the main axis within each line. `align-items` aligns items on the cross axis within their own line. `align-content` distributes the *lines themselves* along the cross axis when there's extra space in the container; it has no effect on a single-line container."
+build: "A flexbox pattern library: nav bar, media object, input group, cluster, sidebar, switcher, sticky footer, and card footers pinned to the bottom, each resilient to long content, RTL, and 200% zoom, with a Figma auto-layout equivalent side by side."
+steps:
+  - "Nav bar with the last item pushed right using `margin-inline-start: auto`."
+  - "Media object and input group that survive a 60-character unbroken word."
+  - "Cluster (wrapping tags) and sidebar (Every Layout) patterns."
+  - "Switcher with the ×999 trick; sticky footer with `min-height: 100dvh`."
+  - "Cards whose footers pin to the bottom (`flex-direction: column` + `margin-block-start: auto`)."
+  - "Test each in `dir=\"rtl\"` and at 200% zoom; recreate each in Figma auto layout."
+taste: "Let content decide sizes wherever possible. Fixed widths on flex items are usually a sign you wanted grid, or that you haven't decided what should happen when the content changes."
+quiz:
+  - q: "`flex: 1` expands to…"
+    options: ["`1 1 auto`", "`1 1 0%`", "`1 0 0`"]
+    answer: 1
+    why: "flex: 1 sets a zero basis, so items share all the space equally regardless of content; flex: auto keeps the content size as basis."
+  - q: "Which item shrinks most when all have `flex-shrink: 1`?"
+    options: ["The smallest", "The one with the biggest flex-basis", "They shrink equally"]
+    answer: 1
+    why: "Negative space is distributed by shrink × basis."
+  - q: "In Yoga (React Native), the default `flex-direction` is…"
+    options: ["`row`", "`column`"]
+    answer: 1
+    why: "Yoga defaults to column, and flex-shrink to 0."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import FlexCalc from '../../components/demos/FlexCalc.astro';
+
+## The model: one axis at a time
+
+Flexbox lays items out along one **main axis** (set by `flex-direction`: `row`, `column`, and their `-reverse` variants, relative to the writing mode), with a perpendicular **cross axis**. `flex-wrap: wrap` turns one line into several, and **each line is laid out independently**, which is why wrapped rows don't line up in columns. The `-reverse` directions change visual order without changing DOM or focus order.
+
+<Playground
+  id="p11-model"
+  title="Direction, wrap, and lines that don't line up"
+  task="Switch `flex-direction` to `column`, then to `row-reverse`, and Tab through the items: focus order stays 1, 2, 3… Then remove `flex-wrap`."
+  html={`<div class="flex">\n  <button>1 One</button><button>2 Two longer</button><button>3 Three</button><button>4 Four</button><button>5 Five is the longest</button><button>6 Six</button>\n</div>`}
+  css={`.flex { display: flex; flex-direction: row; flex-wrap: wrap; gap: .5rem; max-width: 22rem; padding: .5rem; outline: 2px dashed #999; }\nbutton { font: inherit; padding: .4rem .7rem; }`}
+/>
+
+## The `flex` shorthand
+
+`flex` = `flex-grow` `flex-shrink` `flex-basis`. The common values: **`flex: 1`** = `1 1 0%` (share *all* space equally), **`flex: auto`** = `1 1 auto` (start from content size, share the rest), **`flex: none`** = `0 0 auto` (rigid), **`flex: initial`** = `0 1 auto` (the default: may shrink, won't grow). **`flex-basis` beats `width`** on the main axis; a basis of `auto` falls back to `width`, and then to the content size.
+
+<Playground
+  id="p11-shorthand"
+  title="flex: 1 vs auto vs none vs initial"
+  task="Predict each row before reading it. Then give the middle item `flex: 2` in the first row."
+  html={`<p>flex: 1 (equal, ignores content)</p><div class="row f1"><span>A</span><span>Much longer content</span><span>C</span></div>\n<p>flex: auto (content first, then share)</p><div class="row fa"><span>A</span><span>Much longer content</span><span>C</span></div>\n<p>flex: none (rigid)</p><div class="row fn"><span>A</span><span>Much longer content</span><span>C</span></div>\n<p>flex: initial (default)</p><div class="row fi"><span>A</span><span>Much longer content</span><span>C</span></div>`}
+  css={`.row { display: flex; gap: 4px; max-width: 26rem; margin-bottom: .25rem; }\n.row span { background: #fed7aa; padding: .3rem; }\n.f1 span { flex: 1; }\n.fa span { flex: auto; }\n.fn span { flex: none; }\n.fi span { flex: initial; }\np { margin: .5rem 0 .2rem; font-size: .85rem; }`}
+/>
+
+## The flex layout algorithm
+
+At mechanism depth: (1) determine each item's **flex base size** and hypothetical main size; (2) collect items into lines; (3) **resolve flexible lengths**: if there's positive free space, distribute it by `flex-grow`; if negative, remove it in proportion to **`flex-shrink × flex base size`**, which is why big items shrink more; (4) clamp by min/max, freeze the violators and redistribute; (5) compute cross sizes; (6) align. Try the mastery-check numbers below (100/200/300 into 400), then turn on grow.
+
+<FlexCalc />
+
+## The automatic minimum size
+
+Flex items have **`min-width: auto`**, which resolves to the content's **min-content** size. That single rule causes the most common flexbox bugs: text that won't truncate, a `<pre>` or long URL blowing out the layout, an image that won't shrink. The fix is **`min-width: 0`** (or `overflow` other than `visible`) on the item. The reason is worth remembering: the browser is protecting your content until you say it may be crushed.
+
+<Playground
+  id="p11-minsize"
+  title="The long-URL blowout and two fixes"
+  task="The second card overflows. Fix it with `min-width: 0` plus `overflow-wrap: anywhere`, then try `overflow: hidden` with an ellipsis instead."
+  html={`<div class="media"><div class="avatar"></div><div class="body"><strong>Asha</strong><p>Short message.</p></div></div>\n<div class="media"><div class="avatar"></div><div class="body"><strong>Sam</strong><p>https://example.com/a/very/long/url/that/has/no/spaces/and/refuses/to/wrap/anywhere/at/all</p></div></div>`}
+  css={`.media { display: flex; gap: .75rem; max-width: 20rem; padding: .5rem; border: 2px solid #1d1a19; margin-bottom: .5rem; }\n.avatar { flex: none; inline-size: 2.5rem; block-size: 2.5rem; border-radius: 50%; background: #c2410c; }\n.body p { margin: 0; }`}
+  solution={{ css: `.media { display: flex; gap: .75rem; max-width: 20rem; padding: .5rem; border: 2px solid #1d1a19; margin-bottom: .5rem; }\n.avatar { flex: none; inline-size: 2.5rem; block-size: 2.5rem; border-radius: 50%; background: #c2410c; }\n.body { min-width: 0; }\n.body p { margin: 0; overflow-wrap: anywhere; }` }}
+/>
+
+## Alignment and auto margins
+
+**`justify-content`** distributes along the main axis (`flex-start`, `center`, `space-between`, `space-around`, `space-evenly`, `start`/`end`), with **`safe`** to avoid pushing overflowing content off the start edge where it can't be scrolled to. **`align-items`**/`align-self` align on the cross axis (`stretch` by default, `center`, `baseline`, `first baseline`/`last baseline`). **`align-content`** distributes multiple lines. And **auto margins** absorb free space: `margin-inline-start: auto` pushes an item (and everything after it) to the end, the cleanest "push the last nav item right" technique.
+
+<Playground
+  id="p11-align"
+  title="Auto margins, baseline alignment and safe centring"
+  task="Push 'Sign in' to the far end with an auto margin. Change `align-items` to `baseline` in the second row. Then make the third row `justify-content: safe center` and shrink the preview."
+  html={`<nav class="bar"><a href="#">Logo</a><a href="#">Docs</a><a href="#">Blog</a><a href="#" class="end">Sign in</a></nav>\n<div class="base"><span class="big">Big</span><span>small text</span><button>Button</button></div>\n<div class="safe"><span>Item one</span><span>Item two</span><span>Item three</span><span>Item four</span></div>`}
+  css={`.bar { display: flex; gap: 1rem; padding: .75rem; background: #1d1a19; }\n.bar a { color: white; }\n.base { display: flex; align-items: center; gap: .5rem; margin: 1rem 0; border-bottom: 1px solid #ccc; }\n.big { font-size: 2.5rem; }\n.safe { display: flex; justify-content: center; gap: .5rem; width: 12rem; overflow: auto; border: 2px dashed #999; }\n.safe span { flex: none; background: #fed7aa; padding: .25rem .5rem; }`}
+/>
+
+## `gap` instead of margins
+
+**`gap`** (`row-gap`, `column-gap`) puts space *between* items only: no margins to cancel at the edges, no `:last-child` overrides, and it works across wrapped lines. It replaces most margin-based spacing in flex and grid.
+
+<Playground
+  id="p11-gap"
+  title="Margins vs gap on a wrapping tag list"
+  task="Delete the margin rules on the first cluster and give it `gap: .5rem` instead. Notice the uneven edges disappear."
+  html={`<ul class="margins"><li>HTML</li><li>CSS</li><li>Accessibility</li><li>Typography</li><li>Colour</li><li>Motion</li></ul>\n<ul class="gap"><li>HTML</li><li>CSS</li><li>Accessibility</li><li>Typography</li><li>Colour</li><li>Motion</li></ul>`}
+  css={`ul { display: flex; flex-wrap: wrap; list-style: none; padding: .5rem; max-width: 16rem; outline: 2px dashed #999; }\nli { background: #fed7aa; padding: .2rem .6rem; border-radius: 99px; }\n.margins li { margin: 0 .5rem .5rem 0; }\n.gap { gap: .5rem; }`}
+/>
+
+## `order` and its accessibility cost
+
+`order` (like `-reverse` directions) changes only the **visual** order. DOM order, reading order for screen readers and **focus order** stay the same, which can fail WCAG 1.3.2 (Meaningful Sequence) and 2.4.3 (Focus Order). Reorder the source instead; `reading-flow: flex-visual` **[Frontier]** will let the browser follow visual order.
+
+<Playground
+  id="p11-order"
+  title="Visual order vs focus order"
+  task="Tab through the links: focus jumps around. Remove the `order` rules and reorder the HTML instead."
+  html={`<nav class="n"><a href="#1">First in DOM</a><a href="#2">Second in DOM</a><a href="#3">Third in DOM</a></nav>`}
+  css={`.n { display: flex; gap: 1rem; reading-flow: normal; }\n.n a:nth-child(1) { order: 3; }\n.n a:nth-child(3) { order: 1; }\na:focus-visible { outline: 3px solid #c2410c; }`}
+/>
+
+## Patterns to write from memory
+
+Navigation bars, media objects, centred content, **sticky footers** (a column flex body with `min-height: 100dvh` and `flex: 1` on main), input groups (input + button), equal-height cards, **clusters** (wrapping tag lists), the **sidebar** (a fixed-ish sidebar beside content that wraps below a threshold), and the **switcher** (horizontal to vertical at a container width, no media queries: `flex-basis: calc((threshold - 100%) * 999)`). This site's layout primitives are these patterns.
+
+<Playground
+  id="p11-patterns"
+  title="Sidebar, switcher, input group and a card with a pinned footer"
+  task="Drag the preview narrower (or change `--threshold`): the switcher flips to vertical at 30rem with no media query. Add a longer body to one card: its footer stays at the bottom."
+  html={`<div class="with-sidebar"><aside>Sidebar (20rem)</aside><main>Main content wraps below when there's less than 50% of the space left.</main></div>\n<div class="switcher"><div>One</div><div>Two</div><div>Three</div></div>\n<form class="group"><label class="visually-hidden" for="e">Email</label><input id="e" placeholder="you@example.com"><button>Subscribe</button></form>\n<div class="cards"><article><h4>Short</h4><p>One line.</p><footer>Footer</footer></article><article><h4>Long</h4><p>Several lines of text that make this card taller than its neighbour.</p><footer>Footer</footer></article></div>`}
+  css={`.with-sidebar { display: flex; flex-wrap: wrap; gap: 1rem; }\n.with-sidebar > aside { flex-basis: 12rem; flex-grow: 1; background: #fed7aa; padding: .5rem; }\n.with-sidebar > main { flex-basis: 0; flex-grow: 999; min-inline-size: 50%; background: #f4f1ee; padding: .5rem; }\n.switcher { --threshold: 30rem; display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }\n.switcher > * { flex-grow: 1; flex-basis: calc((var(--threshold) - 100%) * 999); background: #fde68a; padding: .5rem; }\n.group { display: flex; max-width: 22rem; }\n.group input { flex: 1; min-width: 0; font: inherit; padding: .4rem; }\n.group button { font: inherit; }\n.cards { display: flex; gap: .75rem; margin-top: 1rem; }\n.cards article { flex: 1; display: flex; flex-direction: column; border: 1px solid #ccc; padding: .5rem; border-radius: .5rem; }\n.cards footer { margin-block-start: auto; border-top: 1px solid #eee; padding-top: .25rem; }\n.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }`}
+/>
+
+## When flexbox is the wrong tool
+
+Use grid for **two-dimensional** alignment, for **consistent column tracks across rows**, and for "grid-like" wrapping where the **last row should align** with the others instead of stretching. The telltale sign: `flex: 0 0 calc(33.333% - 1rem)` with margin maths.
+
+<Playground
+  id="p11-wrong-tool"
+  title="Flex wrap vs grid auto-fill: the last row"
+  task="Look at the last row of each gallery. Then delete one item: flex stretches the orphans, grid keeps the columns."
+  html={`<p>Flex with wrap</p><div class="flex">${'<div>Item</div>'.repeat(5)}</div>\n<p>Grid with auto-fill</p><div class="grid">${'<div>Item</div>'.repeat(5)}</div>`}
+  css={`.flex { display: flex; flex-wrap: wrap; gap: .5rem; max-width: 24rem; }\n.flex > div { flex: 1 1 7rem; background: #fed7aa; padding: .5rem; }\n.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: .5rem; max-width: 24rem; }\n.grid > div { background: #fde68a; padding: .5rem; }`}
+/>
+
+## Flexbox in other engines: Yoga and Figma auto layout
+
+**Yoga**, React Native's layout engine, implements a flexbox subset with different defaults: `flex-direction: column`, `flex-shrink: 0`, `align-content: flex-start`, and no `display: block`. **Figma's auto layout** is flexbox with designer vocabulary, which makes design-to-code almost mechanical:
+
+| Figma auto layout | CSS |
+| --- | --- |
+| Horizontal / vertical | `flex-direction: row` / `column` |
+| Spacing between items | `gap` |
+| Padding | `padding` |
+| Hug contents | `width: fit-content` (or `flex: none`) |
+| Fill container | `flex: 1` (main axis) / `align-self: stretch` (cross axis) |
+| Fixed width | `width: 240px; flex: none` |
+| Space between | `justify-content: space-between` |
+| Wrap | `flex-wrap: wrap` |
+| Absolute position (in auto layout) | `position: absolute` inside a `position: relative` frame |
+
+<Try task="Translate this Figma frame to CSS: vertical auto layout, 16 padding, 12 spacing, children 'Title' (fill width), 'Body' (fill width, hug height), 'Button' (hug, aligned right).">
+  `.frame { display: flex; flex-direction: column; padding: 16px; gap: 12px; } .title, .body { align-self: stretch; } .button { align-self: flex-end; width: fit-content; }`. In Yoga the same frame needs no `flex-direction` (column is the default) but remember `flexShrink: 0` is the default too, so long text may overflow instead of shrinking.
+</Try>

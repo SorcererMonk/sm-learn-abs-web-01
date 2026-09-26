@@ -1,0 +1,271 @@
+---
+/**
+ * The cascade as a sort (lib/cascade.ts): edit up to four competing declarations for
+ * `color` on one element and see the ranking and which cascade step decided the winner.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+const layers = ['(unlayered)', 'reset', 'base', 'components', 'utilities'];
+const origins = ['author', 'user', 'user-agent', 'animation', 'transition'];
+const rows = [1, 2, 3, 4];
+---
+
+<Demo title="Cascade lab: who wins color on <button class='btn' id='buy'>?">
+  <div class="stack" data-cascade-lab>
+    <p class="cluster" role="group" aria-label="Scenarios">
+      <button type="button" class="btn btn--small btn--ghost" data-preset="layers">
+        Layers beat specificity
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-preset="important">
+        !important reverses layers
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-preset="inline">
+        style="" beats IDs
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-preset="scope">
+        Scope proximity
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-preset="order">
+        Order of appearance
+      </button>
+    </p>
+    <div class="table-scroll" role="region" aria-label="Competing declarations" tabindex="0">
+      <table class="cascade-table">
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col">Selector</th>
+            <th scope="col">Value</th>
+            <th scope="col">Origin</th>
+            <th scope="col">Layer</th>
+            <th scope="col">
+              <code>!important</code>
+            </th>
+            <th scope="col">
+              <code>style=""</code>
+            </th>
+            <th scope="col">Scope hops</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((n) => (
+            <tr data-row={n}>
+              <th scope="row">{n}</th>
+              <td>
+                <input aria-label={`Selector ${n}`} data-f="selector" spellcheck="false" />
+              </td>
+              <td>
+                <input aria-label={`Value ${n}`} data-f="value" size="8" spellcheck="false" />
+              </td>
+              <td>
+                <select aria-label={`Origin ${n}`} data-f="origin">
+                  {origins.map((o) => (
+                    <option>{o}</option>
+                  ))}
+                </select>
+              </td>
+              <td>
+                <select aria-label={`Layer ${n}`} data-f="layer">
+                  {layers.map((l, i) => (
+                    <option value={i - 1}>{l}</option>
+                  ))}
+                </select>
+              </td>
+              <td>
+                <input type="checkbox" aria-label={`Row ${n} important`} data-f="important" />
+              </td>
+              <td>
+                <input type="checkbox" aria-label={`Row ${n} in style attribute`} data-f="inline" />
+              </td>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  max="9"
+                  aria-label={`Row ${n} scope proximity (empty = unscoped)`}
+                  data-f="proximity"
+                  class="narrow"
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">
+      Layer order: <code>@layer reset, base, components, utilities;</code> Rows lower in the table
+      appear later in the source.
+    </p>
+    <div class="cluster" aria-live="polite">
+      <span class="cascade-swatch" data-swatch aria-hidden="true">
+        Buy now
+      </span>
+      <p class="result-line" data-verdict></p>
+    </div>
+    <ol class="cascade-ranking" role="list" data-ranking></ol>
+  </div>
+</Demo>
+
+<script>
+  import { bindControls, need } from '@learn/shared/client/controls.ts';
+  import { cascade, type Declaration, type Origin } from '../../lib/cascade.ts';
+  import { formatSpec, specificity } from '../../lib/specificity.ts';
+
+  type Row = [
+    selector: string,
+    value: string,
+    origin: Origin,
+    layer: number,
+    important: boolean,
+    inline: boolean,
+    proximity: string,
+  ];
+  const presets: Record<string, Row[]> = {
+    layers: [
+      ['#buy.btn', 'crimson', 'author', 1, false, false, ''],
+      ['.btn', 'seagreen', 'author', 3, false, false, ''],
+      ['button', 'royalblue', 'author', -1, false, false, ''],
+      ['button', 'buttontext', 'user-agent', -1, false, false, ''],
+    ],
+    important: [
+      ['.btn', 'crimson', 'author', 0, true, false, ''],
+      ['.btn', 'seagreen', 'author', 3, true, false, ''],
+      ['#buy', 'royalblue', 'author', -1, false, false, ''],
+      ['button', 'darkorange', 'author', -1, false, false, ''],
+    ],
+    inline: [
+      ['#buy#buy', 'crimson', 'author', -1, false, false, ''],
+      ['(style attribute)', 'seagreen', 'author', -1, false, true, ''],
+      ['.btn', 'royalblue', 'author', -1, false, false, ''],
+      ['button', 'darkorange', 'author', -1, false, false, ''],
+    ],
+    scope: [
+      ['.btn', 'crimson', 'author', -1, false, false, '3'],
+      ['.btn', 'seagreen', 'author', -1, false, false, '1'],
+      ['.btn', 'royalblue', 'author', -1, false, false, ''],
+      ['button', 'darkorange', 'author', -1, false, false, ''],
+    ],
+    order: [
+      ['.btn', 'crimson', 'author', -1, false, false, ''],
+      ['button.btn', 'seagreen', 'author', -1, false, false, ''],
+      ['.btn', 'royalblue', 'author', -1, false, false, ''],
+      ['button:hover', 'darkorange', 'author', -1, false, false, ''],
+    ],
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-cascade-lab]').forEach((root) => {
+    const rows = [...root.querySelectorAll<HTMLTableRowElement>('tr[data-row]')];
+    const field = <T extends HTMLInputElement | HTMLSelectElement>(row: Element, f: string): T =>
+      need<T>(row, `[data-f="${f}"]`);
+    const layerName = (row: Element): string =>
+      field<HTMLSelectElement>(row, 'layer').selectedOptions[0]?.textContent ?? '';
+
+    const load = (name: string): void => {
+      presets[name]?.forEach(
+        ([selector, value, origin, layer, important, inline, proximity], i) => {
+          const row = rows[i];
+          if (!row) return;
+          field<HTMLInputElement>(row, 'selector').value = selector;
+          field<HTMLInputElement>(row, 'value').value = value;
+          field<HTMLSelectElement>(row, 'origin').value = origin;
+          field<HTMLSelectElement>(row, 'layer').value = String(layer);
+          field<HTMLInputElement>(row, 'important').checked = important;
+          field<HTMLInputElement>(row, 'inline').checked = inline;
+          field<HTMLInputElement>(row, 'proximity').value = proximity;
+        },
+      );
+    };
+
+    const render = (): void => {
+      const declarations: Declaration[] = rows.map((row, i) => {
+        const selector = field<HTMLInputElement>(row, 'selector').value;
+        const inline = field<HTMLInputElement>(row, 'inline').checked;
+        const layer = Number(field<HTMLSelectElement>(row, 'layer').value);
+        const proximity = field<HTMLInputElement>(row, 'proximity').value;
+        return {
+          label: `#${i + 1} ${inline ? 'style=""' : selector}`,
+          value: field<HTMLInputElement>(row, 'value').value,
+          origin: field<HTMLSelectElement>(row, 'origin').value as Origin,
+          important: field<HTMLInputElement>(row, 'important').checked,
+          inline,
+          layer: layer < 0 ? undefined : layer,
+          specificity: inline ? [0, 0, 0] : specificity(selector).spec,
+          proximity: proximity === '' ? undefined : Number(proximity),
+          order: i,
+        };
+      });
+      const { ranked, decidedBy } = cascade(declarations);
+      const [winner] = ranked;
+      if (!winner) return;
+      need<HTMLElement>(root, '[data-swatch]').style.color = winner.value;
+      need<HTMLElement>(root, '[data-verdict]').textContent =
+        `color: ${winner.value} wins (${winner.label}), decided by ${decidedBy ?? 'no competition'}.`;
+      need<HTMLElement>(root, '[data-ranking]').replaceChildren(
+        ...ranked.map((d) => {
+          const li = document.createElement('li');
+          const row = rows[d.order];
+          const bits = [
+            d.origin + (d.important ? ' !important' : ''),
+            row ? `layer ${layerName(row)}` : '',
+            d.inline ? 'style attribute' : `specificity ${formatSpec(d.specificity)}`,
+            d.proximity === undefined ? '' : `${d.proximity} scope hops`,
+            `order ${d.order + 1}`,
+          ].filter(Boolean);
+          li.textContent = `${d.label} → ${d.value}  ·  ${bits.join(' · ')}`;
+          return li;
+        }),
+      );
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((button) =>
+      button.addEventListener('click', () => {
+        load(button.dataset.preset ?? '');
+        render();
+      }),
+    );
+    load('layers');
+    bindControls(root, render);
+  });
+</script>
+
+<style>
+  .cascade-table {
+    font-size: var(--step-n1);
+  }
+  .cascade-table input:not([type='checkbox']),
+  .cascade-table select {
+    font: inherit;
+    font-family: var(--font-mono);
+    inline-size: 100%;
+    min-inline-size: 7rem;
+  }
+  .cascade-table select {
+    min-inline-size: 9.5rem;
+  }
+  .cascade-table .narrow {
+    min-inline-size: 3.5rem;
+  }
+  .cascade-swatch {
+    font: 700 var(--step-1) / 1 var(--font-sans);
+    padding: 0.6rem 1rem;
+    border-radius: var(--radius-md);
+    background: #fff;
+    border: 2px solid currentColor;
+  }
+  .cascade-ranking {
+    display: grid;
+    gap: var(--space-3xs);
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+    counter-reset: rank;
+  }
+  .cascade-ranking :global(li) {
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+  }
+  .cascade-ranking :global(li:first-child) {
+    outline: 2px solid var(--color-accent-strong);
+    font-weight: 700;
+  }
+</style>

@@ -1,0 +1,201 @@
+---
+title: Selectors, Nesting & Scoping
+source: L1-coding-html-css.md
+part: 9
+tier: Core → Deep
+summary: Attribute selectors and combinators, structural, logical, user-action and state pseudo-classes, pseudo-elements and the Highlight API, shadow DOM selectors, native nesting, @scope, and what selector performance really costs.
+anchors:
+  - "`:has()` turns CSS from \"style an element based on its ancestors\" into \"style an element based on anything related to it\". Half of the JavaScript that toggled classes for styling is now a selector."
+  - "`:where()` is how you write defaults that anyone can override with a single class. `:is()` is how you group without repetition, and it quietly raises specificity to the highest argument."
+checks:
+  - q: "Write selectors for: a card that has an image, a form containing an invalid field after interaction, a list with more than five items, the label of a checked checkbox, and a heading immediately followed by a paragraph."
+    a: "`.card:has(img)`; `form:has(:user-invalid)`; `ul:has(> li:nth-child(6))` (or style the items with `li:first-child:nth-last-child(n+6), li:first-child:nth-last-child(n+6) ~ li`); `label:has(input[type=checkbox]:checked)` (or `input:checked + label` when the label follows); `h2:has(+ p)`."
+  - q: "Explain why `.nav a:hover` misbehaves on touch devices and fix it properly."
+    a: "Touch browsers emulate hover on tap, and the hover state sticks after the finger lifts until you tap elsewhere, so menus stay highlighted or open. Gate hover styles with `@media (hover: hover) and (pointer: fine) { .nav a:hover { … } }` and give touch users `:active` and `:focus-visible` feedback instead."
+  - q: "Explain donut scope with a component that contains user-authored content."
+    a: "A `.comment` component styles its own `p` and `a`, but it contains user-written Markdown in `.comment__body` that should keep the site's prose styles. `@scope (.comment) to (.comment__body) { p { … } a { … } }` applies from the scope root down to, but not into, the lower boundary: the hole in the donut."
+  - q: "Explain the specificity trap when nesting inside a selector list that contains an ID."
+    a: "Nesting desugars to `:is()`: `#hero, .card { & h2 { … } }` becomes `:is(#hero, .card) h2`, and `:is()` takes its most specific argument, so even `.card h2` now has specificity (1,0,1). An innocent `.card h2` override elsewhere, (0,1,1), loses. Avoid IDs in lists you nest inside, or split the rules."
+build: "A \"no-JavaScript interactions\" gallery driven only by selectors: a theme switcher via `:has(input:checked)`, a CSS-only tab set with radio inputs (and an honest note on its accessibility limits vs `<details>` or real tabs), form-level validity styling, quantity-aware grids, and a scoped component library using `@scope`."
+steps:
+  - "Theme switcher: three radio inputs; `:root:has(#dark:checked)` swaps the custom properties."
+  - "Radio tabs: honest note that screen readers announce radios, not tabs, and arrow-key behaviour differs."
+  - "Form validity: `form:has(:user-invalid) .submit-hint { display: block }`."
+  - "Quantity-aware grid: switch columns when there are more than 4 items with `:has(> :nth-child(5))`."
+  - "Scoped components: `@scope (.card) to (.card__content)` for three components."
+taste: "Style state through the attributes that already express it (`[aria-expanded]`, `[aria-current]`, `:checked`, `:open`, `:user-invalid`) instead of inventing parallel classes. When the style and the semantics use the same source of truth, they can't disagree."
+quiz:
+  - q: "Which selector has zero specificity?"
+    options: ["`:is(.a)`", "`:where(.a)`", "`:not(.a)`"]
+    answer: 1
+    why: "`:where()` always contributes zero; `:is()` and `:not()` take their most specific argument."
+  - q: "What does `::slotted()` match?"
+    options: ["Any descendant of slotted content", "Only top-level nodes assigned to a slot", "Shadow DOM internals"]
+    answer: 1
+    why: "It sees only the elements directly assigned to the slot, not their descendants."
+  - q: "Which properties apply to `:visited`?"
+    options: ["All properties", "Only colour-related properties, for privacy", "None"]
+    answer: 1
+    why: "Browsers restrict :visited to colours so pages can't detect your history through layout."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## Basic selectors and attribute selectors
+
+Type (`p`), class (`.card`), ID (`#main`), universal (`*`), and **attribute selectors**: `[attr]` (present), `[attr="v"]` (exact), `[attr~="v"]` (word in a space list), `[attr|="en"]` (`en` or `en-…`), `[attr^="https"]` (starts), `[attr$=".pdf"]` (ends), `[attr*="shop"]` (contains), with `i` (case-insensitive) or `s` flags. Attribute selectors on **`aria-*` and `data-*`** are an excellent way to style state: `[aria-expanded="true"]`, `[data-variant="primary"]`.
+
+<Playground
+  id="p9-attr"
+  title="Style links by what they point to, and state by ARIA"
+  task='Add an icon for `.zip` downloads and style `[aria-current="page"]` in the nav.'
+  html={`<nav><a href="/" aria-current="page">Home</a> <a href="/blog">Blog</a></nav>\n<p><a href="https://example.com">External site</a></p>\n<p><a href="/report.PDF">Annual report</a></p>\n<p><a href="mailto:hi@example.com">Email us</a></p>\n<button data-variant="primary">Primary</button> <button data-variant="ghost">Ghost</button>`}
+  css={`a[href^="http"]::after { content: " ↗" / ""; }\na[href$=".pdf" i]::after { content: " (PDF)"; font-size: .8em; }\na[href^="mailto:"]::before { content: "✉ " / ""; }\n[data-variant="primary"] { background: #c2410c; color: white; border: 0; padding: .4rem .8rem; border-radius: .4rem; }\n[data-variant="ghost"] { background: none; border: 2px solid #c2410c; color: #c2410c; padding: .3rem .7rem; border-radius: .4rem; }`}
+/>
+
+## Combinators
+
+Descendant (space), child (`>`), next-sibling (`+`), subsequent-sibling (`~`), and the column combinator (`||`, rare). Engines match selectors **right to left**: `.sidebar ul li a` first finds every `a`, then walks up. That's why the rightmost part (the *key selector*) matters for performance in huge DOMs, though it rarely matters in practice.
+
+<Playground
+  id="p9-combinators"
+  title="The lobotomised owl and sibling combinators"
+  task="Replace the margin rule with the owl selector `* + *` so spacing only appears between siblings. Then highlight every paragraph after the h2 with `~`."
+  html={`<article class="flow">\n  <h2>Heading</h2>\n  <p>First paragraph.</p>\n  <p>Second paragraph.</p>\n  <ul><li>Direct child</li><li>Another</li></ul>\n</article>`}
+  css={`.flow > * { margin-block: 1rem; outline: 1px dashed #bbb; }\nh2 + p { font-weight: 700; }`}
+  solution={{ css: `.flow > * { margin: 0; outline: 1px dashed #bbb; }\n.flow > * + * { margin-block-start: 1rem; }\nh2 ~ p { background: #fff4ed; }\nh2 + p { font-weight: 700; }` }}
+/>
+
+## Structural pseudo-classes
+
+`:root`, `:empty`, `:first-child`/`:last-child`/`:only-child`, **`:nth-child(An+B [of S])`** (the `of S` filter counts only matching siblings), `:nth-last-child`, and the `:nth-of-type` family. **Quantity queries** style a group by how many items it has: `li:first-child:nth-last-child(n+5)` means "the first item of a list with five or more".
+
+<Playground
+  id="p9-structural"
+  title="nth-child of S, and quantity queries"
+  task="Add two more tasks: at five or more items the list switches to two columns. Then zebra-stripe only the done items with `:nth-child(odd of .done)`."
+  html={`<ul class="tasks">\n  <li class="done">Buy flour</li>\n  <li>Proof dough</li>\n  <li class="done">Preheat oven</li>\n  <li class="done">Bake</li>\n</ul>`}
+  css={`.tasks { display: grid; gap: .25rem; padding: 0; list-style: none; }\n.tasks li { padding: .35rem .6rem; border-radius: .35rem; border: 1px solid #ddd; }\n.tasks li:nth-child(even of .done) { background: #dcfce7; }\n.tasks:has(> li:nth-child(5)) { grid-template-columns: 1fr 1fr; }`}
+/>
+
+## Logical pseudo-classes: `:is()`, `:where()`, `:not()`, `:has()`
+
+`:is()` groups with a *forgiving* list (one invalid selector doesn't kill the rest) and takes the **highest** specificity of its arguments. **`:where()`** does the same with **zero** specificity. `:not()` accepts complex selectors now. **`:has()`** is the "parent selector" and much more: relational (`.card:has(img)`), form-level (`form:has(:user-invalid)`), sibling lookahead (`h2:has(+ p)`), and page state (`body:has(dialog[open])` to lock scrolling). Its caveat is invalidation cost in huge, frequently mutating DOMs.
+
+<Playground
+  id="p9-has"
+  title=":has() replaces class-toggling JavaScript"
+  task="Check 'Dark mode' to theme the whole page with no script. Then make the submit hint appear only when the form has a user-invalid field."
+  html={`<label><input type="checkbox" id="dark"> Dark mode</label>\n<div class="cards">\n  <article class="card"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='90'%3E%3Crect width='160' height='90' fill='%23fdba74'/%3E%3C/svg%3E"><h3>With image</h3></article>\n  <article class="card"><h3>Text only</h3><p>No image, so a different layout.</p></article>\n</div>\n<form><label>Email <input type="email" required></label> <button>Send</button><p class="hint">Fix the highlighted field first.</p></form>`}
+  css={`:root:has(#dark:checked) { color-scheme: dark; background: #1d1a19; color: #f5f5f4; }\n.cards { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: .75rem 0; }\n.card { border: 1px solid #aaa; border-radius: .75rem; padding: .75rem; }\n.card:has(img) { display: grid; grid-template-columns: 5rem 1fr; gap: .5rem; align-items: center; }\n.card img { inline-size: 100%; border-radius: .4rem; }\n.hint { display: none; color: #b91c1c; }\ninput:user-invalid { outline: 2px solid #b91c1c; }`}
+  solution={{ css: `:root:has(#dark:checked) { color-scheme: dark; background: #1d1a19; color: #f5f5f4; }\n.cards { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin: .75rem 0; }\n.card { border: 1px solid #aaa; border-radius: .75rem; padding: .75rem; }\n.card:has(img) { display: grid; grid-template-columns: 5rem 1fr; gap: .5rem; align-items: center; }\n.card img { inline-size: 100%; border-radius: .4rem; }\n.hint { display: none; color: #b91c1c; }\nform:has(:user-invalid) .hint { display: block; }\ninput:user-invalid { outline: 2px solid #b91c1c; }` }}
+/>
+
+## User-action pseudo-classes
+
+`:hover` (gate it with **`@media (hover: hover)`** so touch devices don't get sticky hovers), `:active`, `:focus`, **`:focus-visible`** (focus the browser thinks should be shown: keyboard, not mouse clicks), **`:focus-within`** (an ancestor of the focused element), `:target` (matches the URL fragment), and `:visited`, which for privacy only allows colour properties.
+
+<Playground
+  id="p9-user-action"
+  title="Hover gated to real pointers, focus-visible and focus-within"
+  task="Click the button with a mouse (no ring) and then Tab to it (ring). Click the 'Jump' link and watch `:target` highlight the section."
+  html={`<button class="b">Hover or focus me</button>\n<form class="search"><label>Search <input></label></form>\n<p><a href="#details">Jump to details</a></p>\n<section id="details"><h3>Details</h3><p>Highlighted by :target.</p></section>`}
+  css={`.b { font: inherit; padding: .5rem 1rem; border: 2px solid #1d1a19; background: white; border-radius: .5rem; }\n@media (hover: hover) and (pointer: fine) { .b:hover { background: #fff4ed; } }\n.b:active { scale: .97; }\n.b:focus-visible { outline: 3px solid #c2410c; outline-offset: 2px; }\n.search { padding: .5rem; margin: .75rem 0; border: 2px solid #ddd; border-radius: .5rem; }\n.search:focus-within { border-color: #c2410c; }\n:target { background: #fef3c7; outline: 2px solid #f59e0b; }`}
+/>
+
+## Input and state pseudo-classes
+
+Forms: `:checked`, `:indeterminate`, `:default`, `:disabled`/`:enabled`, `:read-only`/`:read-write`, `:required`/`:optional`, `:valid`/`:invalid`, **`:user-valid`/`:user-invalid`**, `:in-range`/`:out-of-range`, `:placeholder-shown`, `:autofill`. Elements: `:open` (details, dialog, select), `:popover-open`, `:modal`, `:fullscreen`, `:picture-in-picture`, media states (`:playing`, `:paused`, `:muted`). Components: `:defined`, **`:state()`**. Language and links: `:dir()`, `:lang()`, `:any-link`, `:link`, `:local-link` **[Frontier]**, and `:active-view-transition`.
+
+<Playground
+  id="p9-state"
+  title="State pseudo-classes as the single source of truth"
+  task="Open the details and style its summary with `details:open summary` (or `[open]`). Type a value outside 1–10 in the number field."
+  html={`<details><summary>Shipping options</summary><p>Standard or express.</p></details>\n<p><label>Guests <input type="number" min="1" max="10" value="4"></label></p>\n<p><label><input type="checkbox" id="all"> Select all</label></p>\n<p><input placeholder="Placeholder shown" > <input value="Read only" readonly></p>`}
+  css={`details:open summary { color: #c2410c; font-weight: 700; }\ninput:out-of-range { outline: 3px solid #b91c1c; }\ninput:in-range { outline: 2px solid #15803d; }\ninput:indeterminate + * { opacity: .6; }\ninput:placeholder-shown { border-style: dashed; }\ninput:read-only { background: #f4f1ee; }`}
+  js={`document.getElementById('all').indeterminate = true;`}
+/>
+
+## Pseudo-elements and the Custom Highlight API
+
+`::before`/`::after` need `content` and don't work on replaced elements (`<img>`, `<input>`). Also `::marker`, `::placeholder`, `::selection`, `::first-line`, `::first-letter` (with **`initial-letter`** for real drop caps), `::backdrop`, `::file-selector-button`, `::cue`, `::details-content`, `::picker()`, `::scroll-marker`/`::scroll-button()` **[Frontier]**, `::target-text` (text fragments), `::spelling-error`/`::grammar-error`, and the `::view-transition-*` tree (Part 17). The **Custom Highlight API** styles arbitrary text ranges (search matches, syntax colouring) through **`::highlight(name)`** without wrapping anything in spans.
+
+<Playground
+  id="p9-pseudo"
+  title="Drop caps, markers, selection and ::highlight() search"
+  task="Type in the search box: matches are highlighted with no DOM changes. Change the marker to a custom emoji and select some text."
+  html={`<label>Find <input id="q" value="light"></label>\n<p class="lead" id="text">Light travels in straight lines until something bends it. Designers bend light with gradients, shadows and highlights, which is why lighting is a design skill.</p>\n<ul><li>Marker styling</li><li>With ::marker</li></ul>`}
+  css={`.lead::first-letter { initial-letter: 3; font-weight: 800; color: #c2410c; margin-inline-end: .4rem; }\n::selection { background: #1d1a19; color: #fde68a; }\nli::marker { content: "✦ "; color: #c2410c; }\n::highlight(search) { background: #fde68a; color: #1d1a19; }`}
+  js={`const input = document.getElementById('q');\nconst node = document.getElementById('text').firstChild;\nconst run = () => {\n  if (!('highlights' in CSS)) return console.log('Custom Highlight API not supported');\n  const term = input.value.toLowerCase();\n  const text = node.textContent.toLowerCase();\n  const ranges = [];\n  for (let i = term ? text.indexOf(term) : -1; i >= 0; i = text.indexOf(term, i + term.length)) {\n    const r = new Range(); r.setStart(node, i); r.setEnd(node, i + term.length); ranges.push(r);\n  }\n  CSS.highlights.set('search', new Highlight(...ranges));\n};\ninput.addEventListener('input', run);\nrun();`}
+/>
+
+## Shadow DOM selectors
+
+Inside a shadow root: **`:host`** styles the custom element itself, `:host(.active)` when the host matches, `:host-context()` (not universally supported: avoid), and **`::slotted()`** for *top-level* slotted nodes only. From outside, **`::part(name)`** styles elements the component explicitly exposes with `part="name"`: a deliberate styling API (Part 20).
+
+<Playground
+  id="p9-shadow"
+  title=":host, ::slotted() and ::part()"
+  task="From the page CSS, change the badge's label colour through `::part(label)`. Try `x-badge span` instead and see that it can't reach inside."
+  html={`<x-badge tone="warn"><strong>3</strong> alerts</x-badge>\n<x-badge>All clear</x-badge>`}
+  css={`x-badge::part(label) { letter-spacing: .02em; }\nx-badge:not(:defined) { opacity: 0; }`}
+  js={`customElements.define('x-badge', class extends HTMLElement {\n  constructor() {\n    super();\n    this.attachShadow({ mode: 'open' }).innerHTML =\n      '<style>:host { display: inline-flex; gap: .3rem; padding: .2rem .6rem; border-radius: 99px; background: #dcfce7; font: 600 .9rem system-ui; margin: .25rem; }' +\n      ':host([tone=warn]) { background: #fef3c7; } ::slotted(strong) { color: #b45309; }</style>' +\n      '<span part="label"><slot></slot></span>';\n  }\n});`}
+/>
+
+## Native CSS nesting
+
+Rules can nest: `.card { & h2 { … } }`, or without `&` for descendants (`.card { h2 { … } }`). `&` means "the parent selector" and can go anywhere (`.theme-dark &`, `&:hover`, `&.is-active`). At-rules nest too (`@media` inside a rule). Nested selectors desugar to **`:is(parent)`**, so they take the parent list's *highest* specificity: a surprise when that list contains an ID. Keep nesting to two or three levels; deeper nesting hides specificity and couples markup to CSS.
+
+```css
+.card {
+  padding: 1rem;
+  & h2 { font-size: 1.25rem; }            /* .card h2 */
+  &:hover { border-color: currentColor; }  /* .card:hover */
+  .theme-dark & { background: #1d1a19; }   /* .theme-dark .card */
+  @media (width >= 40rem) { padding: 2rem; }
+}
+
+/* The trap: this becomes :is(#hero, .card) h2, specificity (1,0,1) for BOTH */
+#hero, .card {
+  & h2 { color: crimson; }
+}
+.card h2 { color: seagreen; }              /* (0,1,1): loses, even though it's later */
+```
+
+<Playground
+  id="p9-nesting"
+  title="The nesting specificity trap, live"
+  task="The card heading stays crimson even though the seagreen rule comes later. Fix it by removing `#hero` from the list (give the hero its own rule)."
+  html={`<section id="hero"><h2>Hero heading</h2></section>\n<article class="card"><h2>Card heading</h2></article>`}
+  css={`#hero, .card {\n  & h2 { color: crimson; }\n}\n.card h2 { color: seagreen; }`}
+  solution={{ css: `#hero h2 { color: crimson; }\n.card {\n  & h2 { color: crimson; }\n}\n.card h2 { color: seagreen; }` }}
+/>
+
+## `@scope`
+
+`@scope (.card) { img { … } }` applies styles only inside `.card`, and **scope proximity** is a cascade step: when two scoped rules tie, the one whose root is *nearer* wins (so a light card inside a dark section works). The **donut scope** `@scope (.card) to (.card__content)` stops at a lower boundary, so styles don't leak into slotted or user-authored content. `:scope` targets the root. A `<style>` element's `@scope { }` with no selector scopes to its parent element. It's a native alternative to BEM naming or CSS Modules.
+
+<Playground
+  id="p9-scope"
+  title="Proximity: the nearest theme wins; donut: styles stop at the hole"
+  task="Swap the order of the two @scope blocks: proximity still decides, not order. Then remove `to (.content)` and see links inside the user content turn orange too."
+  html={`<section class="dark">\n  <p>Dark section <a href="#">link</a></p>\n  <div class="light">\n    <p>Light card inside it <a href="#">link</a></p>\n    <div class="content"><p>User content <a href="#">keeps the default link style</a></p></div>\n  </div>\n</section>`}
+  css={`.dark { background: #1d1a19; color: #fafaf9; padding: 1rem; }\n.light { background: #fff; color: #1d1a19; padding: 1rem; margin-top: .5rem; }\n@scope (.light) to (.content) { a { color: #c2410c; } }\n@scope (.dark) { a { color: #fdba74; } }`}
+/>
+
+## Selector performance in practice
+
+Selectors are rarely the bottleneck compared with layout and paint. The real costs are **huge DOMs**, **invalidation** from `:has()` and sibling combinators on subtrees that change often, and universal-selector-heavy rules re-evaluated on every mutation. Measure before optimising: DevTools → Performance → enable **selector stats** to see which selectors cost the most time during style recalculation.
+
+```css
+/* Fine: scoped, the subject is specific */
+.cart:has(.item--error) .checkout { opacity: .5; }
+
+/* Risky in a 10,000-node live-updating table: every mutation re-checks the whole body */
+body:has(td:hover) * { transition: none; }
+```
+
+<Try task="Open DevTools on a large page (a web mail client or a social feed), record a Performance trace while scrolling, and find the longest 'Recalculate Style' event. How many elements did it affect?">
+  Look at the "Elements affected" count and, with selector stats enabled, the top selectors by elapsed time. Typically the fix is fewer elements (virtualisation, `content-visibility: auto`), a narrower `:has()` subject, or avoiding class changes on `<body>` that invalidate the whole tree, rather than rewriting selectors.
+</Try>

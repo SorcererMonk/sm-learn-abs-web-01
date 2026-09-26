@@ -1,0 +1,234 @@
+---
+title: "The Visual Formatting Model: Boxes, Flow, Positioning & Stacking"
+source: L1-coding-html-css.md
+part: 10
+tier: Core → Deep
+summary: The box model, two-value display, block and inline formatting contexts, margin collapsing, sizing and intrinsic keywords, overflow, the containing block, positioning and sticky, anchor positioning, stacking contexts, floats, multi-column, containment, tables and writing modes.
+anchors:
+  - "Every positioned, sized, or stacked element is resolved against *something*: a containing block, a formatting context, or a stacking context. When CSS \"ignores\" you, find the something."
+  - "`z-index` is not a global number line. It is a number inside a box, and boxes nest. Draw the stacking-context tree and the bug becomes obvious."
+checks:
+  - q: "Explain three causes of margin collapse, and three ways to stop it without adding content."
+    a: "Causes: (1) adjacent vertical margins of siblings; (2) a parent's top margin and its first child's top margin (or bottom and last child) when no border, padding, inline content or clearance separates them; (3) an empty block's own top and bottom margins. Stop it with `display: flow-root` on the parent (new BFC), `padding-block: 1px` or a border on the parent, or by making the parent a flex/grid container (margins never collapse there), and prefer `gap` for spacing."
+  - q: "Debug a `position: sticky` header that doesn't stick. Name every cause you'd check in order."
+    a: "(1) No inset set: `top: 0` is required. (2) An ancestor between it and the scroller has `overflow: hidden/auto/scroll`, making that ancestor the scroll container (use `overflow: clip` instead). (3) The sticky element is as tall as its containing block, so it has no room to stick. (4) It's a flex/grid item stretched to the container's height (`align-self: start` fixes it). (5) It's a table part in an engine with quirks (make the `<th>` sticky, not `<thead>`/`<tr>`)."
+  - q: "Explain why a `position: fixed` modal inside a transformed carousel slide scrolls with the slide."
+    a: "A fixed element's containing block is normally the viewport, but any ancestor with `transform` (or filter, perspective, backdrop-filter, contain: paint/layout, or will-change of those) becomes its containing block. The modal is now fixed relative to the slide. Fix: render the modal outside the slide (a portal), or better, use `<dialog>`/popover, which live in the top layer."
+  - q: "Build a tooltip with anchor positioning that flips when it would overflow the viewport, and explain the fallback strategy for engines without support."
+    a: "Give the trigger `anchor-name: --tip`; give the tooltip `position: absolute; position-anchor: --tip; position-area: top; position-try-fallbacks: flip-block;` (or a named `@position-try`). Put the tooltip in the top layer with `popover=\"hint\"`. Fallback: wrap the anchor styles in `@supports (anchor-name: --a)`, with a static placement below the trigger otherwise, or load the anchor-positioning polyfill / Floating UI only when unsupported."
+  - q: "Explain the painting order inside a stacking context and predict which of five overlapping elements is on top."
+    a: "Bottom to top: the context's own background and borders → positioned descendants with negative z-index → in-flow non-positioned blocks → floats → inline content → positioned descendants with z-index auto/0 (in DOM order) → positive z-index (lowest first, ties in DOM order). A child's z-index only competes inside its parent's stacking context. Use the visualiser playground on this page to check predictions."
+build: "A \"formatting model lab\": interactive demos of BFCs, margin collapsing, inline baseline alignment, containing-block resolution, every sticky failure mode, a stacking-context visualiser (outline every context), and an anchor-positioned popover menu with fallbacks, each annotated with the spec rule."
+steps:
+  - "BFC demo: a float escaping its parent, fixed with `display: flow-root`."
+  - "Margin collapse: three toggles (border, padding, flow-root) and their effects."
+  - "Baseline gap under an image: fixed with `display: block` or `vertical-align: middle`."
+  - "Containing block: a fixed element inside a transformed parent."
+  - "Sticky: one broken example per failure mode, each with its fix."
+  - "Stacking visualiser: outline every element that creates a stacking context (the playground here is a start)."
+  - "Anchor-positioned menu with `position-try-fallbacks` and an `@supports` fallback."
+taste: "Stop fighting the flow and use it. Most layouts need no positioning at all, and every `position: absolute` is a small promise that content will never change size. Keep those promises rare."
+quiz:
+  - q: "Which of these creates a new block formatting context?"
+    options: ["`margin: 0`", "`display: flow-root`", "`position: relative`"]
+    answer: 1
+    why: "flow-root exists precisely to create a BFC with no side effects."
+  - q: "`overflow: clip` differs from `overflow: hidden` because…"
+    options: ["It doesn't clip", "It doesn't create a scroll container, so sticky descendants still work", "It shows scrollbars"]
+    answer: 1
+    why: "hidden makes a (programmatically scrollable) scroll container; clip just clips."
+  - q: "A child has `z-index: 9999` but sits under a sibling of its parent with `z-index: 2`. Why?"
+    options: ["9999 is too big", "Its parent forms a stacking context with a lower z-index, trapping the child", "z-index only works on flex items"]
+    answer: 1
+    why: "z-index competes only within the nearest stacking context."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## The box model
+
+Every box has **content, padding, border and margin**. With the default **`box-sizing: content-box`**, `width` sets only the content, so padding and border are added on top; **`border-box`** makes `width` include them (the sane choice, set in every reset). `outline` draws outside the border with no layout effect (`outline-offset` moves it). And `width: auto` means different things: blocks **fill** the containing block, while floats, absolutely positioned elements and inline-blocks **shrink-wrap** their content.
+
+<Playground
+  id="p10-box"
+  title="content-box vs border-box, and auto width filling vs shrink-wrapping"
+  task="Both boxes say width: 200px. Predict their rendered widths, then read the console. Change the float's content and watch it shrink-wrap."
+  html={`<div class="box content">content-box</div>\n<div class="box border">border-box</div>\n<div class="auto">Block with width:auto fills the line</div>\n<div class="auto float">Float shrink-wraps</div>`}
+  css={`.box { width: 200px; padding: 20px; border: 10px solid #c2410c; margin: .5rem 0; outline: 2px dashed #1d1a19; outline-offset: 6px; }\n.content { box-sizing: content-box; }\n.border { box-sizing: border-box; }\n.auto { background: #fed7aa; margin: .5rem 0; padding: .25rem; }\n.float { float: left; }`}
+  js={`for (const el of document.querySelectorAll('.box')) console.log(el.className + ': ' + el.getBoundingClientRect().width + 'px');`}
+/>
+
+## `display` has two values
+
+`display` sets an **outer** type (how the box participates in its parent: `block`, `inline`, `run-in`) and an **inner** type (how it lays out its children: `flow`, `flow-root`, `flex`, `grid`, `table`, `ruby`). `display: flex` is shorthand for `block flex`; `inline-flex` is `inline flex`. Also `list-item` (adds a marker), **`contents`** (the box disappears; its children are promoted), and `none`.
+
+<Playground
+  id="p10-display"
+  title="Outer and inner display, and display: contents"
+  task="Change `.chip` to `display: block flex` and see it take a whole line. Then remove `display: contents` from the wrapper and watch the grid lose its items."
+  html={`<p>Text with an <span class="chip"><b>inline</b><i>flex</i></span> chip inside.</p>\n<div class="grid">\n  <div class="wrapper"><div>1</div><div>2</div></div>\n  <div>3</div>\n</div>`}
+  css={`.chip { display: inline flex; gap: .25rem; padding: 0 .5rem; border-radius: 99px; background: #fed7aa; }\n.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: 1rem; }\n.grid > *, .wrapper > * { background: #f4f1ee; padding: .5rem; }\n.wrapper { display: contents; }`}
+/>
+
+## Normal flow: block and inline formatting contexts
+
+A **block formatting context** (BFC) is a region where blocks stack vertically. New BFCs come from `display: flow-root`, `overflow` other than `visible`/`clip`, floats, absolute positioning, flex and grid items, and `contain: layout`. A BFC **contains its floats**, **stops margin collapsing through it**, and **doesn't overlap floats**. Inside blocks, **inline formatting contexts** lay text out in line boxes aligned on the **baseline**. Images are inline by default and sit on the baseline, leaving space for descenders below them: the "mysterious gap under images". The **strut** (an invisible zero-width character with the parent's font and line-height) is why an empty line still has height.
+
+<Playground
+  id="p10-flow"
+  title="A float escaping its parent, and the gap under an image"
+  task="Fix the escaping float with one declaration on `.parent` (not a clearfix). Then remove the gap under the image two different ways."
+  html={`<div class="parent"><div class="float">Float</div>Short text.</div>\n<p>Next paragraph</p>\n<div class="frame"><img alt="" width="120" height="60" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60'%3E%3Crect width='120' height='60' fill='%23c2410c'/%3E%3C/svg%3E"></div>`}
+  css={`.parent { border: 2px solid #1d1a19; padding: .25rem; }\n.float { float: left; width: 5rem; height: 5rem; background: #fed7aa; margin-right: .5rem; }\n.frame { background: #fde68a; display: inline-block; margin-top: 3rem; }\nimg { display: inline; }`}
+  solution={{ css: `.parent { border: 2px solid #1d1a19; padding: .25rem; display: flow-root; }\n.float { float: left; width: 5rem; height: 5rem; background: #fed7aa; margin-right: .5rem; }\n.frame { background: #fde68a; display: inline-block; margin-top: 3rem; }\nimg { display: block; }` }}
+/>
+
+## Margin collapsing
+
+Vertical margins **collapse** (the larger wins, not the sum) between adjacent siblings, between a parent and its first/last child when nothing (border, padding, inline content, a BFC) separates them, and through empty blocks. They **never collapse horizontally, never in flex or grid containers, and never through a BFC**. That explains "why is there space above my header": the child's margin escaped through the parent. Modern layout avoids relying on it with `gap`, the owl selector and stack layouts.
+
+<Playground
+  id="p10-collapse"
+  title="Why is there space above my header?"
+  task="The h1's margin escapes the header, leaving white space above the orange bar. Toggle each fix in turn: `padding-top: 1px`, `display: flow-root`, `display: flex; flex-direction: column`."
+  html={`<header class="site"><h1>Site title</h1></header>\n<div class="a">Sibling with margin-bottom: 30px</div>\n<div class="b">Sibling with margin-top: 20px (gap is 30, not 50)</div>`}
+  css={`body { margin: 0; }\n.site { background: #c2410c; color: white; }\n.site h1 { margin: 2rem 1rem; }\n.a { margin-bottom: 30px; background: #fed7aa; }\n.b { margin-top: 20px; background: #fde68a; }`}
+/>
+
+## Sizing and intrinsic keywords
+
+`width`/`height`, and `min-*`/`max-*`, which **beat** `width`/`height`. **Logical** `inline-size`/`block-size` follow the writing mode. **Intrinsic keywords**: `min-content` (the narrowest without overflow: the longest word), `max-content` (no wrapping at all), `fit-content` (max-content clamped to the available space), `fit-content(20rem)`, and `stretch` **[Frontier]**. **`aspect-ratio`** gives boxes a shape. And percentage heights need a **definite** parent height, which is the whole "`height: 100%` doesn't work" family of bugs.
+
+<Playground
+  id="p10-sizing"
+  title="min-content, max-content, fit-content and aspect-ratio"
+  task="Shorten the text until fit-content and max-content look identical. Then give the `.percent` parent a height and watch its child's 50% start working."
+  html={`<p class="k min">min-content: the longest word decides</p>\n<p class="k max">max-content: never wraps, even if it overflows the container</p>\n<p class="k fit">fit-content: max-content, clamped to the space available</p>\n<div class="ratio">16 / 9</div>\n<div class="percent"><div>height: 50% of an auto-height parent</div></div>`}
+  css={`.k { background: #fed7aa; padding: .25rem; }\n.min { width: min-content; }\n.max { width: max-content; }\n.fit { width: fit-content; }\n.ratio { aspect-ratio: 16 / 9; width: 12rem; background: #c2410c; color: white; display: grid; place-items: center; }\n.percent { border: 2px dashed #999; margin-top: .5rem; }\n.percent div { height: 50%; background: #fde68a; }`}
+/>
+
+## Overflow and scroll containers
+
+`visible`, `hidden`, **`clip`** (clips without creating a scroll container, so it doesn't break `position: sticky`), `scroll` and `auto`, set per axis (a `visible` paired with anything else is coerced to `auto`). `overflow-clip-margin` extends the clip. Scroll containers become containing blocks for sticky and anchors. **`scrollbar-gutter: stable`** reserves space so content doesn't shift when a scrollbar appears; `scrollbar-width`/`scrollbar-color` style it; `text-overflow: ellipsis` needs `overflow` and `white-space: nowrap`; **`overscroll-behavior: contain`** stops scroll chaining from a modal or drawer to the page behind.
+
+<Playground
+  id="p10-overflow"
+  title="Ellipsis, scrollbar-gutter and overscroll-behavior"
+  task="Scroll to the end of the drawer list and keep scrolling: with `contain` the page doesn't scroll. Change it to `auto` and try again."
+  html={`<p class="truncate">A very long product name that should be truncated with an ellipsis on one line</p>\n<div class="drawer"><ol><li>One</li><li>Two</li><li>Three</li><li>Four</li><li>Five</li><li>Six</li><li>Seven</li><li>Eight</li><li>Nine</li><li>Ten</li></ol></div>\n<div style="height: 120vh; background: linear-gradient(#fff, #fed7aa)">Tall page content</div>`}
+  css={`.truncate { inline-size: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.drawer { block-size: 8rem; inline-size: 14rem; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: #c2410c #f4f1ee; border: 2px solid #1d1a19; }`}
+/>
+
+## The containing block
+
+The concept most developers never learn. For static and relative elements, the containing block is the **nearest block container's content box**. For **`absolute`**, it's the nearest **positioned** ancestor's padding box. For **`fixed`**, it's the viewport, **unless an ancestor has `transform`, `filter`, `perspective`, `contain: paint`/`layout`, `backdrop-filter` or `will-change` of those**. That's why a fixed element suddenly scrolls with its parent.
+
+<Playground
+  id="p10-cb"
+  title="A fixed badge trapped by a transformed ancestor"
+  task="Scroll inside the preview: the first badge stays pinned to the viewport, the second scrolls with its card. Remove `transform` from `.card.transformed` to release it."
+  html={`<div class="card"><span class="fixed one">Fixed (viewport)</span>Card without transform</div>\n<div class="card transformed"><span class="fixed two">Fixed (trapped)</span>Card with transform: translateZ(0)</div>\n<div style="height: 150vh"></div>`}
+  css={`.card { position: relative; border: 2px solid #1d1a19; margin: 1rem 0; padding: 3rem 1rem 1rem; border-radius: .75rem; }\n.transformed { transform: translateZ(0); }\n.fixed { position: fixed; top: .5rem; padding: .25rem .5rem; color: white; border-radius: .4rem; }\n.one { right: .5rem; background: #15803d; }\n.two { left: .5rem; background: #b91c1c; }`}
+/>
+
+## Positioning and the five ways sticky fails
+
+`static` (normal flow), `relative` (offset without affecting flow; establishes a containing block for absolute children), `absolute` (out of flow), `fixed`, and **`sticky`** (relative until a scroll threshold, then fixed within its container). Inset properties: `inset`, `inset-inline`, `inset-block`. Centre anything with `position: absolute; inset: 0; margin: auto` plus a size.
+
+**Sticky fails when**: (1) no inset (`top`) is set; (2) an ancestor has `overflow` other than `visible`/`clip`; (3) the sticky element is as tall as its container; (4) a flex/grid parent stretches it (`align-items: stretch`); (5) table-part quirks.
+
+<Playground
+  id="p10-sticky"
+  title="Sticky failure modes, side by side"
+  task="Scroll the preview. Only the first header sticks. Fix each of the other three with one change."
+  html={`<div class="col ok"><h4 class="s">✓ Works</h4><p>Scroll me.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>End.</p></div>\n<div class="col no-top"><h4 class="s">✗ No top</h4><p>Scroll me.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>End.</p></div>\n<div class="col"><div class="hidden"><h4 class="s">✗ overflow: hidden ancestor</h4><p>Scroll me.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>End.</p></div></div>\n<div class="col flex"><h4 class="s">✗ Stretched flex item</h4><div><p>Scroll me.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>More.</p><p>End.</p></div></div>`}
+  css={`body { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; align-items: start; }\n.col { border: 1px solid #ccc; }\n.s { position: sticky; top: 0; margin: 0; padding: .4rem; background: #c2410c; color: white; font-size: .8rem; }\n.no-top .s { top: auto; }\n.hidden { overflow: hidden; }\n.flex { display: flex; align-items: stretch; }\n.flex .s { flex: 0 0 45%; }\np { margin: .5rem; height: 3rem; }`}
+/>
+
+## Anchor positioning **[Frontier → Baseline-bound]**
+
+Tether one element to another in pure CSS: **`anchor-name: --x`** on the anchor, **`position-anchor: --x`** on the positioned element, then either the **`anchor()`** function in inset properties (`top: anchor(bottom)`) and `anchor-size()`, or the **`position-area`** shorthand (a 3×3 grid around the anchor: `top`, `bottom span-right`, …). **`position-try-fallbacks: flip-block, flip-inline`** (or named `@position-try` rules) handle collisions; `position-visibility` hides it when the anchor scrolls away. Popovers and `interestfor` create implicit anchors. A polyfill covers older engines. This replaces Floating UI/Popper for tooltips, menus and callouts.
+
+<Playground
+  id="p10-anchor"
+  title="A tooltip that flips when it would overflow"
+  task="Scroll the preview so the button nears the top edge: the tooltip flips below. Change `position-area` to `right` and add `flip-inline` to the fallbacks."
+  html={`<div class="spacer"></div>\n<button class="anchor" popovertarget="tip">Hover target (click to toggle)</button>\n<div id="tip" popover="manual" class="tip">I'm tethered with position-area: top</div>\n<div class="spacer"></div>`}
+  css={`.spacer { height: 60vh; }\n.anchor { anchor-name: --btn; font: inherit; padding: .5rem 1rem; }\n.tip { position-anchor: --btn; position-area: top; position-try-fallbacks: flip-block; margin: .5rem; padding: .4rem .7rem; border: 0; border-radius: .5rem; background: #1d1a19; color: white; }\n@supports not (anchor-name: --a) { .tip { position: fixed; inset: auto 1rem 1rem auto; } }`}
+  js={`document.getElementById('tip').showPopover();`}
+/>
+
+## Stacking contexts and `z-index`
+
+`z-index` only applies to positioned elements (and flex/grid items), and only **within the nearest stacking context**. Stacking contexts are created by the root, `position` + `z-index`, `opacity < 1`, `transform`, `filter`, `mix-blend-mode`, **`isolation: isolate`**, `will-change`, `contain: paint`/`layout`, `container-type: size`, `backdrop-filter`, `mask`, `clip-path`, and fixed/sticky positioning. Inside a context, painting goes: background → negative z → in-flow blocks → floats → inline content → z-index auto/0 positioned → positive z. `z-index: 9999` "doesn't work" because it's trapped in a parent's context. `isolation: isolate` creates a context deliberately. The **top layer** (dialogs, popovers, fullscreen) sits above all of them.
+
+<Playground
+  id="p10-stacking"
+  title="Stacking-context visualiser"
+  task="The modal (z-index 9999) is under the header. Every element that creates a stacking context is outlined and labelled. Find the trap and fix it without changing any z-index."
+  html={`<header class="bar">Header · z-index: 10</header>\n<main class="page">\n  <div class="modal">Modal · z-index: 9999</div>\n  <p>Page content with opacity .99</p>\n</main>\n<div class="card">isolation: isolate<div class="neg">z-index: -1 stays inside the card</div></div>`}
+  css={`.bar { position: relative; z-index: 10; background: #1d1a19; color: white; padding: 1rem; }\n.page { position: relative; z-index: 1; opacity: .99; }\n.modal { position: absolute; top: -2.5rem; left: 2rem; z-index: 9999; background: #c2410c; color: white; padding: 1rem; width: 14rem; }\n.card { isolation: isolate; position: relative; margin-top: 4rem; padding: 1rem; background: #fde68a; }\n.neg { position: absolute; z-index: -1; inset: .5rem -1rem -1rem .5rem; background: #fed7aa; }`}
+  js={`const creates = (el) => {\n  const s = getComputedStyle(el);\n  const why = [];\n  if (s.position !== 'static' && s.zIndex !== 'auto') why.push('position + z-index ' + s.zIndex);\n  if (Number(s.opacity) < 1) why.push('opacity ' + s.opacity);\n  if (s.transform !== 'none') why.push('transform');\n  if (s.filter !== 'none') why.push('filter');\n  if (s.isolation === 'isolate') why.push('isolation');\n  if (s.mixBlendMode !== 'normal') why.push('mix-blend-mode');\n  if (s.position === 'fixed' || s.position === 'sticky') why.push(s.position);\n  return why;\n};\nfor (const el of document.body.querySelectorAll('*')) {\n  const why = creates(el);\n  if (!why.length) continue;\n  el.style.outline = '2px dashed #2563eb';\n  const tag = document.createElement('small');\n  tag.textContent = 'context: ' + why.join(', ');\n  tag.style.cssText = 'display:block;font:600 11px system-ui;color:#2563eb;background:#eff6ff;padding:0 4px';\n  el.prepend(tag);\n}`}
+/>
+
+## Floats today: wrapping and shapes
+
+Floats are no longer a layout system. They're for **wrapping text around things**: images, pull quotes, drop caps. **`shape-outside`** (with `shape-margin`) wraps text around a circle, polygon or an image's alpha channel for editorial layouts. `clear` pushes content below floats.
+
+<Playground
+  id="p10-shapes"
+  title="Text wrapping around a circle with shape-outside"
+  task="Change the shape to `polygon(0 0, 100% 50%, 0 100%)` and increase `shape-margin`."
+  html={`<article>\n  <div class="orb"></div>\n  <p>Floats have one job left, and they do it beautifully: letting text flow around something. With shape-outside the text follows the curve of the shape instead of its bounding box, which is the difference between a web page and a magazine spread. Keep the line length comfortable and the margin generous, and check how it reflows at narrow widths, where a float can squeeze text into a column of single words.</p>\n</article>`}
+  css={`.orb { float: left; width: 9rem; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #fdba74, #c2410c); shape-outside: circle(50%); shape-margin: 1rem; }\narticle { max-width: 34rem; line-height: 1.6; }`}
+/>
+
+## Multi-column layout
+
+`columns` (shorthand for `column-width` and `column-count`), `column-gap`, `column-rule`, `column-span: all` for headings that cross columns, and `break-inside: avoid` to keep cards whole. Good for text and card lists in magazine layouts; on screens, readers must scroll down then back up to the next column, so keep columns short or use them for independent items.
+
+<Playground
+  id="p10-columns"
+  title="Columns that adapt to width, with a spanning heading"
+  task="Remove `break-inside: avoid` and watch cards split across columns."
+  html={`<section class="cols">\n  <h3>Spanning heading</h3>\n  <div class="c">Card one with a few words.</div>\n  <div class="c">Card two, which is a little longer than the first one.</div>\n  <div class="c">Card three.</div>\n  <div class="c">Card four has enough text to wrap across several lines in a narrow column.</div>\n  <div class="c">Card five.</div>\n</section>`}
+  css={`.cols { columns: 12rem; column-gap: 1.5rem; column-rule: 1px solid #ddd; }\n.cols h3 { column-span: all; }\n.c { break-inside: avoid; background: #fff4ed; border: 1px solid #fed7aa; padding: .6rem; margin-bottom: .75rem; border-radius: .5rem; }`}
+/>
+
+## Containment and `content-visibility`
+
+`contain` is a promise that lets the browser skip work: **`layout`** (nothing inside affects layout outside), **`paint`** (nothing paints outside the box), **`size`** (the size doesn't depend on children), `inline-size`, `style` (counters and quotes stay inside), and the shorthands `content` (layout + paint + style) and `strict` (+ size). **`content-visibility: auto`** skips rendering off-screen sections entirely until they approach the viewport; pair it with **`contain-intrinsic-size: auto 500px`** so the scrollbar doesn't jump (Part 21).
+
+<Playground
+  id="p10-contain"
+  title="content-visibility: auto on 300 sections"
+  task="Read the console timing, then remove `content-visibility: auto` and compare the render time."
+  html={`<div id="list"></div>`}
+  css={`.section { content-visibility: auto; contain-intrinsic-size: auto 120px; padding: 1rem; border-bottom: 1px solid #eee; }`}
+  js={`const list = document.getElementById('list');\nconst html = [];\nfor (let i = 1; i <= 300; i++) html.push('<section class="section"><h3>Section ' + i + '</h3><p>' + 'Lorem ipsum dolor sit amet. '.repeat(20) + '</p></section>');\nconst t0 = performance.now();\nlist.innerHTML = html.join('');\nlist.getBoundingClientRect();\nconsole.log('Layout of 300 sections: ' + (performance.now() - t0).toFixed(1) + ' ms');`}
+/>
+
+## Tables as a layout algorithm
+
+The table algorithm is its own formatting model. **`table-layout: fixed`** sizes columns from the first row (fast, predictable, great for big data tables); `auto` looks at every cell's content. `border-collapse: collapse` merges borders; `border-spacing` separates them. **Sticky headers**: make each `<th>` sticky (not the `<thead>`), inside a scroll container. `display: table` for non-table layout is a legacy technique.
+
+<Playground
+  id="p10-table"
+  title="table-layout: fixed with a sticky header"
+  task="Switch to `table-layout: auto` and see the columns resize to content. Scroll the table: the header stays."
+  html={`<div class="wrap" role="region" aria-label="Orders" tabindex="0"><table>\n<thead><tr><th>ID</th><th>Customer</th><th>Total</th></tr></thead>\n<tbody><tr><td>1001</td><td>Asha Rao</td><td>₹4,200</td></tr><tr><td>1002</td><td>Sam Okafor with a very long name</td><td>₹900</td></tr><tr><td>1003</td><td>Li Wei</td><td>₹12,500</td></tr><tr><td>1004</td><td>Maya</td><td>₹300</td></tr><tr><td>1005</td><td>Omar</td><td>₹7,700</td></tr><tr><td>1006</td><td>Noor</td><td>₹2,100</td></tr></tbody>\n</table></div>`}
+  css={`.wrap { max-height: 10rem; overflow: auto; border: 1px solid #ddd; }\ntable { width: 100%; table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }\nth { position: sticky; top: 0; background: #1d1a19; color: white; text-align: left; }\nth, td { padding: .4rem .6rem; border-bottom: 1px solid #eee; }\ntd:last-child, th:last-child { text-align: right; }`}
+/>
+
+## Writing modes and logical properties
+
+`writing-mode` (`horizontal-tb`, `vertical-rl`, `vertical-lr`) and `direction` change which way the **inline** and **block** axes run. **Logical properties** name sides by flow, not by the screen: `margin-inline-start`, `padding-block`, `inset-inline-end`, `border-start-start-radius`, `inline-size`. Write them by default and layouts work in RTL and vertical scripts automatically.
+
+<Playground
+  id="p10-logical"
+  title="The same component in LTR, RTL and vertical text"
+  task="Replace the physical `border-left` and `padding-left` in `.physical` with logical properties and watch the RTL card fix itself."
+  html={`<div class="note physical" dir="ltr">Physical (LTR)</div>\n<div class="note physical" dir="rtl">فيزيائي (RTL)</div>\n<div class="note logical" dir="rtl">منطقي (RTL, logical)</div>\n<div class="note logical vertical" lang="ja">縦書きの注記</div>`}
+  css={`.note { margin-block: .5rem; padding-block: .5rem; background: #fff4ed; border-radius: .4rem; }\n.physical { border-left: 6px solid #c2410c; padding-left: 1rem; }\n.logical { border-inline-start: 6px solid #c2410c; padding-inline-start: 1rem; }\n.vertical { writing-mode: vertical-rl; block-size: 10rem; }`}
+/>

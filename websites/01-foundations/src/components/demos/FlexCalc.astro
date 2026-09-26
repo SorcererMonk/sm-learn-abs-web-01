@@ -1,0 +1,195 @@
+---
+/**
+ * Flex calculator: set the container width and each item's basis/grow/shrink, and compare
+ * the algorithm's answer (lib/flex.ts, with its step log) against a real flex container.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import Control from '@learn/shared/components/Control.astro';
+
+const items = [
+  { basis: 100, grow: 0, shrink: 1 },
+  { basis: 200, grow: 0, shrink: 1 },
+  { basis: 300, grow: 0, shrink: 1 },
+];
+---
+
+<Demo title="Flex calculator: resolve flexible lengths by hand">
+  <div class="stack" data-flex-calc>
+    <div class="controls">
+      <Control
+        id="fc-container"
+        label="Container width"
+        min={200}
+        max={900}
+        step={10}
+        value={400}
+        unit="px"
+      />
+      <Control id="fc-gap" label="gap" min={0} max={40} value={0} unit="px" />
+    </div>
+    <div class="table-scroll" role="region" aria-label="Flex items" tabindex="0">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col">flex-basis (px)</th>
+            <th scope="col">flex-grow</th>
+            <th scope="col">flex-shrink</th>
+            <th scope="col">Final size</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => (
+            <tr data-item={i}>
+              <th scope="row">{String.fromCharCode(65 + i)}</th>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  max="900"
+                  step="10"
+                  value={item.basis}
+                  data-f="basis"
+                  aria-label={`Item ${String.fromCharCode(65 + i)} basis`}
+                />
+              </td>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  value={item.grow}
+                  data-f="grow"
+                  aria-label={`Item ${String.fromCharCode(65 + i)} grow`}
+                />
+              </td>
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  value={item.shrink}
+                  data-f="shrink"
+                  aria-label={`Item ${String.fromCharCode(65 + i)} shrink`}
+                />
+              </td>
+              <td>
+                <output data-size>–</output>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <div class="fc-row">
+      <span class="kicker">Algorithm</span>
+      <div class="fc-track" data-fc-computed></div>
+      <span class="kicker">Browser</span>
+      <div class="fc-track fc-real" data-fc-real>
+        {items.map((_, i) => (
+          <span>{String.fromCharCode(65 + i)}</span>
+        ))}
+      </div>
+    </div>
+    <ol class="fc-log" role="list" aria-live="polite" data-fc-log></ol>
+  </div>
+  <p slot="note">
+    Shrinking is weighted by <em>shrink × basis</em>, so bigger items give up more. The real flex
+    row uses <code>min-width: 0</code> so its items can shrink below their content, like the
+    algorithm assumes.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '@learn/shared/client/controls.ts';
+  import { resolveFlexibleLengths } from '../../lib/flex.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-flex-calc]').forEach((root) => {
+    const rows = [...root.querySelectorAll<HTMLTableRowElement>('tr[data-item]')];
+    const computed = need<HTMLElement>(root, '[data-fc-computed]');
+    const real = need<HTMLElement>(root, '[data-fc-real]');
+    const realItems = [...real.children] as HTMLElement[];
+    bindControls(root, () => {
+      const container = num(root, '#fc-container');
+      const gap = num(root, '#fc-gap');
+      const items = rows.map((row) => ({
+        basis: num(row, '[data-f="basis"]'),
+        grow: num(row, '[data-f="grow"]'),
+        shrink: num(row, '[data-f="shrink"]'),
+      }));
+      const result = resolveFlexibleLengths(container, items, gap);
+      const scale = Math.min(1, (root.clientWidth - 8) / Math.max(container, 1));
+      for (const track of [computed, real]) {
+        track.style.inlineSize = `${container * scale}px`;
+        track.style.gap = `${gap * scale}px`;
+      }
+      computed.replaceChildren(
+        ...result.sizes.map((size, i) => {
+          const span = document.createElement('span');
+          span.style.inlineSize = `${Math.max(0, size) * scale}px`;
+          span.textContent = String.fromCharCode(65 + i);
+          return span;
+        }),
+      );
+      realItems.forEach((el, i) => {
+        const item = items[i];
+        if (item) el.style.flex = `${item.grow} ${item.shrink} ${item.basis * scale}px`;
+      });
+      rows.forEach((row, i) => {
+        need<HTMLOutputElement>(row, '[data-size]').textContent = `${result.sizes[i] ?? 0}px`;
+      });
+      need<HTMLElement>(root, '[data-fc-log]').replaceChildren(
+        ...result.log.map((line) =>
+          Object.assign(document.createElement('li'), { textContent: line }),
+        ),
+      );
+    });
+  });
+</script>
+
+<style>
+  [data-flex-calc] input[type='number'] {
+    inline-size: 5.5rem;
+    font: inherit;
+    font-family: var(--font-mono);
+  }
+  .fc-row {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-2xs) var(--space-s);
+    align-items: center;
+  }
+  .fc-track {
+    display: flex;
+    block-size: 2.25rem;
+    outline: 2px dashed var(--color-border-strong);
+    outline-offset: 2px;
+  }
+  .fc-track :global(span) {
+    display: grid;
+    place-items: center;
+    min-inline-size: 0;
+    overflow: hidden;
+    font-weight: 700;
+    color: var(--color-on-accent);
+    background: var(--color-accent-strong);
+    border-inline-end: 2px solid var(--color-surface);
+    transition: inline-size var(--duration-fast) var(--ease-standard);
+  }
+  .fc-real :global(span) {
+    background: var(--color-text);
+    color: var(--color-surface);
+  }
+  .fc-log {
+    display: grid;
+    gap: var(--space-3xs);
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+    list-style: decimal inside;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fc-track :global(span) {
+      transition: none;
+    }
+  }
+</style>

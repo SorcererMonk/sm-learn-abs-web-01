@@ -1,0 +1,104 @@
+---
+/**
+ * Specificity calculator (lib/specificity.ts): type two selectors, see each part's
+ * contribution to (ID, CLASS, TYPE) and which one wins, with :is/:where/:not/:has rules.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+interface Props {
+  a?: string;
+  b?: string;
+}
+const { a = ':is(#hero, .card) > h2::first-line', b = 'main :where(.card) h2.title' } = Astro.props;
+---
+
+<Demo title="Specificity calculator">
+  <div class="stack" data-spec-calc>
+    <div class="switcher" style="--switcher-threshold: 36rem">
+      <label class="control" for="spec-a">
+        <span>Selector A</span>
+        <input id="spec-a" value={a} spellcheck="false" autocomplete="off" />
+      </label>
+      <label class="control" for="spec-b">
+        <span>Selector B</span>
+        <input id="spec-b" value={b} spellcheck="false" autocomplete="off" />
+      </label>
+    </div>
+    <p class="result-line" aria-live="polite" data-spec-verdict></p>
+    <div class="switcher" style="--switcher-threshold: 36rem">
+      <div class="stack stack-sm">
+        <h5 class="kicker">A, part by part</h5>
+        <ul class="spec-parts" role="list" data-spec-parts="a"></ul>
+      </div>
+      <div class="stack stack-sm">
+        <h5 class="kicker">B, part by part</h5>
+        <ul class="spec-parts" role="list" data-spec-parts="b"></ul>
+      </div>
+    </div>
+  </div>
+  <p slot="note">
+    Compared column by column, left to right: one ID beats any number of classes. For a selector
+    list, each selector in the list has its own specificity; this shows the highest.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need } from '@learn/shared/client/controls.ts';
+  import {
+    compareSpec,
+    formatSpec,
+    maxSpec,
+    specificity,
+    splitList,
+  } from '../../lib/specificity.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-spec-calc]').forEach((root) => {
+    const inputA = need<HTMLInputElement>(root, '#spec-a');
+    const inputB = need<HTMLInputElement>(root, '#spec-b');
+    const show = (key: 'a' | 'b', selector: string): ReturnType<typeof maxSpec> => {
+      const results = splitList(selector).map(specificity);
+      const list = need<HTMLUListElement>(root, `[data-spec-parts="${key}"]`);
+      list.replaceChildren(
+        ...results.flatMap((r) => [
+          Object.assign(document.createElement('li'), {
+            className: 'spec-total',
+            textContent: `${r.selector}  =  ${formatSpec(r.spec)}`,
+          }),
+          ...r.parts.map((p) =>
+            Object.assign(document.createElement('li'), {
+              textContent: `${p.text}  ${formatSpec(p.spec)}  ${p.kind}`,
+            }),
+          ),
+        ]),
+      );
+      return maxSpec(results.map((r) => r.spec));
+    };
+    bindControls(root, () => {
+      const sa = show('a', inputA.value);
+      const sb = show('b', inputB.value);
+      const diff = compareSpec(sa, sb);
+      need<HTMLElement>(root, '[data-spec-verdict]').textContent =
+        diff === 0
+          ? `Tie at ${formatSpec(sa)}: the later declaration wins (order of appearance).`
+          : `${diff > 0 ? 'A' : 'B'} wins: ${formatSpec(diff > 0 ? sa : sb)} beats ${formatSpec(diff > 0 ? sb : sa)}.`;
+    });
+  });
+</script>
+
+<style>
+  .spec-parts {
+    display: grid;
+    gap: 0.15rem;
+    font-family: var(--font-mono);
+    font-size: var(--step-n1);
+  }
+  .spec-parts :global(li) {
+    padding-inline-start: 1rem;
+    white-space: pre-wrap;
+  }
+  .spec-parts :global(.spec-total) {
+    padding-inline-start: 0;
+    font-weight: 700;
+    margin-block-start: 0.4rem;
+  }
+</style>
