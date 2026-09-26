@@ -1,0 +1,168 @@
+---
+/**
+ * 50,000 rows streamed from the server as NDJSON and shown through a virtualised list: only the
+ * rows in view (plus a few) exist in the DOM. Compare with rendering every row.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Large-payload lab: stream 50,000 rows, render 30" badge="Live server">
+  <div class="lab" data-virtual-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-vl="load">
+        Stream 50,000 rows
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-vl="all">
+        Render all rows as DOM
+      </button>
+    </div>
+    <dl class="lab-stats">
+      <div>
+        <dt>Rows received</dt>
+        <dd data-vl-rows>0</dd>
+      </div>
+      <div>
+        <dt>Rows in the DOM</dt>
+        <dd data-vl-dom>0</dd>
+      </div>
+      <div>
+        <dt>Last render</dt>
+        <dd data-vl-ms>–</dd>
+      </div>
+    </dl>
+    <div
+      class="vl-viewport"
+      tabindex="0"
+      role="region"
+      aria-label="Virtualised list of rows"
+      data-vl-viewport
+    >
+      <div class="vl-spacer" data-vl-spacer></div>
+    </div>
+  </div>
+  <p slot="note">
+    Rows appear while the stream is still arriving. Scroll fast: the list only ever holds about
+    thirty elements, positioned with transforms. “Render all rows” builds 50,000 list items, then
+    look at the “Last render” time and scroll smoothness, and imagine that on a mid-tier phone.
+  </p>
+</Demo>
+
+<style>
+  .vl-viewport {
+    position: relative;
+    block-size: 18rem;
+    overflow: auto;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    contain: strict;
+  }
+  .vl-spacer {
+    position: relative;
+  }
+  .vl-viewport :global(.vl-row) {
+    position: absolute;
+    inset-inline: 0;
+    block-size: 28px;
+    padding-inline: var(--space-xs);
+    font-family: var(--font-mono);
+    font-size: var(--step-n2);
+    line-height: 28px;
+    border-block-end: 1px solid var(--color-border);
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { visibleRange } from '../../lib/virtual.ts';
+  import { guard } from '../../client/api.ts';
+
+  const ROW = 28;
+
+  document.querySelectorAll<HTMLElement>('[data-virtual-lab]').forEach((root) => {
+    const viewport = need<HTMLElement>(root, '[data-vl-viewport]');
+    const spacer = need<HTMLElement>(root, '[data-vl-spacer]');
+    const rowsOut = need<HTMLElement>(root, '[data-vl-rows]');
+    const domOut = need<HTMLElement>(root, '[data-vl-dom]');
+    const msOut = need<HTMLElement>(root, '[data-vl-ms]');
+    let rows: string[] = [];
+    let virtual = true;
+    let scheduled = false;
+
+    const render = (): void => {
+      scheduled = false;
+      const t0 = performance.now();
+      spacer.style.blockSize = `${rows.length * ROW}px`;
+      if (virtual) {
+        const { start, end } = visibleRange(
+          viewport.scrollTop,
+          viewport.clientHeight,
+          ROW,
+          rows.length,
+        );
+        const nodes: HTMLElement[] = [];
+        for (let i = start; i < end; i += 1) {
+          const div = document.createElement('div');
+          div.className = 'vl-row';
+          div.style.transform = `translateY(${i * ROW}px)`;
+          div.textContent = rows[i] ?? '';
+          nodes.push(div);
+        }
+        spacer.replaceChildren(...nodes);
+      }
+      domOut.textContent = spacer.childElementCount.toLocaleString();
+      rowsOut.textContent = rows.length.toLocaleString();
+      msOut.textContent = `${(performance.now() - t0).toFixed(1)} ms`;
+    };
+    const schedule = (): void => {
+      if (!scheduled) {
+        scheduled = true;
+        requestAnimationFrame(render);
+      }
+    };
+    viewport.addEventListener('scroll', () => virtual && schedule(), { passive: true });
+
+    need<HTMLButtonElement>(root, '[data-vl="load"]').addEventListener('click', () => {
+      void (async () => {
+        virtual = true;
+        rows = [];
+        const res = await fetch('/api/stream/ndjson?count=50000&delay=0', { cache: 'no-store' });
+        if (!res.body) return;
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+        let carry = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const lines = (carry + value).split('\n');
+          carry = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line) continue;
+            const r = JSON.parse(line) as { id: number; name: string; score: number };
+            rows.push(`#${r.id}  ${r.name}  ${r.score}`);
+          }
+          schedule();
+        }
+      })();
+    });
+
+    need<HTMLButtonElement>(root, '[data-vl="all"]').addEventListener('click', () => {
+      if (!rows.length) return;
+      virtual = false;
+      const t0 = performance.now();
+      const nodes = rows.map((text, i) => {
+        const div = document.createElement('div');
+        div.className = 'vl-row';
+        div.style.transform = `translateY(${i * ROW}px)`;
+        div.textContent = text;
+        return div;
+      });
+      spacer.replaceChildren(...nodes);
+      void spacer.offsetHeight;
+      render();
+      msOut.textContent = `${(performance.now() - t0).toFixed(0)} ms (all rows)`;
+    });
+    void guard(root);
+  });
+</script>

@@ -1,0 +1,192 @@
+---
+/**
+ * The same product page rendered four ways by the server (/lab/render/:mode), loaded one after
+ * another in a frame with the same database latency. Each page reports TTFB, FCP, LCP, when the
+ * products were in the DOM, when it became interactive, and its HTML and JavaScript bytes.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+
+interface Props {
+  id: string;
+  title?: string;
+}
+const { id, title = 'Rendering lab: CSR, SSR, streaming SSR and static + islands, measured' } =
+  Astro.props;
+const modes = [
+  ['csr', 'Client-side rendering'],
+  ['ssr', 'Server-side rendering'],
+  ['stream', 'Streaming SSR'],
+  ['static', 'Static + islands'],
+];
+---
+
+<Demo title={title} badge="Live server">
+  <div class="lab" data-rendering-lab data-modes={JSON.stringify(modes)}>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Database latency</span>
+        <select data-rl-delay>
+          <option value="200">200 ms</option>
+          <option value="800" selected>
+            800 ms
+          </option>
+          <option value="2000">2000 ms</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn--small" data-rl-run>
+        Run all four
+      </button>
+      <span class="muted" data-rl-state aria-live="polite"></span>
+    </div>
+    <div class="table-scroll" role="region" aria-label="Rendering results" tabindex="0">
+      <table class="lab-kv">
+        <caption class="visually-hidden">
+          Milestones per rendering strategy (ms from navigation start)
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Strategy</th>
+            <th scope="col">TTFB</th>
+            <th scope="col">FCP</th>
+            <th scope="col">Products visible</th>
+            <th scope="col">Interactive</th>
+            <th scope="col">HTML</th>
+            <th scope="col">JS</th>
+          </tr>
+        </thead>
+        <tbody data-rl-rows>
+          {modes.map(([mode, label]) => (
+            <tr data-mode={mode}>
+              <th scope="row">{label}</th>
+              <td>–</td>
+              <td>–</td>
+              <td>–</td>
+              <td>–</td>
+              <td>–</td>
+              <td>–</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <ul class="lab-bars" data-rl-bars aria-label={`Timeline per strategy (${id})`}></ul>
+    <iframe class="lab-frame" title="Page being measured" data-rl-frame></iframe>
+  </div>
+  <p slot="note">
+    Grey bar: waiting for the first byte. Blue: until the products were in the DOM. The tick marks
+    when the page became interactive. Client rendering can't show products until its bundle has
+    downloaded, run and fetched the data; SSR can't send a byte until the database answers;
+    streaming sends the shell at once; static sends everything at once but can be stale.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard } from '../../client/api.ts';
+
+  interface Report {
+    type: 'lab:render';
+    mode: string;
+    ttfb: number;
+    fcp: number;
+    lcp: number;
+    content: number;
+    interactive: number;
+    html: number;
+    js: number;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-rendering-lab]').forEach((root) => {
+    const modes = JSON.parse(root.dataset.modes ?? '[]') as [string, string][];
+    const frame = need<HTMLIFrameElement>(root, '[data-rl-frame]');
+    const state = need<HTMLElement>(root, '[data-rl-state]');
+    const bars = need<HTMLUListElement>(root, '[data-rl-bars]');
+    const delay = need<HTMLSelectElement>(root, '[data-rl-delay]');
+    const results = new Map<string, Report>();
+    let waiting: ((r: Report) => void) | undefined;
+
+    addEventListener('message', (event: MessageEvent<Report>) => {
+      if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+      if (event.data?.type === 'lab:render') waiting?.(event.data);
+    });
+
+    const draw = (): void => {
+      const max = Math.max(
+        1,
+        ...[...results.values()].map((r) => Math.max(r.content, r.interactive)),
+      );
+      bars.replaceChildren(
+        ...modes
+          .filter(([mode]) => results.has(mode))
+          .map(([mode, label]) => {
+            const r = results.get(mode) as Report;
+            const li = document.createElement('li');
+            const name = document.createElement('span');
+            name.textContent = label;
+            const track = document.createElement('span');
+            track.className = 'lab-bar';
+            const wait = document.createElement('span');
+            wait.style.inlineSize = `${(r.ttfb / max) * 100}%`;
+            wait.style.background = 'var(--color-border-strong)';
+            const content = document.createElement('span');
+            content.style.insetInlineStart = `${(r.ttfb / max) * 100}%`;
+            content.style.inlineSize = `${(Math.max(0, r.content - r.ttfb) / max) * 100}%`;
+            const tick = document.createElement('span');
+            tick.style.cssText = `inset-inline-start:${(r.interactive / max) * 100}%;inline-size:3px;background:var(--color-success)`;
+            track.append(wait, content, tick);
+            const value = document.createElement('span');
+            value.textContent = `${Math.round(r.content)} ms`;
+            li.append(name, track, value);
+            return li;
+          }),
+      );
+    };
+
+    const runOne = (mode: string): Promise<Report> =>
+      new Promise((resolve) => {
+        const timeout = setTimeout(
+          () =>
+            resolve({
+              type: 'lab:render',
+              mode,
+              ttfb: 0,
+              fcp: 0,
+              lcp: 0,
+              content: 0,
+              interactive: 0,
+              html: 0,
+              js: 0,
+            }),
+          15_000,
+        );
+        waiting = (report) => {
+          if (report.mode !== mode) return;
+          clearTimeout(timeout);
+          resolve(report);
+        };
+        frame.src = `/lab/render/${mode}?delay=${delay.value}&run=${Date.now()}`;
+      });
+
+    need<HTMLButtonElement>(root, '[data-rl-run]').addEventListener('click', () => {
+      void (async () => {
+        results.clear();
+        for (const [mode, label] of modes) {
+          state.textContent = `Measuring ${label}…`;
+          const r = await runOne(mode);
+          results.set(mode, r);
+          const row = root.querySelector<HTMLTableRowElement>(`tr[data-mode="${mode}"]`);
+          const cells = [r.ttfb, r.fcp, r.content, r.interactive].map((v) => `${Math.round(v)} ms`);
+          cells.push(`${(r.html / 1024).toFixed(1)} KB`, `${(r.js / 1024).toFixed(1)} KB`);
+          if (row)
+            [...row.cells].slice(1).forEach((cell, i) => (cell.textContent = cells[i] ?? '–'));
+          draw();
+        }
+        state.textContent = 'Done. Change the latency and run again.';
+      })();
+    });
+    void guard(root);
+  });
+</script>

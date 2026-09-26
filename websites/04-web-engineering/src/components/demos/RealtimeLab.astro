@@ -1,0 +1,257 @@
+---
+/**
+ * The same message log delivered three ways: a WebSocket with reconnection (exponential backoff
+ * with jitter), an application heartbeat and resume-by-sequence-number; Server-Sent Events that
+ * reconnect by themselves and resume with Last-Event-ID; and polling. The server can drop every
+ * connection on demand.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Real-time lab: WebSocket, SSE and polling, then pull the plug" badge="Live server">
+  <div class="lab" data-realtime-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Your name</span>
+        <input data-rt-name value="me" maxlength="24" />
+      </label>
+      <button type="button" class="btn btn--small" data-rt="connect">
+        Connect
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rt="drop">
+        Drop every connection (server)
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rt="visitor">
+        Message as a visitor (HTTP)
+      </button>
+      <label class="lab-check">
+        <input type="checkbox" data-rt-poll /> Poll every 3 s
+      </label>
+    </div>
+    <div class="lab-grid">
+      <section class="lab-panel" aria-label="WebSocket">
+        <h4>
+          WebSocket · <span data-rt-ws-state>closed</span>
+        </h4>
+        <p class="muted" data-rt-presence>
+          Online: –
+        </p>
+        <ol class="lab-log" data-rt-messages></ol>
+        <form class="lab-toolbar" data-rt-form>
+          <label class="lab-field rt-grow">
+            <span>Message</span>
+            <input name="text" autocomplete="off" />
+          </label>
+          <button class="btn btn--small">Send</button>
+        </form>
+      </section>
+      <section class="lab-panel" aria-label="Server-Sent Events">
+        <h4>
+          SSE · <span data-rt-sse-state>not started</span>
+        </h4>
+        <ol class="lab-log" data-rt-sse></ol>
+      </section>
+      <section class="lab-panel" aria-label="Polling">
+        <h4>
+          Polling · <span data-rt-poll-state>off</span>
+        </h4>
+        <ol class="lab-log" data-rt-polls></ol>
+      </section>
+    </div>
+  </div>
+  <p slot="note">
+    Connect, send a message, then drop every connection: the socket reconnects after a jittered
+    delay and asks for everything after the last sequence number it saw, so nothing is lost or
+    duplicated. SSE reconnects by itself and its tick IDs continue. Polling notices new messages
+    only on its next request, and costs a request every time whether anything changed or not.
+  </p>
+</Demo>
+
+<style>
+  .rt-grow {
+    flex: 1 1 10rem;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { DEFAULT_POLICY, backoff } from '../../lib/retry.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  interface Message {
+    seq: number;
+    name: string;
+    text: string;
+    clientId: string;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-realtime-lab]').forEach((root) => {
+    const $ = <T extends HTMLElement>(s: string): T => need<T>(root, s);
+    const messages = $<HTMLOListElement>('[data-rt-messages]');
+    const wsState = $<HTMLElement>('[data-rt-ws-state]');
+    const presence = $<HTMLElement>('[data-rt-presence]');
+    const name = $<HTMLInputElement>('[data-rt-name]');
+    let ws: WebSocket | undefined;
+    let lastSeq = 0;
+    let attempt = 0;
+    let wanted = false;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let lastPong = 0;
+    const seen = new Set<number>();
+
+    const show = (m: Message): void => {
+      if (seen.has(m.seq)) return;
+      seen.add(m.seq);
+      lastSeq = Math.max(lastSeq, m.seq);
+      logLine(messages, `#${m.seq} ${m.name}: ${m.text}`);
+    };
+
+    const connect = (): void => {
+      wanted = true;
+      const socket = new WebSocket(
+        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/chat`,
+      );
+      ws = socket;
+      wsState.textContent = attempt ? `reconnecting (attempt ${attempt})…` : 'connecting…';
+      socket.addEventListener('open', () => {
+        attempt = 0;
+        wsState.textContent = 'open';
+        socket.send(JSON.stringify({ type: 'hello', name: name.value, lastSeq }));
+        lastPong = Date.now();
+        clearInterval(heartbeat);
+        heartbeat = setInterval(() => {
+          if (Date.now() - lastPong > 8000) {
+            logLine(
+              messages,
+              'No pong for 8 s: the connection is dead even if the socket says open.',
+              'warn',
+            );
+            socket.close();
+            return;
+          }
+          socket.send(JSON.stringify({ type: 'ping' }));
+        }, 4000);
+      });
+      socket.addEventListener('message', (event: MessageEvent<string>) => {
+        const data = JSON.parse(event.data) as {
+          type: string;
+          missed?: Message[];
+          message?: Message;
+          online?: string[];
+        };
+        if (data.type === 'pong') lastPong = Date.now();
+        if (data.type === 'welcome' && data.missed?.length) {
+          logLine(
+            messages,
+            `Resumed after #${lastSeq}: the server replayed ${data.missed.length} missed message(s).`,
+            'good',
+          );
+          data.missed.forEach(show);
+        }
+        if (data.type === 'msg' && data.message) show(data.message);
+        if (data.type === 'presence')
+          presence.textContent = `Online: ${data.online?.join(', ') || 'nobody'}`;
+      });
+      socket.addEventListener('close', (event) => {
+        clearInterval(heartbeat);
+        if (ws !== socket) return;
+        wsState.textContent = `closed (${event.code})`;
+        if (!wanted) return;
+        const wait = backoff(attempt, { ...DEFAULT_POLICY, baseMs: 500, capMs: 8000 });
+        attempt += 1;
+        wsState.textContent = `closed (${event.code}); reconnecting in ${wait} ms`;
+        setTimeout(connect, wait);
+      });
+    };
+
+    $<HTMLFormElement>('[data-rt-form]').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const input = need<HTMLInputElement>(event.currentTarget as HTMLFormElement, '[name="text"]');
+      if (!input.value.trim()) return;
+      if (ws?.readyState !== WebSocket.OPEN) {
+        logLine(messages, 'Not connected: press Connect first.', 'warn');
+        return;
+      }
+      ws.send(JSON.stringify({ type: 'msg', text: input.value, clientId: crypto.randomUUID() }));
+      input.value = '';
+    });
+
+    // Server-Sent Events: the browser reconnects and sends Last-Event-ID for us.
+    const sseLog = $<HTMLOListElement>('[data-rt-sse]');
+    const sseState = $<HTMLElement>('[data-rt-sse-state]');
+    let source: EventSource | undefined;
+    const startSse = (): void => {
+      source ??= new EventSource('/api/sse/ticks');
+      source.addEventListener('open', () => (sseState.textContent = 'open'));
+      source.addEventListener('error', () => {
+        sseState.textContent = 'reconnecting (the browser retries with Last-Event-ID)…';
+      });
+      source.addEventListener('tick', (event) => {
+        const { id } = JSON.parse((event as MessageEvent<string>).data) as { id: number };
+        logLine(sseLog, `tick id ${id}`, undefined, 12);
+      });
+    };
+
+    // Polling: a request every 3 s, whether or not anything changed.
+    const pollLog = $<HTMLOListElement>('[data-rt-polls]');
+    const pollState = $<HTMLElement>('[data-rt-poll-state]');
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let pollSince = 0;
+    let polls = 0;
+    let found = 0;
+    $<HTMLInputElement>('[data-rt-poll]').addEventListener('change', (event) => {
+      clearInterval(pollTimer);
+      if (!(event.currentTarget as HTMLInputElement).checked) {
+        pollState.textContent = 'off';
+        return;
+      }
+      pollTimer = setInterval(() => {
+        void fetch(`/api/realtime/messages?since=${pollSince}`, { cache: 'no-store' })
+          .then((r) => r.json() as Promise<{ seq: number; messages: Message[] }>)
+          .then(({ seq, messages: list }) => {
+            polls += 1;
+            found += list.length;
+            pollSince = seq;
+            if (list.length) logLine(pollLog, `poll ${polls}: ${list.length} new`, 'good');
+            pollState.textContent = `${polls} requests, ${found} messages found`;
+          });
+      }, 3000);
+    });
+
+    const actions: Record<string, () => void> = {
+      connect: () => {
+        if (ws && ws.readyState <= WebSocket.OPEN) return;
+        connect();
+        startSse();
+      },
+      drop: () => {
+        void fetch('/api/realtime/drop', { method: 'POST' })
+          .then((r) => r.json() as Promise<{ dropped: number }>)
+          .then(({ dropped }) =>
+            logLine(
+              messages,
+              `Server dropped ${dropped} connection(s) without a close frame.`,
+              'warn',
+            ),
+          );
+      },
+      visitor: () => {
+        void fetch('/api/realtime/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'visitor',
+            text: `Hello at ${new Date().toLocaleTimeString()}`,
+          }),
+        });
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-rt]').forEach((button) => {
+      button.addEventListener('click', () => actions[button.dataset.rt ?? '']?.());
+    });
+    void guard(root);
+  });
+</script>

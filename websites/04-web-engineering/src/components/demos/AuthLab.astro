@@ -1,0 +1,89 @@
+---
+/**
+ * Cookie sessions, CSRF tokens, rotation, lockout, "log out everywhere", cross-tab logout,
+ * server-side authorisation and passkeys, against the site's real auth backend.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+
+interface Props {
+  id: string;
+  title?: string;
+}
+const { id, title = 'Auth lab: cookie sessions, CSRF, rotation and passkeys' } = Astro.props;
+---
+
+<Demo title={title} badge="Live server">
+  <div class="lab" data-auth-lab>
+    <ServerNotice />
+    <div class="lab-grid">
+      <section class="lab-panel" aria-labelledby={`${id}-session`}>
+        <h4 id={`${id}-session`}>Your session, as the server sees it</h4>
+        <dl class="lab-stats" data-al-stats></dl>
+        <p class="muted al-cookie" data-al-cookie></p>
+        <button type="button" class="btn btn--small btn--ghost" data-al="refresh">
+          Refresh
+        </button>
+      </section>
+      <section class="lab-panel" aria-labelledby={`${id}-signin`}>
+        <h4 id={`${id}-signin`}>Sign in</h4>
+        <form class="stack stack-sm" data-al-form>
+          <label class="lab-field">
+            <span>Email</span>
+            <input name="email" type="email" autocomplete="username" value="lin@example.com" />
+          </label>
+          <label class="lab-field">
+            <span>Password</span>
+            <input name="password" type="password" autocomplete="current-password" />
+          </label>
+          <label class="lab-check">
+            <input type="checkbox" data-al-csrf checked /> Send the CSRF token
+          </label>
+          <button class="btn btn--small">Log in</button>
+        </form>
+        <p class="muted al-accounts">
+          Demo accounts: <code>lin@example.com</code> / <code>trail-running-42</code> (member),
+          <code>ada@example.com</code> / <code>correct horse battery</code> (admin).
+        </p>
+      </section>
+    </div>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small btn--ghost" data-al="admin">
+        Fetch the admin report
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-al="logout">
+        Log out
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-al="logout-all">
+        Log out everywhere
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-al="passkey-create">
+        Create a passkey
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-al="passkey-login">
+        Sign in with a passkey
+      </button>
+    </div>
+    <ol class="lab-log" data-al-log aria-live="polite"></ol>
+  </div>
+  <p slot="note">
+    Try a wrong password six times (lockout, with RateLimit headers), untick the CSRF token (403),
+    fetch the admin report as nobody (401), as Lin (403) and as Ada (200). Open this page in a
+    second tab and log out there: this tab hears it through a BroadcastChannel.
+  </p>
+</Demo>
+
+<style>
+  .al-cookie,
+  .al-accounts {
+    margin: 0;
+    font-size: var(--step-n1);
+  }
+</style>
+
+<script>
+  import { initAuthLab } from '../../client/auth-lab.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-auth-lab]').forEach(initAuthLab);
+</script>

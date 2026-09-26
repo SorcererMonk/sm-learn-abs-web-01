@@ -16,11 +16,15 @@ import { Router, type Ctx } from './core/router.ts';
 import { securityHeaders } from './core/security-headers.ts';
 import { createStatic, type StaticFiles } from './core/static.ts';
 import { Timing } from './core/timing.ts';
+import { registerArchitectureLabs } from './features/labs-architecture.ts';
 import { registerBrowserLabs } from './features/labs-browser.ts';
+import { registerAuth } from './features/auth.ts';
 import { registerData } from './features/data.ts';
 import { registerForms } from './features/forms.ts';
 import { registerPlatform } from './features/platform.ts';
 import { registerPwa } from './features/pwa.ts';
+import { registerRealtime } from './features/realtime.ts';
+import { registerUploads } from './features/uploads.ts';
 
 export interface Deps {
   logger: Logger;
@@ -70,9 +74,13 @@ export function createApp(options: AppOptions): App {
   const router = new Router();
   registerPlatform(router, deps);
   registerBrowserLabs(router, deps);
+  registerArchitectureLabs(router, deps);
   registerForms(router, deps);
   registerData(router, deps);
   registerPwa(router, deps);
+  registerRealtime(router, deps);
+  registerAuth(router, deps);
+  registerUploads(router, deps);
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const started = performance.now();

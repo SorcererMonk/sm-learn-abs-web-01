@@ -1,0 +1,64 @@
+---
+/** An exercise: classify every piece of state on a dashboard into the five kinds, then check. */
+import Demo from '@learn/shared/components/Demo.astro';
+import { DASHBOARD_STATE, KINDS } from '../../lib/state-taxonomy.ts';
+import '../../styles/labs.css';
+---
+
+<Demo title="Classify the state of an orders dashboard" badge="Exercise">
+  <form class="lab" data-state-sorter>
+    <ol class="stack stack-sm ss-list">
+      {DASHBOARD_STATE.map((item) => (
+        <li class="ss-item" data-id={item.id}>
+          <label class="lab-field">
+            <span>{item.label}</span>
+            <select name={item.id}>
+              <option value="">Choose a kind…</option>
+              {Object.entries(KINDS).map(([value, label]) => (
+                <option value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <p class="ss-why muted" hidden>
+            <strong>{KINDS[item.kind]}.</strong> {item.why}
+          </p>
+        </li>
+      ))}
+    </ol>
+    <div class="lab-toolbar">
+      <button class="btn btn--small">Check my answers</button>
+      <output class="lab-status" data-ss-score aria-live="polite">
+        0 / {DASHBOARD_STATE.length}
+      </output>
+    </div>
+  </form>
+</Demo>
+
+<style>
+  .ss-list {
+    padding-inline-start: 1.25rem;
+  }
+  .ss-why {
+    margin: 0;
+    font-size: var(--step-n1);
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { DASHBOARD_STATE, score } from '../../lib/state-taxonomy.ts';
+
+  document.querySelectorAll<HTMLFormElement>('[data-state-sorter]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const answers = Object.fromEntries(new FormData(form)) as Record<string, string>;
+      for (const item of DASHBOARD_STATE) {
+        const li = need<HTMLElement>(form, `[data-id="${item.id}"]`);
+        li.dataset.tone = answers[item.id] === item.kind ? 'good' : 'bad';
+        need<HTMLElement>(li, '.ss-why').hidden = false;
+      }
+      need<HTMLOutputElement>(form, '[data-ss-score]').textContent =
+        `${score(answers)} / ${DASHBOARD_STATE.length}`;
+    });
+  });
+</script>

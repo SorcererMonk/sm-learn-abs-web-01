@@ -1,0 +1,177 @@
+---
+/**
+ * Chunked, resumable uploads with progress, against a signed upload URL, ending in a content
+ * sniff: the server decides what the file is from its bytes.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Upload lab: chunks, progress, interruption and resume" badge="Live server">
+  <div class="lab" data-upload-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Pick a file (up to 5 MB)</span>
+        <input type="file" data-up-file />
+      </label>
+      <button type="button" class="btn btn--small btn--ghost" data-up="png">
+        Use a generated 3 MB PNG
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-up="fake">
+        Use “cat.png” (really HTML)
+      </button>
+    </div>
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-up="start">
+        Upload
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-up="interrupt">
+        Interrupt
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-up="resume">
+        Resume
+      </button>
+      <progress max="100" value="0" data-up-progress aria-label="Upload progress"></progress>
+      <output class="muted" data-up-percent>
+        0%
+      </output>
+    </div>
+    <ol class="lab-log" data-up-log aria-live="polite"></ol>
+  </div>
+  <p slot="note">
+    Start the 3 MB upload and press Interrupt halfway: the server keeps what it has. Resume asks it
+    for the offset (HEAD → Upload-Offset) and continues from there. The fake PNG uploads fine, then
+    gets rejected: its bytes say HTML.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  const fakePng = (): File => {
+    const bytes = new Uint8Array(3 * 1024 * 1024);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (let i = 8; i < bytes.length; i += 65536)
+      crypto.getRandomValues(bytes.subarray(i, Math.min(bytes.length, i + 65536)));
+    return new File([bytes], 'generated.png', { type: 'image/png' });
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-upload-lab]').forEach((root) => {
+    const log = need<HTMLOListElement>(root, '[data-up-log]');
+    const progress = need<HTMLProgressElement>(root, '[data-up-progress]');
+    const percent = need<HTMLOutputElement>(root, '[data-up-percent]');
+    const input = need<HTMLInputElement>(root, '[data-up-file]');
+    let file: File | undefined;
+    let upload: { url: string; chunkSize: number } | undefined;
+    let controller: AbortController | undefined;
+
+    const setProgress = (offset: number): void => {
+      const value = file ? Math.round((offset / file.size) * 100) : 0;
+      progress.value = value;
+      percent.textContent = `${value}%`;
+    };
+
+    const sendFrom = async (offset: number): Promise<void> => {
+      if (!file || !upload) return;
+      controller = new AbortController();
+      while (offset < file.size) {
+        const end = Math.min(file.size, offset + upload.chunkSize) - 1;
+        const res = await fetch(upload.url, {
+          method: 'PUT',
+          headers: { 'Content-Range': `bytes ${offset}-${end}/${file.size}` },
+          body: file.slice(offset, end + 1),
+          signal: controller.signal,
+        });
+        const body = (await res.json()) as {
+          received?: number;
+          detected?: string;
+          accepted?: boolean;
+          reason?: string;
+          sha256?: string;
+          error?: string;
+        };
+        if (!res.ok && res.status !== 415) {
+          logLine(log, `${res.status} ${body.error}`, 'bad');
+          return;
+        }
+        offset = body.received ?? offset;
+        setProgress(offset);
+        if (body.detected) {
+          logLine(
+            log,
+            `${res.status} ${body.reason} SHA-256 ${body.sha256?.slice(0, 16)}…`,
+            body.accepted ? 'good' : 'bad',
+          );
+          return;
+        }
+      }
+    };
+
+    const actions: Record<string, () => Promise<void>> = {
+      png: async () => {
+        file = fakePng();
+        logLine(log, 'Ready: generated.png, 3 MB, starts with the PNG signature.');
+      },
+      fake: async () => {
+        // '</' + 'script>' is split so it can't close this component's own <script> element.
+        file = new File(
+          ['<!doctype html><script>alert("I am not a cat")</' + 'script>'],
+          'cat.png',
+          { type: 'image/png' },
+        );
+        logLine(log, 'Ready: cat.png, declared image/png, actually HTML with a script.');
+      },
+      start: async () => {
+        file ??= input.files?.[0];
+        if (!file) {
+          logLine(log, 'Pick a file or use a generated one first.', 'warn');
+          return;
+        }
+        const res = await fetch('/api/uploads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, size: file.size, type: file.type }),
+        });
+        const body = (await res.json()) as {
+          uploadUrl?: string;
+          chunkSize?: number;
+          error?: string;
+        };
+        if (!res.ok || !body.uploadUrl) {
+          logLine(log, `${res.status} ${body.error}`, 'bad');
+          return;
+        }
+        upload = { url: body.uploadUrl, chunkSize: body.chunkSize ?? 262144 };
+        logLine(log, `201 Upload created. Signed URL: ${body.uploadUrl.slice(0, 60)}…`, 'info');
+        setProgress(0);
+        await sendFrom(0);
+      },
+      interrupt: async () => {
+        controller?.abort();
+        logLine(log, 'Interrupted mid-chunk (like a dropped connection).', 'warn');
+      },
+      resume: async () => {
+        if (!upload) return;
+        const res = await fetch(upload.url, { method: 'HEAD', cache: 'no-store' });
+        const offset = Number(res.headers.get('upload-offset') ?? 0);
+        logLine(log, `HEAD → Upload-Offset: ${offset}. Resuming from there.`, 'info');
+        await sendFrom(offset);
+      },
+    };
+    input.addEventListener('change', () => {
+      file = input.files?.[0];
+    });
+    root.querySelectorAll<HTMLButtonElement>('[data-up]').forEach((button) => {
+      button.addEventListener('click', () => {
+        void actions[button.dataset.up ?? '']?.().catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === 'AbortError'))
+            logLine(log, String(error), 'bad');
+        });
+      });
+    });
+    void guard(root);
+  });
+</script>

@@ -1,0 +1,81 @@
+---
+/**
+ * A no-framework client router (/lab/router/*) in a frame, with its own Back/Forward buttons and
+ * a log of what the router did: prefetch on hover or focus, pushState, focus and announcement,
+ * scroll restoration, and a deep link served by the server.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo
+  title="Router lab: an SPA router in 40 lines, with the parts people forget"
+  badge="Live server"
+>
+  <div class="lab" data-router-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-rt="start">
+        Open the app
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rt="back">
+        ← Back
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rt="forward">
+        Forward →
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rt="deep">
+        Deep link: /products/2
+      </button>
+      <output class="lab-pre" data-rt-url>
+        –
+      </output>
+    </div>
+    <div class="lab-grid">
+      <iframe class="lab-frame" title="Client-routed app" data-rt-frame></iframe>
+      <ol class="lab-log" data-rt-log aria-live="polite"></ol>
+    </div>
+  </div>
+  <p slot="note">
+    Hover a link before clicking it (prefetch), scroll the home page, open a product, then Back: the
+    scroll position is restored. Keyboard users land on the new heading and screen readers hear
+    “Navigated to …”. The deep link loads a URL directly: the server answers every /lab/router/ path
+    with the same shell, and the router renders the right view.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-router-lab]').forEach((root) => {
+    const frame = need<HTMLIFrameElement>(root, '[data-rt-frame]');
+    const log = need<HTMLOListElement>(root, '[data-rt-log]');
+    const url = need<HTMLOutputElement>(root, '[data-rt-url]');
+    addEventListener(
+      'message',
+      (event: MessageEvent<{ type?: string; text?: string; path?: string }>) => {
+        if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+        if (event.data?.type !== 'lab:router') return;
+        if (event.data.text) logLine(log, event.data.text);
+        if (event.data.path) url.textContent = event.data.path;
+      },
+    );
+    const actions: Record<string, () => void> = {
+      start: () => {
+        frame.src = '/lab/router/';
+      },
+      back: () => frame.contentWindow?.history.back(),
+      forward: () => frame.contentWindow?.history.forward(),
+      deep: () => {
+        frame.src = '/lab/router/products/2';
+        logLine(log, 'Full page load of /lab/router/products/2 (a deep link)', 'info');
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-rt]').forEach((button) => {
+      button.addEventListener('click', () => actions[button.dataset.rt ?? '']?.());
+    });
+    void guard(root);
+  });
+</script>

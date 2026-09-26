@@ -1,0 +1,170 @@
+---
+/**
+ * Two "components" reading the same query key through src/lib/query-cache.ts, against the real
+ * /api/todos with 600 ms of latency. The network log shows which reads became requests.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Query-cache lab: one cache, many readers, few requests" badge="Live server">
+  <div class="lab" data-query-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>staleTime</span>
+        <select data-qc-stale>
+          <option value="0">0 (always refetch on read)</option>
+          <option value="10000" selected>
+            10 s
+          </option>
+          <option value="60000">60 s</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn--small" data-qc="mount">
+        Mount both components
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-qc="focus">
+        Window regains focus
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-qc="add">
+        Add a todo (mutation)
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-qc="invalidate">
+        Invalidate “todos”
+      </button>
+    </div>
+    <div class="lab-grid">
+      <section class="lab-panel" aria-label="Component A">
+        <h4>
+          Component A · <span data-qc-status="a">not mounted</span>
+        </h4>
+        <ul class="lab-log" data-qc-list="a"></ul>
+      </section>
+      <section class="lab-panel" aria-label="Component B">
+        <h4>
+          Component B · <span data-qc-status="b">not mounted</span>
+        </h4>
+        <ul class="lab-log" data-qc-list="b"></ul>
+      </section>
+      <section class="lab-panel" aria-label="Network">
+        <h4>
+          Network · <span data-qc-count>0 requests for 0 reads</span>
+        </h4>
+        <ol class="lab-log" data-qc-net aria-live="polite"></ol>
+      </section>
+    </div>
+  </div>
+  <p slot="note">
+    Mount both: two components, one request (deduplicated). Press “Window regains focus” within the
+    staleTime: zero requests. Wait past it: both show cached data instantly while one background
+    refetch runs. A mutation invalidates the key, so every watching component refreshes.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { QueryCache, type QueryState } from '../../lib/query-cache.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  interface Todo {
+    id: number;
+    title: string;
+    done: boolean;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-query-lab]').forEach((root) => {
+    const cache = new QueryCache();
+    const net = need<HTMLOListElement>(root, '[data-qc-net]');
+    const count = need<HTMLElement>(root, '[data-qc-count]');
+    const stale = need<HTMLSelectElement>(root, '[data-qc-stale]');
+    let requests = 0;
+    let reads = 0;
+    const tally = (): void => {
+      count.textContent = `${requests} request${requests === 1 ? '' : 's'} for ${reads} read${reads === 1 ? '' : 's'}`;
+    };
+    cache.onFetch = (key) => {
+      requests += 1;
+      logLine(net, `GET /api/todos (${key}) → network`, 'info');
+      tally();
+    };
+    const query = () => ({
+      key: 'todos',
+      staleTime: Number(stale.value),
+      fn: async (signal: AbortSignal) => {
+        const res = await fetch('/api/todos?delay=600', { signal, cache: 'no-store' });
+        return (await res.json()) as Todo[];
+      },
+    });
+
+    const render = (id: string, state: QueryState<Todo[]>): void => {
+      const age =
+        state.updatedAt > 0 ? `${Math.round((Date.now() - state.updatedAt) / 1000)} s old` : '';
+      need<HTMLElement>(root, `[data-qc-status="${id}"]`).textContent =
+        `${state.status}${state.fetching ? ', fetching…' : ''}${age ? `, ${age}` : ''}`;
+      need<HTMLElement>(root, `[data-qc-list="${id}"]`).replaceChildren(
+        ...(state.data ?? []).map((todo) => {
+          const li = document.createElement('li');
+          li.textContent = `${todo.done ? '✓' : '○'} ${todo.title}`;
+          return li;
+        }),
+      );
+    };
+
+    let mounted = false;
+    const read = (): void => {
+      for (const id of ['a', 'b']) {
+        reads += 1;
+        render(id, cache.ensure(query()));
+      }
+      tally();
+    };
+
+    const actions: Record<string, () => Promise<void> | void> = {
+      mount: () => {
+        if (!mounted) {
+          mounted = true;
+          for (const id of ['a', 'b'])
+            cache.subscribe<Todo[]>('todos', (state) => render(id, state));
+        }
+        read();
+      },
+      focus: () => {
+        if (!mounted) {
+          logLine(net, 'Mount the components first.');
+          return;
+        }
+        read();
+        if (!cache.get('todos').fetching)
+          logLine(net, 'Both reads answered from cache: data is still fresh.', 'good');
+      },
+      add: async () => {
+        const res = await fetch('/api/todos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: `Todo added at ${new Date().toLocaleTimeString()}` }),
+        });
+        logLine(
+          net,
+          `POST /api/todos → ${res.status}; invalidating “todos”`,
+          res.ok ? 'good' : 'bad',
+        );
+        cache.invalidate('todos');
+      },
+      invalidate: () => {
+        const n = cache.invalidate('todos');
+        logLine(
+          net,
+          n
+            ? 'Invalidated: watched queries refetch now.'
+            : 'Invalidated: nobody is watching, so the next read will refetch.',
+        );
+      },
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-qc]').forEach((button) => {
+      button.addEventListener('click', () => void actions[button.dataset.qc ?? '']?.());
+    });
+    void guard(root);
+  });
+</script>

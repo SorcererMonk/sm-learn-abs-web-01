@@ -1,0 +1,105 @@
+---
+/**
+ * A request waterfall and its two structural fixes, against real latency: a screen needs the
+ * user (300 ms), their projects (400 ms) and notifications (350 ms). Fetched in sequence, in
+ * parallel, and started at route level before the component even renders.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Fetch lab: a waterfall, then two fixes" badge="Live server">
+  <div class="lab" data-fetch-waterfall>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <button type="button" class="btn btn--small" data-fw="sequential">
+        Sequential (component by component)
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-fw="parallel">
+        Parallel (Promise.all)
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-fw="preload">
+        Route-level preload
+      </button>
+    </div>
+    <ul class="lab-bars" data-fw-bars aria-label="Requests on a shared time axis"></ul>
+    <p class="muted" data-fw-summary aria-live="polite">
+      Pick a strategy.
+    </p>
+  </div>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard } from '../../client/api.ts';
+
+  const REQUESTS: [string, number][] = [
+    ['user', 300],
+    ['projects', 400],
+    ['notifications', 350],
+  ];
+
+  document.querySelectorAll<HTMLElement>('[data-fetch-waterfall]').forEach((root) => {
+    const bars = need<HTMLUListElement>(root, '[data-fw-bars]');
+    const summary = need<HTMLElement>(root, '[data-fw-summary]');
+
+    const get = async (label: string, ms: number, t0: number) => {
+      const start = performance.now() - t0;
+      await (
+        await fetch(`/api/slow?ms=${ms}&label=${label}&t=${Date.now()}`, { cache: 'no-store' })
+      ).json();
+      return { label, start, end: performance.now() - t0 };
+    };
+
+    const strategies: Record<
+      string,
+      (t0: number) => Promise<{ label: string; start: number; end: number }[]>
+    > = {
+      // Each component fetches after its parent rendered with data: the classic waterfall.
+      sequential: async (t0) => {
+        const out = [];
+        for (const [label, ms] of REQUESTS) out.push(await get(label, ms, t0));
+        return out;
+      },
+      parallel: (t0) => Promise.all(REQUESTS.map(([label, ms]) => get(label, ms, t0))),
+      // The router starts the requests while the route's code is still loading (simulated 250 ms).
+      preload: async (t0) => {
+        const early = REQUESTS.map(([label, ms]) => get(label, ms, t0));
+        await new Promise((r) => setTimeout(r, 250));
+        return Promise.all(early);
+      },
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-fw]').forEach((button) => {
+      button.addEventListener('click', () => {
+        void (async () => {
+          const t0 = performance.now();
+          summary.textContent = 'Fetching…';
+          const rows = await strategies[button.dataset.fw ?? 'sequential']!(t0);
+          const total = performance.now() - t0;
+          const scale = Math.max(1200, total);
+          bars.replaceChildren(
+            ...rows.map((r) => {
+              const li = document.createElement('li');
+              const name = document.createElement('span');
+              name.textContent = r.label;
+              const track = document.createElement('span');
+              track.className = 'lab-bar';
+              const fill = document.createElement('span');
+              fill.style.insetInlineStart = `${(r.start / scale) * 100}%`;
+              fill.style.inlineSize = `${((r.end - r.start) / scale) * 100}%`;
+              track.append(fill);
+              const value = document.createElement('span');
+              value.textContent = `${Math.round(r.end)} ms`;
+              li.append(name, track, value);
+              return li;
+            }),
+          );
+          summary.textContent = `Screen ready after ${Math.round(total)} ms (${button.textContent}).`;
+        })();
+      });
+    });
+    void guard(root);
+  });
+</script>

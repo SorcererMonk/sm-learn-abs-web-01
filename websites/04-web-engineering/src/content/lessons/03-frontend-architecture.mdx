@@ -1,0 +1,223 @@
+---
+title: Frontend Architecture
+source: L18-cs-web-engineering.md
+part: 3
+tier: Core → Deep
+summary: Rendering strategies and what each trades, hydration precisely, choosing per route, routing architecture, the five-way state taxonomy, data-fetching patterns and waterfalls, component architecture, codebase structure, micro-frontends critically, and the framework-agnostic principles worth carrying.
+anchors:
+  - "Classify every piece of state before you choose a library. Once server-cache state lives in a query cache and shareable state lives in the URL, what remains is small enough that the \"store\" question mostly disappears."
+  - "Rendering strategy is a per-route decision about who does the work and when: the build, the server, the edge, or the user's phone."
+checks:
+  - q: "Choose a rendering strategy for four routes (marketing home, blog post, authenticated dashboard, checkout) and justify each in Core Web Vitals and cost terms."
+    a: "Marketing home: static generation with an island or two. The HTML comes from a CDN (lowest TTFB and LCP), there's almost no JavaScript (INP is trivially good), and it's the cheapest: no server work per request. Revalidate on publish. Blog post: static or incremental/on-demand revalidation. It is content (crawlable, fast LCP); comments can be an island or streamed. Authenticated dashboard: server-rendered or streaming SSR for the shell and first data, which avoids CSR's blank-screen-then-spinner LCP, then client-side navigation and a query cache for interactions. It can't be CDN-cached (personalised), so it pays server cost per request. Checkout: server-rendered HTML forms with progressive enhancement: must work on bad networks and old devices, correctness beats flash, and INP must stay low (little JavaScript). Streaming helps if payment-method lookups are slow."
+  - q: "Explain hydration mismatch, one real cause, and how you'd detect it in production."
+    a: "Hydration reuses server HTML by re-running the components on the client and attaching to the existing DOM; if the client's first render differs from the server's HTML, the framework reports a mismatch and patches or re-renders that subtree (throwing away work and sometimes causing flicker or lost input). Causes: rendering `Date.now()`/`new Date()` or `Math.random()`, locale or time-zone differences (`toLocaleString` on a UTC server versus the user's browser), reading `window`/`localStorage` during render, and invalid HTML nesting that the parser rewrote (a `<div>` inside a `<p>`). Detect: frameworks log mismatch warnings in development. In production, forward those to error monitoring (e.g. React's `onRecoverableError`) with the route and release, and watch a 'hydration errors per page view' metric."
+  - q: "Take a screen's state and classify every piece into the five categories, saying where each lives and how it restores on reload."
+    a: "Using the orders dashboard in this lesson's exercise. The orders table and the 'needs attention' count are server-cache state: a query cache keyed by the filters, refetched or served stale on reload. The status filter, page and tab are URL state: query parameters or path, restored exactly on reload and shareable. User, role, theme and flags are client state: from the session cookie or server on load, with theme in localStorage. The note draft and 'submitting' are form state: in the form, a draft optionally saved to sessionStorage. The open menu and hover are ephemeral UI state, local component state or CSS, deliberately reset on reload."
+  - q: "Find a request waterfall in a network trace and describe two structural fixes."
+    a: "In the network panel a waterfall looks like a staircase: request B starts exactly when A ends, then C when B ends, usually because each component fetches in an effect after its parent rendered with data. Fix 1: fetch in parallel. Hoist the requests to the route (or a loader) and start them together with `Promise.all` when they don't depend on each other. Fix 2: start earlier, with route-level data loading or preloading (the router starts fetching when navigation begins, in parallel with loading the route's code), or `<link rel=preload>`/`fetchpriority` for resources, or server-side fetching (SSR/RSC). For truly dependent data, move the join to the server (a BFF endpoint) so the client makes one round trip. The fetch lab shows 1050 ms sequential, 400 ms parallel."
+build: "The same application built two ways (a client-rendered SPA and a streaming server-rendered version with islands) measured on LCP, INP, CLS, JavaScript bytes and server cost, on a throttled mid-tier device, with the comparison written up."
+steps:
+  - "Pick a small app with one list route and one detail route; build the SPA version with your framework's client router and a query cache."
+  - "Build the second version with streaming SSR (or this lab's pattern: shell first, data streamed) and one island for the only interactive widget."
+  - "Measure both with WebPageTest or Lighthouse on 'Moto G Power, Slow 4G', five runs each; record median LCP, TBT (INP in the lab), CLS and JS bytes."
+  - "Estimate server cost: requests per page view × CPU ms per request (from Server-Timing) for SSR, versus CDN bytes for the SPA."
+  - "Write up the table and one paragraph per metric explaining the difference by mechanism, not by framework."
+taste: "Put state where it belongs and the architecture mostly designs itself. Reaching for a global store first is the frontend equivalent of making every variable global."
+quiz:
+  - q: "Which strategy shows products soonest when the database takes 2 s and the HTML is uncacheable?"
+    options: ["Client-side rendering", "Streaming SSR shows the shell at once, products at ~2 s", "SSR shows nothing until ~2 s, then everything"]
+    answer: 1
+    why: "Streaming sends the shell immediately and the products the moment they exist. Nothing can make the data itself arrive before the database answers."
+  - q: "Where should 'page 3 of results' live?"
+    options: ["Component state", "The URL", "A global store"]
+    answer: 1
+    why: "It's shareable, restorable state: the URL."
+  - q: "Micro-frontends mainly solve…"
+    options: ["Performance", "An organisational problem: independent deployment for many teams", "Accessibility"]
+    answer: 1
+    why: "They cost bytes, consistency and debugging effort; the benefit is team autonomy at scale."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import RenderingLab from '../../components/demos/RenderingLab.astro';
+import HydrationLab from '../../components/demos/HydrationLab.astro';
+import RouterLab from '../../components/demos/RouterLab.astro';
+import StateSorter from '../../components/demos/StateSorter.astro';
+import FetchWaterfallLab from '../../components/demos/FetchWaterfallLab.astro';
+
+## Rendering strategies
+
+Each strategy decides who does the rendering work, and when:
+
+| Strategy | What it trades |
+| --- | --- |
+| **Client-side rendering** | Fast deploys and cheap servers, for a slow first paint (download, run, fetch, then render) and poor crawlability. |
+| **Server-side rendering** | Fast first paint, for per-request server cost and the **hydration tax**. |
+| **Static generation** | Cheapest and fastest, for **staleness**. |
+| **Incremental / on-demand revalidation** | Static speed with bounded staleness. |
+| **Streaming SSR** | Send the shell now, stream the slow parts as they resolve. |
+| **Islands** | Ship JavaScript only for interactive regions. |
+| **React Server Components** | Components that render on the server and never reach the client bundle. |
+| **Resumability** (Qwik) | Serialise enough state that the client resumes instead of re-running. |
+| **Edge rendering** | Close to the user, in a limited runtime. |
+
+Here are four of them, rendered by this site's server against the same slow "database":
+
+<RenderingLab id="rl-03" />
+
+## Hydration
+
+**Hydration** means the client re-executes the components the server already rendered, rebuilding their state and attaching event handlers to the existing DOM. Until it finishes, the page *looks* ready but isn't. That is why "time to interactive" and **INP** diverge from first paint, and why a heavy bundle hurts even with perfect SSR.
+
+A **hydration mismatch** happens when the client's first render differs from the server HTML: dates, random IDs, locale, `window` checks, invalid nesting. The mitigations:
+
+- **partial** and **progressive** hydration: some components, or later;
+- **selective hydration on interaction**: hydrate what the user touches first;
+- **event replay**: queue early clicks.
+
+<HydrationLab />
+
+## Choosing per route, not per application
+
+Rendering is chosen per route:
+
+- **Marketing pages**: static.
+- **Dashboards**: client-rendered behind auth, or SSR shell plus client navigation.
+- **Content**: static with revalidation, or streamed.
+- **Checkout**: server-rendered forms with enhancement.
+
+Explain each choice in Core Web Vitals (what dominates LCP and INP on that route) and cost (who pays per request: the CDN, your servers, or the user's CPU).
+
+<Try task="For a news site, pick a strategy for: the home page, an article, the live-blog page, the account settings page and the search results page. Justify each in one line with the metric it protects and who pays.">
+  Home: static or ISR with a short revalidation window (LCP from the CDN; cheap). Article: static, revalidated on publish (LCP and crawlability; near-zero cost). Live blog: SSR or static shell plus SSE updates streaming into it (fresh without reloading; server cost only for the stream). Account settings: client-rendered or SSR behind auth, never cached at the CDN (personalised; INP matters most, bytes matter less for logged-in repeat users). Search results: SSR with results in the URL (`?q=`), cacheable briefly per query at the edge (shareable, crawlable if you allow it, fast LCP).
+</Try>
+
+## Routing architecture
+
+A router's responsibilities:
+
+- **URL as state**: path for resources (`/products/2`), query for filters (`?sort=price`).
+- **Nested layouts** that persist across navigations.
+- **Route-level data loading**: parallel where possible, dependent where necessary.
+- **Prefetching** on hover, focus or viewport.
+- **View transitions** between routes.
+- **Scroll restoration** and correct **back/forward** semantics.
+- **Deep-link correctness**: every URL loads directly, with the server returning the app for it.
+- For SPAs, **focus management and announcement** on every route change.
+
+<RouterLab />
+
+## The state taxonomy
+
+The five kinds of state, and where each belongs:
+
+| Kind | Examples | Lives in |
+| --- | --- | --- |
+| **Server-cache state** | data you fetched | a query cache with staleness rules, not a global store |
+| **URL state** | filters, tabs, pagination | the URL: shareable and restorable |
+| **Client state** | auth session, theme, feature flags | app-wide client state |
+| **Form state** | draft values, validation, submission status | the form |
+| **Ephemeral UI state** | open menus, hover, focus | the component, or CSS |
+
+Most "state management is hard" pain comes from putting server-cache state into a global store and then hand-writing cache invalidation.
+
+<StateSorter />
+
+## Data-fetching patterns
+
+Data-fetching patterns, and the traps they avoid:
+
+- **Colocate** queries with the components that use them, but **start** them at the route level.
+- **Request waterfalls** show up in the network panel as staircases. The cure is to **load in parallel** and **preload** at the route level.
+- **Suspense-style loading boundaries** keep the page from becoming a patchwork of spinners.
+- **Pagination and infinite lists** need their position in the URL.
+- **The frontend N+1 problem**: one request per list item, the twin of the server's N+1 query. Fix it with a batch endpoint or a BFF.
+
+<FetchWaterfallLab />
+
+## Component architecture
+
+Principles for components:
+
+- **Composition over configuration**: children and slots, not 30 props.
+- **Presentational versus container**: in modern form, hooks or loaders for data, components for markup.
+- **Passing data down**: prop drilling, then context, then a store, in that order.
+- **Controlled versus uncontrolled** components.
+- **A clear boundary with the design system** (`L18-cs-design-engineering.md`).
+- **Dependency direction rules**: features may import from shared, never from each other.
+
+<Playground
+  id="p03-components"
+  title="Controlled vs uncontrolled, and composition vs configuration"
+  task="Type in both inputs: the controlled one can transform input as you type (upper-case here) because state is the source of truth. Then add a footer to the composed Card without changing Card itself. How many props would the configured version need?"
+  html={`<label>Controlled <input id="controlled"></label>\n<label>Uncontrolled <input id="uncontrolled" value="read on submit"></label>\n<button id="read">Read values</button>\n<div id="cards"></div>`}
+  css={`label { display: block; margin: .3rem 0; } .card { border: 1px solid #999; border-radius: .5rem; padding: .5rem; margin-top: .5rem; } button { font: inherit; }`}
+  js={`// Controlled: state is the truth; the DOM reflects it on every change.\nlet state = '';\nconst c = document.getElementById('controlled');\nc.addEventListener('input', () => { state = c.value.toUpperCase(); c.value = state; });\n// Uncontrolled: the DOM holds the value; read it when needed.\ndocument.getElementById('read').onclick = () => console.log({ controlled: state, uncontrolled: document.getElementById('uncontrolled').value });\n\n// Composition: Card takes children; callers decide what goes inside.\nconst Card = (...children) => { const el = document.createElement('div'); el.className = 'card'; el.append(...children); return el; };\nconst h = (tag, text) => Object.assign(document.createElement(tag), { textContent: text });\ndocument.getElementById('cards').append(Card(h('strong', 'Trail Runner 3'), h('p', '€129')));\n// Configuration would be: Card({ title, price, badge, footer, footerAlign, icon, iconPosition, ... })`}
+/>
+
+## Codebase structure
+
+How to organise the code:
+
+- **Feature-first folders** (`features/checkout/`, not `components/`, `hooks/`, `utils/`), plus a small **shared kernel** of UI, lib and types.
+- **Module boundaries enforced by tooling**: lint rules like `no-restricted-imports` or eslint-plugin-boundaries, or package boundaries.
+- **Monorepo layout**: `apps/`, `packages/`, `tooling/`.
+- **Extract a package** when two apps need it, or when a boundary needs enforcing, not before.
+
+```js
+// eslint.config.js: features may use shared code, never each other's internals
+export default [{
+  files: ['src/features/**'],
+  rules: {
+    'no-restricted-imports': ['error', { patterns: [
+      { group: ['../*/**', '!../shared/**'], message: 'Import other features through their public index.' },
+    ] }],
+  },
+}];
+```
+
+<Try task="Sketch the folder tree for a web shop with checkout, catalogue, account and search features. Mark the shared kernel, then write the one lint rule that stops checkout importing account internals.">
+  `src/features/{checkout,catalogue,account,search}/` each with `index.ts` (its public API), `components/`, `api.ts`, `state.ts`; `src/shared/{ui,lib,types}/` as the kernel; `src/app/` for routes and layouts that compose features. The rule: in `src/features/checkout/**`, forbid imports matching `src/features/*/!(index)` (eslint-plugin-boundaries' `element-types`, or `no-restricted-imports` with a pattern), so checkout can only use `features/account/index.ts`. This workspace uses the package version of the same idea: every site imports `@learn/shared`, and never another site.
+</Try>
+
+## Micro-frontends
+
+**Micro-frontends** mean splitting one product's frontend into independently deployed pieces owned by different teams: module federation, import maps, iframes, or edge composition. Weigh the real costs:
+
+- duplicated runtimes (two Reacts, two design-system versions);
+- **version skew**;
+- shared-state hacks;
+- an inconsistent design;
+- debugging across boundaries.
+
+The honest rule: they solve an **organisational** problem for large multi-team products, and create problems for everyone else.
+
+<Playground
+  id="p03-mfe"
+  title="Two teams, two versions of the design system, one page"
+  task="Each 'team' imports its own copy of the button module through an import map. Count the copies of the module that load, and spot the visual inconsistency. Then point both teams at one shared version: what did you just need across teams?"
+  html={`<script type="importmap">{"imports":{"team-a/ds":"data:text/javascript,export const version='2.4';export const button=(t)=>Object.assign(document.createElement('button'),{textContent:t,style:'border-radius:4px;background:%230e7490;color:white;padding:.4rem .8rem;border:0'})","team-b/ds":"data:text/javascript,export const version='3.0';export const button=(t)=>Object.assign(document.createElement('button'),{textContent:t,style:'border-radius:999px;background:%237c3aed;color:white;padding:.4rem .8rem;border:0'})"}}</script>\n<section id="a"><h2>Checkout (team A)</h2></section>\n<section id="b"><h2>Recommendations (team B)</h2></section>`}
+  js={`Promise.all([import('team-a/ds'), import('team-b/ds')]).then(([a, b]) => {\n  document.getElementById('a').append(a.button('Pay now'));\n  document.getElementById('b').append(b.button('Add to cart'));\n  console.log('Design system copies on this page: team A v' + a.version + ', team B v' + b.version);\n});`}
+/>
+
+## Framework-agnostic principles worth carrying
+
+Principles that outlive any framework:
+
+- **Unidirectional data flow**.
+- **Derived state over duplicated state**: compute, don't copy.
+- **Immutable updates**, so change detection is cheap and correct.
+- **Stable identity for lists**: keys from data, not indexes.
+- **Effects as synchronisation**, not lifecycle hooks: "keep X in sync with Y".
+- **Make wrong states impossible to hold** (`L18-cs-software-engineering.md` Part 3).
+
+<Playground
+  id="p03-keys"
+  title="Why list keys must come from the data"
+  task="Type something in the first row's input, then press 'Remove first'. With index keys the text jumps to the wrong row; switch the renderer to id keys and try again."
+  html={`<button id="remove">Remove first</button> <label><input type="checkbox" id="byId"> Key by id</label>\n<ul id="list"></ul>`}
+  css={`li { margin: .25rem 0; } input[type=text] { font: inherit; margin-left: .5rem; } button { font: inherit; }`}
+  js={`let items = [{ id: 'a', name: 'Apples' }, { id: 'b', name: 'Bread' }, { id: 'c', name: 'Cheese' }];\nconst list = document.getElementById('list');\nconst byId = document.getElementById('byId');\n// A tiny keyed reconciler: reuse the DOM node whose key matches.\nfunction render() {\n  const existing = new Map([...list.children].map((li) => [li.dataset.key, li]));\n  const next = items.map((item, index) => {\n    const key = byId.checked ? item.id : String(index);\n    const li = existing.get(key) || Object.assign(document.createElement('li'), { innerHTML: '<span></span><input type="text" aria-label="Note">' });\n    li.dataset.key = key;\n    li.firstChild.textContent = item.name;\n    return li;\n  });\n  list.replaceChildren(...next);\n}\ndocument.getElementById('remove').onclick = () => { items = items.slice(1); render(); };\nbyId.onchange = () => { list.replaceChildren(); render(); };\nrender();`}
+/>

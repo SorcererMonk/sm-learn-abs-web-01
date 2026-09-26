@@ -1,0 +1,80 @@
+---
+/**
+ * Hydration made visible: a server-rendered button whose code arrives late. Click it early to
+ * produce dead clicks, turn on event replay to queue them instead, or render a timestamp on both
+ * sides to cause a hydration mismatch.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Hydration lab: visible is not interactive" badge="Live server">
+  <div class="lab" data-hydration-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Code arrives after</span>
+        <select data-hl-delay>
+          <option value="1000">1 s</option>
+          <option value="3000" selected>
+            3 s
+          </option>
+          <option value="5000">5 s</option>
+        </select>
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-hl-replay /> Event replay
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-hl-mismatch /> Render the time on both sides
+      </label>
+      <button type="button" class="btn btn--small" data-hl-load>
+        Load the page
+      </button>
+    </div>
+    <div class="lab-grid">
+      <iframe
+        class="lab-frame"
+        title="Server-rendered page that hydrates late"
+        data-hl-frame
+      ></iframe>
+      <ol class="lab-log" data-hl-log aria-live="polite"></ol>
+    </div>
+  </div>
+  <p slot="note">
+    Load the page and click “Add to basket” three times straight away. The HTML is all there (first
+    paint is instant), but until the script runs the button does nothing: the gap between first
+    paint and interactivity is where INP and user trust are lost.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-hydration-lab]').forEach((root) => {
+    const frame = need<HTMLIFrameElement>(root, '[data-hl-frame]');
+    const log = need<HTMLOListElement>(root, '[data-hl-log]');
+    addEventListener('message', (event: MessageEvent<{ type?: string; text?: string }>) => {
+      if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+      if (event.data?.type === 'lab:hydrate' && event.data.text)
+        logLine(
+          log,
+          event.data.text,
+          /lost|mismatch|Dead/.test(event.data.text) ? 'warn' : undefined,
+        );
+    });
+    need<HTMLButtonElement>(root, '[data-hl-load]').addEventListener('click', () => {
+      const params = new URLSearchParams({
+        delay: need<HTMLSelectElement>(root, '[data-hl-delay]').value,
+        replay: need<HTMLInputElement>(root, '[data-hl-replay]').checked ? '1' : '0',
+        mismatch: need<HTMLInputElement>(root, '[data-hl-mismatch]').checked ? '1' : '0',
+      });
+      log.replaceChildren();
+      logLine(log, 'Page requested: HTML arrives now, its script later.', 'info');
+      frame.src = `/lab/hydrate?${params}`;
+    });
+    void guard(root);
+  });
+</script>

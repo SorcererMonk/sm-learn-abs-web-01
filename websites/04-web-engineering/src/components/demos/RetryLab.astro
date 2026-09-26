@@ -1,0 +1,173 @@
+---
+/**
+ * Retry policy against an unreliable endpoint: classify each failure, retry only transient ones
+ * with exponential backoff and jitter (honouring Retry-After), time out slow attempts, and end
+ * with a user-visible message and action. Plus: what jitter does to a crowd of clients.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Resilience lab: classify, back off, give up gracefully" badge="Live server">
+  <div class="lab" data-retry-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Failure</span>
+        <select data-rl-kind>
+          <option value="503">503 Service Unavailable</option>
+          <option value="500">500 Internal Server Error</option>
+          <option value="429">429 Too Many Requests</option>
+          <option value="422">422 Validation error</option>
+          <option value="timeout">Timeout (server hangs)</option>
+        </select>
+      </label>
+      <label class="lab-field">
+        <span>Failure rate</span>
+        <select data-rl-rate>
+          <option value="0.5">50%</option>
+          <option value="0.8" selected>
+            80%
+          </option>
+          <option value="1">100%</option>
+        </select>
+      </label>
+      <label class="lab-check">
+        <input type="checkbox" data-rl-jitter checked /> Jitter
+      </label>
+      <button type="button" class="btn btn--small" data-rl-run>
+        Load with retries
+      </button>
+      <button type="button" class="btn btn--small btn--ghost" data-rl-herd>
+        Simulate 50 clients
+      </button>
+    </div>
+    <ol class="lab-log" data-rl-log aria-live="polite"></ol>
+    <div class="callout" data-kind="note" data-rl-final hidden>
+      <p class="callout__label">What the user sees</p>
+      <p data-rl-message></p>
+      <button type="button" class="btn btn--small" data-rl-again>
+        Try again
+      </button>
+    </div>
+    <ul class="lab-bars" data-rl-herd-bars aria-label="Retries per 250 ms window"></ul>
+  </div>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import {
+    DEFAULT_POLICY,
+    USER_MESSAGE,
+    backoff,
+    classify,
+    retryAfterMs,
+    shouldRetry,
+    type Failure,
+  } from '../../lib/retry.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-retry-lab]').forEach((root) => {
+    const log = need<HTMLOListElement>(root, '[data-rl-log]');
+    const final = need<HTMLElement>(root, '[data-rl-final]');
+    const message = need<HTMLElement>(root, '[data-rl-message]');
+    const kind = need<HTMLSelectElement>(root, '[data-rl-kind]');
+    const rate = need<HTMLSelectElement>(root, '[data-rl-rate]');
+    const jitter = need<HTMLInputElement>(root, '[data-rl-jitter]');
+    const policy = () => ({ ...DEFAULT_POLICY, jitter: jitter.checked, timeoutMs: 1500 });
+
+    const run = async (): Promise<void> => {
+      log.replaceChildren();
+      final.hidden = true;
+      const p = policy();
+      let failure: Failure | undefined;
+      for (let attempt = 0; attempt < p.attempts; attempt += 1) {
+        const t0 = performance.now();
+        let status: number | undefined;
+        let retryAfter: string | null = null;
+        try {
+          const res = await fetch(`/api/flaky?failRate=${rate.value}&kind=${kind.value}`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(p.timeoutMs),
+          });
+          status = res.status;
+          retryAfter = res.headers.get('retry-after');
+          await res.text();
+          if (res.ok) {
+            logLine(
+              log,
+              `Attempt ${attempt + 1}: 200 OK after ${Math.round(performance.now() - t0)} ms`,
+              'good',
+            );
+            message.textContent = 'Loaded.';
+            return;
+          }
+          failure = classify({ status });
+        } catch (error) {
+          failure = classify({ error, online: navigator.onLine });
+        }
+        const ms = Math.round(performance.now() - t0);
+        if (!shouldRetry(failure, 'GET') || attempt === p.attempts - 1) {
+          logLine(
+            log,
+            `Attempt ${attempt + 1}: ${status ?? failure} after ${ms} ms → ${failure}; ${failure === 'client' ? 'not retryable' : 'out of attempts'}`,
+            'bad',
+          );
+          break;
+        }
+        const wait = Math.max(backoff(attempt, p), retryAfterMs(retryAfter) ?? 0);
+        logLine(
+          log,
+          `Attempt ${attempt + 1}: ${status ?? failure} after ${ms} ms → ${failure}; waiting ${wait} ms${retryAfter ? ` (Retry-After: ${retryAfter})` : ''}`,
+          'warn',
+        );
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      message.textContent = USER_MESSAGE[failure ?? 'unknown'];
+      final.hidden = false;
+    };
+
+    need<HTMLButtonElement>(root, '[data-rl-run]').addEventListener('click', () => void run());
+    need<HTMLButtonElement>(root, '[data-rl-again]').addEventListener('click', () => void run());
+
+    // Pure simulation: 50 clients all fail at t=0 and retry 4 times. Where do their retries land?
+    need<HTMLButtonElement>(root, '[data-rl-herd]').addEventListener('click', () => {
+      const p = policy();
+      const buckets = new Array<number>(8).fill(0);
+      for (let client = 0; client < 50; client += 1) {
+        let t = 0;
+        for (let attempt = 0; attempt < p.attempts - 1; attempt += 1) {
+          t += backoff(attempt, p);
+          const bucket = Math.min(buckets.length - 1, Math.floor(t / 250));
+          buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+        }
+      }
+      const max = Math.max(...buckets);
+      need<HTMLUListElement>(root, '[data-rl-herd-bars]').replaceChildren(
+        ...buckets.map((count, i) => {
+          const li = document.createElement('li');
+          const label = document.createElement('span');
+          label.textContent = `${i * 250}–${(i + 1) * 250} ms`;
+          const bar = document.createElement('span');
+          bar.className = 'lab-bar';
+          const fill = document.createElement('span');
+          fill.style.inlineSize = `${(count / max) * 100}%`;
+          bar.append(fill);
+          const value = document.createElement('span');
+          value.textContent = String(count);
+          li.append(label, bar, value);
+          return li;
+        }),
+      );
+      logLine(
+        log,
+        jitter.checked
+          ? 'With jitter, retries spread out: the recovering server sees a trickle.'
+          : 'Without jitter, all 50 clients retry in the same instants: synchronised spikes (a thundering herd).',
+        'info',
+      );
+    });
+    void guard(root);
+  });
+</script>

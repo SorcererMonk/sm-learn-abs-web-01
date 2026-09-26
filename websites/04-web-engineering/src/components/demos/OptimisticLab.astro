@@ -1,0 +1,145 @@
+---
+/**
+ * A like button against /api/likes with adjustable latency and failure rate. Optimistic mode
+ * shows the change at once, keeps a visible pending state, sends the *desired state* (so double
+ * taps coalesce and replays are harmless) and rolls back to the last confirmed state on failure.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+import ServerNotice from '../ServerNotice.astro';
+import '../../styles/labs.css';
+---
+
+<Demo title="Optimistic-update lab: instant, honest, reversible" badge="Live server">
+  <div class="lab" data-optimistic-lab>
+    <ServerNotice />
+    <div class="lab-toolbar">
+      <label class="lab-field">
+        <span>Mode</span>
+        <select data-op-mode>
+          <option value="optimistic">Optimistic with rollback</option>
+          <option value="pessimistic">Wait for the server</option>
+        </select>
+      </label>
+      <label class="lab-field">
+        <span>Latency</span>
+        <select data-op-delay>
+          <option value="300">300 ms</option>
+          <option value="1500" selected>
+            1.5 s
+          </option>
+        </select>
+      </label>
+      <label class="lab-field">
+        <span>Failure rate</span>
+        <select data-op-fail>
+          <option value="0">0%</option>
+          <option value="0.5">50%</option>
+          <option value="1">100%</option>
+        </select>
+      </label>
+    </div>
+    <div class="lab-toolbar">
+      <button type="button" class="btn op-like" aria-pressed="false" data-op-like>
+        <span aria-hidden="true" data-op-heart>
+          ♡
+        </span>{' '}
+        <span data-op-count>41</span> likes
+      </button>
+      <span class="muted" data-op-state aria-live="polite">
+        Synced with the server.
+      </span>
+      <button type="button" class="btn btn--small btn--ghost" data-op-retry hidden>
+        Retry
+      </button>
+    </div>
+    <ol class="lab-log" data-op-log></ol>
+  </div>
+  <p slot="note">
+    Double-tap quickly: the UI flips twice but only the final intent is sent. Set 100% failure: the
+    heart fills, shows “saving…”, then rolls back with a message and a Retry button, never silently.
+  </p>
+</Demo>
+
+<style>
+  .op-like[data-pending] {
+    opacity: 0.7;
+  }
+</style>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+  import { guard, logLine } from '../../client/api.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-optimistic-lab]').forEach((root) => {
+    const button = need<HTMLButtonElement>(root, '[data-op-like]');
+    const heart = need<HTMLElement>(root, '[data-op-heart]');
+    const countEl = need<HTMLElement>(root, '[data-op-count]');
+    const state = need<HTMLElement>(root, '[data-op-state]');
+    const retry = need<HTMLButtonElement>(root, '[data-op-retry]');
+    const log = need<HTMLOListElement>(root, '[data-op-log]');
+    const mode = need<HTMLSelectElement>(root, '[data-op-mode]');
+    const delay = need<HTMLSelectElement>(root, '[data-op-delay]');
+    const fail = need<HTMLSelectElement>(root, '[data-op-fail]');
+
+    let confirmed = { liked: false, count: 41 };
+    let shown = { ...confirmed };
+    let desired = false;
+    let inFlight = false;
+
+    const paint = (pending: boolean): void => {
+      heart.textContent = shown.liked ? '♥' : '♡';
+      countEl.textContent = String(shown.count);
+      button.setAttribute('aria-pressed', String(shown.liked));
+      button.toggleAttribute('data-pending', pending);
+      button.disabled = pending && mode.value === 'pessimistic';
+    };
+
+    const send = async (): Promise<void> => {
+      inFlight = true;
+      const intent = desired;
+      state.textContent = 'Saving…';
+      paint(true);
+      logLine(log, `PUT /api/likes/1 {"liked": ${intent}}`);
+      try {
+        const res = await fetch(`/api/likes/1?delay=${delay.value}&fail=${fail.value}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ liked: intent }),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        confirmed = (await res.json()) as typeof confirmed;
+        logLine(log, `200 confirmed: liked=${confirmed.liked}, count=${confirmed.count}`, 'good');
+        inFlight = false;
+        if (desired !== confirmed.liked) return send();
+        shown = { ...confirmed };
+        state.textContent = 'Synced with the server.';
+        retry.hidden = true;
+      } catch (error) {
+        inFlight = false;
+        logLine(log, `Failed (${String(error)}): rolling back to the last confirmed state`, 'bad');
+        shown = { ...confirmed };
+        desired = confirmed.liked;
+        state.textContent = "Couldn't save your like. Nothing changed on the server.";
+        retry.hidden = false;
+      }
+      paint(false);
+    };
+
+    button.addEventListener('click', () => {
+      desired = !shown.liked;
+      if (mode.value === 'optimistic') {
+        shown = { liked: desired, count: shown.count + (desired ? 1 : -1) };
+        paint(true);
+      }
+      if (!inFlight) void send();
+      else
+        logLine(log, 'Tap while saving: intent recorded, sent after the current request.', 'info');
+    });
+    retry.addEventListener('click', () => {
+      desired = !confirmed.liked;
+      shown = { liked: desired, count: confirmed.count + (desired ? 1 : -1) };
+      void send();
+    });
+    void guard(root);
+  });
+</script>

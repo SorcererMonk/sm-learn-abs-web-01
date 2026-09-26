@@ -1,0 +1,230 @@
+---
+title: The Data & API Layer
+source: L18-cs-web-engineering.md
+part: 4
+tier: Core → Deep
+summary: API styles from the client's side (REST, GraphQL, RPC), query caches and normalisation, optimistic updates, real-time over WebSocket, SSE and polling, offline outboxes, forms and uploads done well, streaming large payloads, cookie sessions and passkeys, client-side authorisation as UX only, and resilient error handling.
+anchors:
+  - "The browser already has a cache with well-specified semantics; the second cache you build in JavaScript must earn its existence and its invalidation bugs."
+  - "Anything on the client is a suggestion. The server decides what is true, and that applies to permissions, prices and validation without exception."
+checks:
+  - q: "Explain why session cookies are usually preferable to `localStorage` tokens, and the XSS and CSRF consequences of each."
+    a: "An `HttpOnly; Secure; SameSite=Lax` session cookie can't be read by JavaScript, so XSS can't steal it. XSS can still act as the user while the page is open (so XSS is still critical), but the attacker can't take the credential away and replay it later from elsewhere. The session is server-side, so it can be revoked instantly. The cost is CSRF: the browser attaches cookies automatically, so you need SameSite plus a CSRF token or Origin check on state-changing requests. A token in `localStorage` is immune to CSRF (it's only sent when your code attaches it), but any XSS or any compromised third-party script can read it and exfiltrate it, and a stateless JWT usually can't be revoked before it expires. The auth lab shows `document.cookie` failing to see the session."
+  - q: "Design optimistic updates for a 'like' button that behaves correctly under double taps, offline and server rejection."
+    a: "Keep two pieces of state: the last server-confirmed value and the user's desired value. On tap, flip the displayed value immediately (with a subtle pending style), set desired, and send the desired state (`PUT {liked: true}`), not a toggle, so the operation is idempotent. If a request is in flight, don't send another: when it returns, send again only if desired differs from confirmed (double taps coalesce to the final intent). On failure (offline, 5xx, 403), roll back the display to the confirmed value and tell the user, with a retry action. If you're offline, queue the desired state in an outbox and replay it when back online. Reconcile with the server's returned count rather than trusting the local arithmetic. The optimistic lab implements exactly this."
+  - q: "Explain the caching semantics of `stale-while-revalidate` at both the HTTP and the query-cache layer."
+    a: "HTTP: `Cache-Control: max-age=60, stale-while-revalidate=300` means fresh for 60 s; for the next 300 s the cache may serve the stale response immediately while revalidating in the background (a conditional request with the ETag), so the next user gets the fresh copy; after that the cache must wait for the network. The browser cache and CDNs implement it. Query cache: `staleTime` plays max-age. Reads within it are served from memory with no request; after it, a read returns the cached data at once and triggers a background refetch, and subscribers update when it lands. Invalidation after a mutation makes it stale immediately. Both trade a little staleness for instant responses; set the windows per resource by how wrong stale data is allowed to be."
+build: "A data layer for a real app: a typed API client, a query cache with defined staleness and invalidation rules, optimistic mutations with rollback, a WebSocket channel reconciled into the same cache, cookie-based auth with passkey enrolment, and a form that fully works with JavaScript disabled."
+steps:
+  - "Typed client: one `request<T>(method, path, body)` that sets JSON headers, the CSRF token and a request ID, and throws typed errors (use this lesson's `classify`)."
+  - "Query cache: adopt TanStack Query (or read `src/lib/query-cache.ts` and use it); write down staleTime per resource and which mutations invalidate which keys."
+  - "Optimistic mutations: the like-button pattern for toggles; the 'insert pending row, replace on success, remove on failure' pattern for lists."
+  - "WebSocket: reconnect with jittered backoff, resume by sequence number, and write incoming events into the same query cache (setData), never a parallel store."
+  - "Auth: cookie session + CSRF token (copy `server/features/auth.ts`), then passkey enrolment; test logout across tabs."
+  - "One form (sign-up or checkout) that works with JavaScript off: POST + 303 + server-rendered 422."
+taste: "Design the loading, empty, error and offline states at the same time as the success state. A UI that only has a happy path is half a feature, and the half your users meet on a train is the missing one."
+quiz:
+  - q: "Why is `PUT {liked: true}` better than `POST /toggle-like`?"
+    options: ["It's shorter", "It's idempotent: retries and double taps can't flip the state twice", "PUT is faster"]
+    answer: 1
+    why: "Sending the desired state makes replays harmless; toggles aren't."
+  - q: "A mutation succeeded. What should happen to cached queries that include that data?"
+    options: ["Nothing", "Invalidate (or update) them so readers refetch or see the change", "Reload the page"]
+    answer: 1
+    why: "Invalidation keeps the query cache the single source of server truth."
+  - q: "Which errors should a client retry automatically?"
+    options: ["All of them", "Transient ones (network, 5xx, 429) on idempotent requests, with backoff", "Only 422"]
+    answer: 1
+    why: "Validation errors won't change on retry, and retrying non-idempotent requests can duplicate work."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import HttpInspector from '../../components/demos/HttpInspector.astro';
+import QueryCacheLab from '../../components/demos/QueryCacheLab.astro';
+import OptimisticLab from '../../components/demos/OptimisticLab.astro';
+import RealtimeLab from '../../components/demos/RealtimeLab.astro';
+import SwLab from '../../components/demos/SwLab.astro';
+import FormLab from '../../components/demos/FormLab.astro';
+import UploadLab from '../../components/demos/UploadLab.astro';
+import VirtualListLab from '../../components/demos/VirtualListLab.astro';
+import AuthLab from '../../components/demos/AuthLab.astro';
+import RetryLab from '../../components/demos/RetryLab.astro';
+import { Code } from 'astro:components';
+import graphqlSource from '../../../server/core/mini-graphql.ts?raw';
+
+## API styles from the client's perspective
+
+The main API styles, as the client experiences them:
+
+- **REST**: resources with URLs, so **HTTP caching** works (`Cache-Control`, ETags, CDNs) and it is simple to debug. It can over-fetch, or need several round trips.
+- **GraphQL**: client-shaped queries fetch exactly the fields needed in one round trip. Caching gets harder (one POST URL), and resolvers invite **N+1** queries on the server.
+- **RPC-style typed endpoints** (tRPC and friends): type safety end to end without a schema layer, when the client and server ship together.
+- **Server functions/actions** in meta-frameworks: RPC generated from colocated code.
+
+The trade-offs are caching, versioning and tooling. Below, the same data three ways, served by this site's server. Its GraphQL endpoint is a 100-line implementation you can read.
+
+<HttpInspector
+  id="hi-04-api"
+  title="Same data, three API styles"
+  highlight={['cache-control', 'etag', 'x-resolver-calls', 'content-length']}
+  presets={[
+    { label: 'REST: the post', path: '/api/rest/posts/1' },
+    { label: 'REST: its comments', path: '/api/rest/posts/1/comments' },
+    { label: 'REST: the author', path: '/api/rest/users/1' },
+    { label: 'GraphQL: one query', method: 'POST', path: '/api/graphql', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ post(id: 1) { title author { name } comments { body author { name } } } }"}' },
+    { label: 'RPC: getPostWithComments', method: 'POST', path: '/api/rpc/getPostWithComments', headers: { 'Content-Type': 'application/json' }, body: '{"id":1}' },
+    { label: 'REST revalidation (304)', path: '/api/rest/posts/1', via: 'wire', headers: { 'If-None-Match': '"will-not-match"' } },
+  ]}
+/>
+
+<details>
+  <summary>Read the whole GraphQL-shaped engine (<code>server/core/mini-graphql.ts</code>)</summary>
+  <Code code={graphqlSource} lang="ts" themes={{ light: 'github-light-high-contrast', dark: 'github-dark-high-contrast' }} />
+</details>
+
+## Client-side data caching
+
+**Query caches** (TanStack Query, SWR, and their equivalents) hold server data under **cache keys**. They give you:
+
+- **stale-while-revalidate** semantics: show the cache, refetch in the background;
+- **deduplication** of in-flight requests;
+- **background refetching** on focus or reconnect;
+- a **retry policy**;
+- **invalidation** after mutations;
+- **pagination** and **infinite queries**.
+
+That is why a query cache beats a hand-rolled store for server data: it already solves the invalidation you would otherwise write by hand, badly.
+
+<QueryCacheLab />
+
+## Normalisation
+
+A **normalised cache** (Apollo, Relay, RTK Query entities) stores each entity once by type and ID, so editing a user's name updates every screen that shows them. It earns its complexity for **heavily relational data edited in many places**. For most apps, **document-shaped caching** (each query's response as-is) plus invalidation is enough.
+
+<Playground
+  id="p04-normalise"
+  title="Rename a user: document cache versus normalised cache"
+  task="Press Rename in both modes. In document mode the feed keeps the old name until it refetches; in normalised mode both views change at once. What does normalisation cost you when a new query arrives?"
+  html={`<p><label><input type="checkbox" id="norm"> Normalised cache</label> <button id="rename">Rename Asha → Asha R.</button></p>\n<div class="views"><section><h2>Feed</h2><p id="feed"></p></section><section><h2>Profile</h2><p id="profile"></p></section></div>`}
+  css={`.views { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; } section { border: 1px solid #999; border-radius: .5rem; padding: .5rem; } h2 { font-size: 1rem; margin: 0; } button { font: inherit; }`}
+  js={`const responses = {\n  feed: [{ id: 'p1', title: 'Ship less JavaScript', author: { id: 'u1', name: 'Asha' } }],\n  profile: { id: 'u1', name: 'Asha', posts: 12 },\n};\nlet documents = structuredClone(responses);\n// Normalised: entities stored once, queries hold references.\nconst entities = { u1: { id: 'u1', name: 'Asha', posts: 12 }, p1: { id: 'p1', title: 'Ship less JavaScript', author: 'u1' } };\nconst queries = { feed: ['p1'], profile: 'u1' };\nconst norm = document.getElementById('norm');\nfunction render() {\n  if (norm.checked) {\n    const post = entities[queries.feed[0]];\n    document.getElementById('feed').textContent = post.title + ' by ' + entities[post.author].name;\n    document.getElementById('profile').textContent = entities[queries.profile].name + ', ' + entities[queries.profile].posts + ' posts';\n  } else {\n    document.getElementById('feed').textContent = documents.feed[0].title + ' by ' + documents.feed[0].author.name;\n    document.getElementById('profile').textContent = documents.profile.name + ', ' + documents.profile.posts + ' posts';\n  }\n}\ndocument.getElementById('rename').onclick = () => {\n  // The mutation's response is the updated user; each cache applies it its own way.\n  const updated = { id: 'u1', name: 'Asha R.' };\n  if (norm.checked) Object.assign(entities[updated.id], updated);\n  else documents.profile = { ...documents.profile, ...updated }; // only the query that fetched the user\n  render();\n  console.log(norm.checked ? 'Normalised: one entity changed, every view updated.' : 'Document cache: the feed still says Asha until it is invalidated or refetched.');\n};\nnorm.onchange = () => { documents = structuredClone(responses); render(); };\nrender();`}
+/>
+
+## Optimistic updates
+
+**Optimistic updates** apply the change locally at once, then reconcile with the server's response, and **roll back on failure**. Handle **conflicts**: last write wins, or refuse with `412 Precondition Failed` via `If-Match` (the todos API does this). Make the **pending state visible** rather than invisible: a dimmed item, a "saving…" label, and never a silent revert.
+
+<OptimisticLab />
+
+## Real-time
+
+Real-time options, and what each demands:
+
+- **WebSocket** connection management:
+  - reconnection with jittered backoff;
+  - heartbeats: the socket can look open while dead;
+  - auth on connect: the handshake sends cookies, so check the Origin;
+  - message ordering: sequence numbers;
+  - back-pressure.
+- **SSE** for one-way streams.
+- **Polling** as an honest fallback.
+- **Presence** and **collaborative editing**: CRDTs, `L18-cs-fundamentals.md` Part 14.
+- **Reconciling live updates with the query cache**: write events into the cache, not a second store.
+
+This lab's WebSocket server is written from scratch on raw sockets (`server/core/websocket.ts`), so you can read the whole protocol.
+
+<RealtimeLab />
+
+## Offline and PWA data
+
+Offline data has four pieces:
+
+- **IndexedDB** as the local store;
+- an **outbox** for mutations queued while offline, replayed idempotently by client-generated IDs;
+- **Background Sync** where supported (Chromium), to replay even after the tab closes;
+- **conflict resolution**: last-write-wins, server-wins with a merge UI, or CRDTs.
+
+Be realistic about the web's limits compared with native (`L18-cs-app-engineering.md` Part 4): storage can be evicted, background time is short, and iOS support is narrower.
+
+<SwLab id="sw-04" focus="offline" title="Offline lab: an outbox that survives a server outage" />
+
+## Forms, done well
+
+The checklist for a form done well:
+
+- **Progressive enhancement**: it works without JavaScript.
+- **One validation schema** shared by client and server.
+- **Errors**: field-level and form-level, with **focus moved** to an error summary.
+- **Submission states**, and **idempotent submits** so double clicks are harmless.
+- **File uploads**: chunked and **resumable**, with **progress**, **direct-to-storage signed URLs**, and type checks **by content**.
+- **Multi-step flows** that resume where the user left off.
+
+<FormLab id="fl-04" title="Form lab: one schema, three layers, idempotent submits" />
+
+<UploadLab />
+
+## Streaming and large payloads
+
+For large payloads:
+
+- **Streamed HTML** and **streamed JSON** (NDJSON) show the first rows immediately.
+- **Range requests** fetch part of a file (`Range: bytes=0-1023`, answered with `206`); this server supports them for every static file.
+- **Paginate** instead of "load everything".
+- **Virtualise** long lists: render only what's visible.
+
+<VirtualListLab />
+
+## Authentication in the browser
+
+Authentication, in the browser:
+
+- **Session cookies** (`HttpOnly`, `Secure`, `SameSite`) versus tokens in JavaScript-accessible storage. The former is the default recommendation.
+- **Refresh strategies** and silent renewal.
+- **OAuth 2.1/OIDC with PKCE** for third-party identity.
+- **Passkeys/WebAuthn** as the modern primary factor.
+- **Session fixation** defence: rotate the ID on login.
+- **Logout across tabs** (`BroadcastChannel`, storage events), and **multi-tab consistency**.
+
+<AuthLab id="auth-04" />
+
+```ts
+// server/features/auth.ts: the whole login, minus logging
+const session = requireCsrf(ctx, current(ctx));          // synchroniser token + Origin check
+const gate = lockout.peek(email);                        // per-account token bucket
+if (!gate.allowed) throw new HttpError(429, 'Too many attempts…', rateLimitHeaders(gate, 5));
+const ok = verifyPassword(password, user?.passwordHash ?? DUMMY_HASH) && Boolean(user); // same time either way
+if (!ok) throw new HttpError(401, 'Email or password is incorrect');                    // same message either way
+const fresh = store.rotate(session, user.id);            // new ID: a planted pre-login ID is now useless
+setCookie(ctx, fresh);                                   // HttpOnly; SameSite=Lax; Secure over HTTPS
+```
+
+## Authorisation on the client
+
+**Client checks are UX only; server checks are security.** Hide what the user can't do (less noise). Disable what they could do after some change, and say why. Remove only what they must never know exists. **Feature flags** are not permissions: a flag decides whether a feature exists for a cohort, a permission decides whether this user may do this thing. Enforce permissions on every request, on the server.
+
+<HttpInspector
+  id="hi-04-authz"
+  title="The admin report, fetched directly (whatever the UI shows)"
+  presets={[
+    { label: 'As whoever you are now', path: '/api/auth/admin/report' },
+    { label: 'Without cookies', path: '/api/auth/admin/report', credentials: 'omit' },
+  ]}
+  highlight={['www-authenticate']}
+/>
+
+<Try task="Log in as Lin (member) in the auth lab above, then use the inspector to fetch /api/auth/admin/report. Then imagine the admin button is merely hidden with CSS for members: what does this experiment tell you about where the check must live?">
+  As Lin the server answers 403 whatever the page shows: hiding the button is UX, the 403 is security. Anyone can open DevTools and call the endpoint (as you just did), so every permission check must run on the server for every request; the client check only avoids showing people things they can't use. Without cookies it's 401 (not authenticated) rather than 403 (authenticated, not allowed).
+</Try>
+
+## Error handling and resilience
+
+Resilience, end to end:
+
+- **Error boundaries** per route and per widget, so one failing panel doesn't blank the page.
+- **Retry with backoff and jitter** for idempotent reads.
+- **Tell failures apart**: offline, server error, rate limiting and validation errors each need a different response.
+- **A user-visible recovery action** for every failure.
+- **Telemetry on every failure path**, with the request ID (Part 12).
+
+<RetryLab />

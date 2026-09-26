@@ -78,6 +78,7 @@
   }
   .lab-log {
     display: grid;
+    align-content: start;
     gap: var(--space-3xs);
     max-block-size: 20rem;
     overflow: auto;
