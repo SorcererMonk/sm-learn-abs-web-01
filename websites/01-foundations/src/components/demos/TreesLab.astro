@@ -1,0 +1,131 @@
+---
+/**
+ * Three trees from one document: the DOM, the box tree CSS generates from it,
+ * and (a simplified) accessibility tree with each node's role, name and where the name came from.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+interface Props {
+  title?: string;
+  html?: string;
+  css?: string;
+}
+const {
+  title = 'One document, three trees',
+  html = `<nav aria-label="Main"><ul><li><a href="#">Home</a></li><li><a href="#">Pricing</a></li></ul></nav>
+<h1 class="note">Plans</h1>
+<button><svg viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4"/></svg></button>
+<button aria-label="Close dialog">×</button>
+<p class="hidden">Only for sighted users?</p>
+<label>Email <input type="email"></label>
+<img src="" alt="">
+<div class="contents"><span>display: contents keeps children</span></div>`,
+  css = `.note::before { content: "★ "; }
+.hidden { display: none; }
+.contents { display: contents; }`,
+} = Astro.props;
+---
+
+<Demo title={title}>
+  <div class="trees-lab stack" data-trees-lab>
+    <div class="switcher" style="--switcher-threshold: 40rem">
+      <label class="control"><span>HTML</span><textarea rows="9" spellcheck="false" data-trees-html>{html}</textarea></label>
+      <label class="control"><span>CSS</span><textarea rows="9" spellcheck="false" data-trees-css>{css}</textarea></label>
+    </div>
+    <div class="trees-lab__host" data-trees-host inert title="Specimen: rendered, but inert and hidden from assistive technology on this page"></div>
+    <div class="auto-grid" style="--grid-min: 15rem">
+      <div class="stack stack-sm"><h5 class="kicker">DOM</h5><pre data-tree="dom">(needs JavaScript)</pre></div>
+      <div class="stack stack-sm"><h5 class="kicker">Box tree</h5><pre data-tree="box"></pre></div>
+      <div class="stack stack-sm"><h5 class="kicker">Accessibility tree (simplified)</h5><pre data-tree="ax"></pre></div>
+    </div>
+  </div>
+  <p slot="note">
+    Watch the gaps: <code>display: none</code> removes a node from the box tree <em>and</em> the accessibility
+    tree; <code>::before</code> content adds a box (and name text) that the DOM never had; the icon-only
+    button has no name at all; <code>alt=""</code> makes the image presentational.
+  </p>
+</Demo>
+
+<script>
+  import { accessibilityTree } from '../../lib/accname';
+
+  function domLines(node: Node, depth: number, out: string[]): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((node.textContent ?? '').trim()) out.push(`${'  '.repeat(depth)}"${node.textContent?.trim()}"`);
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    out.push(`${'  '.repeat(depth)}<${node.localName}>`);
+    node.childNodes.forEach((c) => domLines(c, depth + 1, out));
+  }
+
+  function boxLines(el: Element, depth: number, out: string[]): void {
+    const style = getComputedStyle(el);
+    if (style.display === 'none') return;
+    const pad = '  '.repeat(depth);
+    const hasBox = style.display !== 'contents';
+    if (hasBox) out.push(`${pad}${el.localName} (${style.display})`);
+    const inner = hasBox ? depth + 1 : depth;
+    for (const pseudo of ['::before', '::after'] as const) {
+      const content = getComputedStyle(el, pseudo).content;
+      if (content && content !== 'none' && content !== 'normal' && pseudo === '::before')
+        out.push(`${'  '.repeat(inner)}::before ${content}`);
+    }
+    for (const child of el.children) boxLines(child, inner, out);
+    const after = getComputedStyle(el, '::after').content;
+    if (after && after !== 'none' && after !== 'normal') out.push(`${'  '.repeat(inner)}::after ${after}`);
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-trees-lab]').forEach((root) => {
+    const htmlInput = root.querySelector<HTMLTextAreaElement>('[data-trees-html]');
+    const cssInput = root.querySelector<HTMLTextAreaElement>('[data-trees-css]');
+    const host = root.querySelector<HTMLElement>('[data-trees-host]');
+    const out = (name: string): HTMLElement | null => root.querySelector(`[data-tree="${name}"]`);
+    if (!htmlInput || !cssInput || !host) return;
+    const shadow = host.attachShadow({ mode: 'open' });
+    const run = (): void => {
+      // Parse first (inert), then adopt: nothing the learner types can run script.
+      const doc = new DOMParser().parseFromString(htmlInput.value, 'text/html');
+      doc.querySelectorAll('script, iframe, object, embed').forEach((n) => n.remove());
+      doc.querySelectorAll('*').forEach((n) =>
+        [...n.attributes].filter((a) => a.name.startsWith('on')).forEach((a) => n.removeAttribute(a.name)),
+      );
+      const style = document.createElement('style');
+      style.textContent = cssInput.value;
+      const container = document.createElement('div');
+      container.append(...doc.body.childNodes);
+      shadow.replaceChildren(style, container);
+      const dom: string[] = [];
+      container.childNodes.forEach((n) => domLines(n, 0, dom));
+      const box: string[] = [];
+      for (const child of container.children) boxLines(child, 0, box);
+      const ax = accessibilityTree(container).map(
+        (n) => `${'  '.repeat(n.depth)}${n.role}${n.name ? ` "${n.name}"` : ' (no name)'}${n.from !== 'none' ? `  ← ${n.from}` : ''}`,
+      );
+      const set = (name: string, lines: string[]): void => {
+        const el = out(name);
+        if (el) el.textContent = lines.join('\n') || '(empty)';
+      };
+      set('dom', dom);
+      set('box', box);
+      set('ax', ax);
+    };
+    htmlInput.addEventListener('input', run);
+    cssInput.addEventListener('input', run);
+    run();
+  });
+</script>
+
+<style>
+  .trees-lab pre {
+    font-size: var(--step-n2);
+    white-space: pre-wrap;
+    min-block-size: 10rem;
+  }
+  .trees-lab__host {
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-md);
+    padding: var(--space-s);
+    background: var(--color-surface);
+  }
+</style>

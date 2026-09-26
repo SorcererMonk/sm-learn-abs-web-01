@@ -1,0 +1,104 @@
+---
+/**
+ * Parser museum: type any HTML and see the DOM the real HTML parser builds (DOMParser),
+ * next to what you wrote. Presets are the classic malformed cases from Part 1.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+interface Props {
+  title?: string;
+  initial?: string;
+}
+const presets = [
+  ['p containing div', '<p>Hello <div>world</div></p>'],
+  ['text inside table', '<table>Oops<tr><td>cell</td></tr></table>'],
+  ['misnested formatting', '<b>bold <i>both</b> italic?</i>'],
+  ['self-closing div', '<div/>After the div'],
+  ['br end tag', '<p>line</br>break</p>'],
+  ['optional tags', '<ul><li>One<li>Two</ul><p>Para one<p>Para two'],
+  ['template content', '<template><li>inert</li></template>'],
+  ['button in link', '<a href="#">Go <button>now</button></a>'],
+  ['boolean false', '<input disabled="false">'],
+] as const;
+const { title = 'Parser museum: what the HTML parser really builds', initial = presets[0][1] } = Astro.props;
+---
+
+<Demo title={title}>
+  <div class="parser-lab stack" data-parser-lab>
+    <label class="control" for="parser-input">
+      <span>Your markup (edit freely)</span>
+      <textarea id="parser-input" rows="4" spellcheck="false" data-parser-input>{initial}</textarea>
+    </label>
+    <div class="cluster" role="group" aria-label="Malformed presets">
+      {presets.map(([label, code]) => (
+        <button type="button" class="chip" data-preset={code}>{label}</button>
+      ))}
+    </div>
+    <div class="switcher" style="--switcher-threshold: 34rem">
+      <div class="stack stack-sm">
+        <h5 class="kicker">DOM tree the parser built</h5>
+        <pre class="parser-tree" data-parser-tree aria-live="polite">(needs JavaScript)</pre>
+      </div>
+      <div class="stack stack-sm">
+        <h5 class="kicker">Serialised back to HTML</h5>
+        <pre class="parser-tree" data-parser-out></pre>
+      </div>
+    </div>
+  </div>
+  <p slot="note">
+    Uses the browser's own parser via <code>DOMParser</code>, so what you see is exactly what every CSS selector,
+    script and screen reader sees. Nothing you type is executed: parsed documents are inert.
+  </p>
+</Demo>
+
+<script>
+  function describe(node: Node, depth: number, lines: string[]): void {
+    const pad = '  '.repeat(depth);
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? '';
+      lines.push(`${pad}#text ${JSON.stringify(text.trim() === '' ? text : text)}`);
+      return;
+    }
+    if (node.nodeType === Node.COMMENT_NODE) {
+      lines.push(`${pad}<!-- ${node.textContent} -->`);
+      return;
+    }
+    if (node instanceof Element) {
+      const attrs = [...node.attributes].map((a) => ` ${a.name}="${a.value}"`).join('');
+      lines.push(`${pad}<${node.localName}${attrs}>`);
+      const kids = node instanceof HTMLTemplateElement ? node.content.childNodes : node.childNodes;
+      if (node instanceof HTMLTemplateElement) lines.push(`${pad}  #document-fragment (inert)`);
+      kids.forEach((child) => describe(child, depth + (node instanceof HTMLTemplateElement ? 2 : 1), lines));
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-parser-lab]').forEach((root) => {
+    const input = root.querySelector<HTMLTextAreaElement>('[data-parser-input]');
+    const tree = root.querySelector<HTMLElement>('[data-parser-tree]');
+    const out = root.querySelector<HTMLElement>('[data-parser-out]');
+    if (!input || !tree || !out) return;
+    const run = (): void => {
+      const doc = new DOMParser().parseFromString(`<!doctype html><body>${input.value}`, 'text/html');
+      const lines: string[] = [];
+      doc.body.childNodes.forEach((n) => describe(n, 0, lines));
+      tree.textContent = lines.join('\n') || '(empty)';
+      out.textContent = doc.body.innerHTML;
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) =>
+      b.addEventListener('click', () => {
+        input.value = b.dataset.preset ?? '';
+        run();
+      }),
+    );
+    input.addEventListener('input', run);
+    run();
+  });
+</script>
+
+<style>
+  .parser-tree {
+    min-block-size: 8rem;
+    font-size: var(--step-n1);
+    white-space: pre-wrap;
+  }
+</style>

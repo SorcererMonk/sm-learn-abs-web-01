@@ -1,0 +1,59 @@
+/* Print: black on white, no chrome, link URLs visible, no orphaned headings. */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+  html {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+  }
+  .site-header,
+  .site-footer,
+  .skip-link,
+  .read-progress,
+  .marquee,
+  .toc,
+  .pager,
+  .header-actions,
+  [data-print='hide'] {
+    display: none !important;
+  }
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    break-after: avoid;
+  }
+  pre,
+  figure,
+  table,
+  .demo,
+  .callout {
+    break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+  p {
+    orphans: 3;
+    widows: 3;
+  }
+  .card,
+  .demo {
+    box-shadow: none;
+  }
+  details {
+    /* Mastery-check answers print expanded is impossible in CSS; the summary still prints. */
+    border: 1px solid #999;
+  }
+}
+
+@page {
+  margin: 18mm 16mm;
+}

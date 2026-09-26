@@ -1,0 +1,103 @@
+---
+/**
+ * Page shell shared by every Astro site: a correct <head>, no-flash theme, skip link,
+ * landmarks (header/nav/main/footer), reading progress and the single boot script.
+ */
+import '../styles/index.css';
+import Fonts from './Fonts.astro';
+import type { SiteConfig } from '../lib/site.ts';
+
+interface Props {
+  site: SiteConfig;
+  title: string;
+  description?: string;
+  totalParts?: number;
+  showProgress?: boolean;
+}
+
+const { site, title, description = site.description, totalParts = 0, showProgress = false } = Astro.props;
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (to: string): string => `${base}${to}`;
+const isCurrent = (to: string): boolean =>
+  to === '/' ? path === (base || '/') : path.startsWith(href(to).replace(/\/$/, ''));
+const pageTitle = title === site.name ? `${site.name} · ${site.tagline}` : `${title} · ${site.name}`;
+
+// Applied before first paint so a saved theme never flashes.
+const themeScript = `try{var t=localStorage.getItem('learn:theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`;
+---
+
+<!doctype html>
+<html lang="en" data-site={site.id} style={`--brand-hue: ${site.brandHue}`}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbf9f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141110" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href={href('/favicon.svg')} type="image/svg+xml" />
+    <script is:inline set:html={themeScript} />
+    <Fonts />
+    <slot name="head" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="read-progress" aria-hidden="true"></div>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <a class="brand" href={href('/')} aria-label={`${site.name}, home`}>
+          <span class="brand__mark" aria-hidden="true"></span>{site.name}
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <ul role="list">
+            {
+              site.nav.map((link) => (
+                <li>
+                  <a href={href(link.href)} aria-current={isCurrent(link.href) ? 'page' : undefined}>
+                    {link.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </nav>
+        <div class="header-actions">
+          {
+            showProgress && (
+              <span class="progress-pill" data-progress-pill data-total={totalParts} hidden>
+                0/{totalParts}
+              </span>
+            )
+          }
+          <button type="button" class="btn btn--small btn--ghost" data-theme-toggle hidden>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M12 3a9 9 0 1 0 0 18V3Z"></path>
+              <circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+            </svg>
+            <span data-theme-label>Auto</span>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="center cluster" style="--cluster-justify: space-between">
+        <p>{site.name}: {site.tagline}</p>
+        <p>
+          Built from {site.sources.map((s) => s.file).join(', ')} ·
+          <a href={href('/coverage/')}>Coverage matrix</a>
+        </p>
+      </div>
+    </footer>
+    <script>
+      import '../client/boot.ts';
+    </script>
+  </body>
+</html>

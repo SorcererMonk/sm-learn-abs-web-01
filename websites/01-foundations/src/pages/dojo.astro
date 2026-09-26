@@ -1,0 +1,22 @@
+---
+import BaseLayout from '@learn/shared/components/BaseLayout.astro';
+import TrainingPage from '@learn/shared/components/TrainingPage.astro';
+import { repoPath } from '@learn/shared/lib/content.ts';
+import { site } from '../site';
+
+const file = 'T1-coding-html-css.md';
+---
+
+<BaseLayout site={site} title="Dojo: the HTML & CSS training programme">
+  <div class="page-grid" style="--page-row-gap: var(--space-l)">
+    <header class="lesson-hero stack">
+      <p class="kicker">T1 · Training programme</p>
+      <h1>The dojo</h1>
+      <p class="lede">
+        Drills with timers, belt gates, copywork, screen reps, briefs, trials, prediction sets and a logbook.
+        Muscle memory, intuition and taste, trained on purpose.
+      </p>
+    </header>
+    <TrainingPage path={repoPath(file)} file={file} key="t1-html-css" />
+  </div>
+</BaseLayout>

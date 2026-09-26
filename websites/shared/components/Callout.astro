@@ -1,0 +1,14 @@
+---
+/** Labelled aside. kind: anchor | taste | warn | try | note. */
+interface Props {
+  kind?: 'anchor' | 'taste' | 'warn' | 'try' | 'note';
+  label?: string;
+}
+const { kind = 'note', label } = Astro.props;
+const labels = { anchor: 'Anchor', taste: 'Taste', warn: 'Watch out', try: 'Try it', note: 'Note' };
+---
+
+<div class="callout" data-kind={kind}>
+  <p class="callout__label">{label ?? labels[kind]}</p>
+  <slot />
+</div>

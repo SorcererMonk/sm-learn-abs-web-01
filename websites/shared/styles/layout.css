@@ -1,0 +1,177 @@
+/*
+ * Intrinsic layout primitives (after Every Layout, Pickering & Bell). Each is a tiny algorithm
+ * configured through custom properties, so components compose them instead of adding media queries.
+ */
+
+/* Stack: vertical rhythm between siblings, owned by the parent. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.stack > * + * {
+  margin-block-start: var(--stack-space, var(--space-s));
+}
+.stack-lg {
+  --stack-space: var(--space-l);
+}
+.stack-sm {
+  --stack-space: var(--space-2xs);
+}
+
+/* Box: padding + a transparent border that becomes visible in forced-colours mode. */
+.box {
+  padding: var(--box-space, var(--space-m));
+  border: 1px solid transparent;
+}
+
+/* Center: a measure-limited column centred with auto margins. */
+.center {
+  box-sizing: content-box;
+  max-inline-size: var(--center-max, var(--size-content));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* Cluster: wrapping row with gap (tags, button groups, nav). */
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cluster-space, var(--space-xs));
+  align-items: var(--cluster-align, center);
+  justify-content: var(--cluster-justify, flex-start);
+}
+
+/* Sidebar: side-by-side until the content would be narrower than --sidebar-content-min. */
+.with-sidebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sidebar-space, var(--space-l));
+}
+.with-sidebar > :first-child {
+  flex-basis: var(--sidebar-width, 16rem);
+  flex-grow: 1;
+}
+.with-sidebar > :last-child {
+  flex-basis: 0;
+  flex-grow: 999;
+  min-inline-size: var(--sidebar-content-min, 55%);
+}
+
+/* Switcher: horizontal above --switcher-threshold of *container* width, stacked below. No media query. */
+.switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--switcher-space, var(--space-m));
+}
+.switcher > * {
+  flex-grow: 1;
+  flex-basis: calc((var(--switcher-threshold, 40rem) - 100%) * 999);
+}
+
+/* Cover: vertically centred principal element with optional header/footer. */
+.cover {
+  display: flex;
+  flex-direction: column;
+  min-block-size: var(--cover-min, 80svh);
+  padding-block: var(--space-l);
+}
+.cover > * {
+  margin-block: var(--space-s);
+}
+.cover > .cover__principal {
+  margin-block: auto;
+}
+
+/* Grid: as many columns as fit, never overflowing (min(100%, …) guard). */
+.auto-grid {
+  display: grid;
+  gap: var(--grid-space, var(--space-m));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--grid-min, 16rem)), 1fr));
+}
+
+/* Frame: aspect-ratio crop for media. */
+.frame {
+  aspect-ratio: var(--frame-ratio, 16 / 9);
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.frame > :is(img, video, svg, canvas) {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* Reel: horizontal scroller with snap and a contained scroll chain. */
+.reel {
+  display: flex;
+  gap: var(--reel-space, var(--space-s));
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x proximity;
+  padding-block-end: var(--space-2xs);
+}
+.reel > * {
+  flex: 0 0 var(--reel-item, min(20rem, 80%));
+  scroll-snap-align: start;
+}
+
+/* Imposter: centred overlay over a positioned parent. */
+.imposter {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  translate: -50% -50%;
+}
+
+/* Icon: inline SVG sized to the cap height of the surrounding text. */
+.icon {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+}
+
+/* Page grid with named lines: children sit in the content column, any child can break out. */
+.page-grid {
+  display: grid;
+  grid-template-columns:
+    [full-start] minmax(var(--gutter), 1fr)
+    [wide-start] minmax(0, calc((var(--size-wide) - var(--size-content)) / 2))
+    [content-start] min(var(--size-content), 100% - 2 * var(--gutter))
+    [content-end] minmax(0, calc((var(--size-wide) - var(--size-content)) / 2))
+    [wide-end] minmax(var(--gutter), 1fr) [full-end];
+  row-gap: var(--page-row-gap, var(--space-xl));
+}
+.page-grid > * {
+  grid-column: content;
+  min-inline-size: 0;
+}
+.page-grid > .wide {
+  grid-column: wide;
+}
+.page-grid > .full-bleed {
+  grid-column: full;
+}
+
+.prose {
+  max-inline-size: var(--size-measure);
+}
+.prose > * + * {
+  margin-block-start: var(--space-s);
+}
+.prose > :is(h2, h3, h4) {
+  margin-block-start: var(--space-l);
+}
+.prose > :is(h2, h3, h4) + * {
+  margin-block-start: var(--space-xs);
+}
+.prose :is(ul, ol):not([class]) {
+  padding-inline-start: 1.25em;
+}
+.prose li + li {
+  margin-block-start: var(--space-3xs);
+}

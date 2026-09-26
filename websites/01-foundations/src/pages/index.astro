@@ -1,0 +1,85 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '@learn/shared/components/BaseLayout.astro';
+import { lessonHref, sortLessons, withBase } from '@learn/shared/lib/content.ts';
+import { site, chapters } from '../site';
+
+const lessons = sortLessons(site, await getCollection('lessons'));
+const byPart = new Map(lessons.map((l) => [l.data.part, l]));
+const titles = lessons.map((l) => l.data.title);
+const loop = [
+  ['Write the HTML first', 'Read it unstyled. If it makes sense with no CSS, accessibility, SEO and resilience are mostly done.'],
+  ['Ask which algorithm is in charge', 'Flow, flex, grid, positioning or an inline formatting context: name it before touching a property.'],
+  ['Live in the inspector', 'Computed values, layout overlays, the accessibility tree and the Rendering panel beat guessing.'],
+  ['Resize everything', '280px to 2560px, 200% and 400% zoom, long German words, RTL and forced colours.'],
+  ['Learn from specs and masters', 'MDN for reference, the specs for mechanism, and the CSS of sites you admire.'],
+  ['Design and build in one loop', 'Sketch, build in the browser, look, critique, change. No handoff.'],
+];
+---
+
+<BaseLayout site={site} title={site.name} showProgress totalParts={lessons.length}>
+  <div class="page-grid">
+    <section class="hero stack" aria-labelledby="hero-title">
+      <p class="kicker">L1 · HTML &amp; CSS · {lessons.length} parts · 15-section training dojo</p>
+      <h1 id="hero-title" class="hero__title">The web's <em>presentation</em> layer, taken apart.</h1>
+      <p class="lede">
+        Every part of the HTML &amp; CSS curriculum as a lesson you can poke at: live playgrounds, algorithm
+        visualisers, exercises with model answers, and a training dojo that times your drills.
+      </p>
+      <p class="cluster">
+        <a class="btn" href={lessonHref(byPart.get(0)?.id ?? '')}>Start with Part 0</a>
+        <a class="btn btn--ghost" href={withBase('/learn/')}>Browse all parts</a>
+        <a class="btn btn--ghost" href={withBase('/dojo/')}>Open the dojo</a>
+      </p>
+    </section>
+
+    <div class="marquee full-bleed" aria-hidden="true">
+      <div class="marquee__track">
+        {[...titles, ...titles].map((t) => <span>{t}</span>)}
+      </div>
+    </div>
+
+    <section class="stack" aria-labelledby="chapters-title">
+      <p class="kicker">Suggested learning order</p>
+      <h2 id="chapters-title">Ten chapters, one loop</h2>
+      <div class="bento">
+        {
+          chapters.map((chapter, i) => {
+            const first = byPart.get(chapter.parts[0] ?? 0);
+            return (
+              <article class:list={['card card--link stack reveal', i === 0 && 'bento__feature card--inverse']}>
+                <p class="kicker">Chapter {i + 1} · Parts {chapter.parts.join(', ')}</p>
+                <h3 class="card__title">
+                  <a href={first ? lessonHref(first.id) : withBase('/learn/')}>{chapter.title}</a>
+                </h3>
+                <p>{chapter.blurb}</p>
+                <ul class="cluster" role="list">
+                  {chapter.parts.map((p) => (
+                    <li class="pill">{byPart.get(p)?.data.title ?? `Part ${p}`}</li>
+                  ))}
+                </ul>
+              </article>
+            );
+          })
+        }
+      </div>
+    </section>
+
+    <section class="stack" aria-labelledby="loop-title">
+      <p class="kicker">How to use this site</p>
+      <h2 id="loop-title">The HTML/CSS learning loop</h2>
+      <ol class="auto-grid" role="list" style="--grid-min: 15rem">
+        {
+          loop.map(([title, body], i) => (
+            <li class="card stack reveal">
+              <span class="stat__value" aria-hidden="true">{i + 1}</span>
+              <h3>{title}</h3>
+              <p class="muted">{body}</p>
+            </li>
+          ))
+        }
+      </ol>
+      <p><a href={withBase('/start/')}>Read the full orientation: depth ladder, tier tags and relationships →</a></p>
+    </section>
+  </div>
+</BaseLayout>

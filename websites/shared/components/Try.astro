@@ -1,0 +1,39 @@
+---
+/**
+ * A mini-exercise attached to one topic: a task, an optional hint and a model answer,
+ * all native <details> (no JavaScript), plus a persisted "done" checkbox.
+ */
+import { hashId } from '../lib/md-source.ts';
+import { renderInline } from '../lib/inline-md.ts';
+
+interface Props {
+  task: string;
+  id?: string;
+}
+const { task, id } = Astro.props;
+const key = `try:${Astro.url.pathname}:${id ?? hashId(task)}`;
+---
+
+<div class="callout try" data-kind="try">
+  <p class="callout__label">Try it</p>
+  <p set:html={renderInline(task)} />
+  {
+    Astro.slots.has('hint') && (
+      <details>
+        <summary>Hint</summary>
+        <slot name="hint" />
+      </details>
+    )
+  }
+  {
+    Astro.slots.has('default') && (
+      <details>
+        <summary>Model answer</summary>
+        <div class="stack stack-sm">
+          <slot />
+        </div>
+      </details>
+    )
+  }
+  <label class="check"><input type="checkbox" data-progress-id={key} /><span>Done</span></label>
+</div>

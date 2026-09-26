@@ -1,0 +1,9 @@
+---
+/** Live, sandboxed HTML/CSS/JS playground (see lib/render-playground.ts). */
+import { renderPlayground, type PlaygroundProps } from '../lib/render-playground.ts';
+
+type Props = PlaygroundProps;
+const html = renderPlayground(Astro.props);
+---
+
+<Fragment set:html={html} />

@@ -1,0 +1,9 @@
+node_modules
+dist
+.astro
+test-results
+playwright-report
+**/styles/tokens.css
+*.md
+*.mdx
+package-lock.json

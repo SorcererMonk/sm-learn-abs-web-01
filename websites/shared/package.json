@@ -1,0 +1,20 @@
+{
+  "name": "@learn/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens, CSS layers, Astro components, client islands and pure logic shared by the five learning sites.",
+  "exports": {
+    "./styles/*": "./styles/*",
+    "./components/*": "./components/*",
+    "./client/*": "./client/*",
+    "./lib/*": "./lib/*",
+    "./tools/*": "./tools/*"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "5.3.0",
+    "@fontsource-variable/instrument-sans": "5.3.0",
+    "github-slugger": "2.0.0",
+    "yaml": "2.9.1"
+  }
+}

@@ -1,0 +1,13 @@
+/*
+ * Layer order is declared once, up front: later layers win regardless of specificity.
+ * Unlayered site CSS (if any) would beat all of these, so sites put their CSS in `site`.
+ */
+@layer reset, tokens, base, layout, components, motion, site, demos, print;
+
+@import './reset.css' layer(reset);
+@import './tokens.css';
+@import './base.css' layer(base);
+@import './layout.css' layer(layout);
+@import './components.css' layer(components);
+@import './motion.css' layer(motion);
+@import './print.css' layer(print);

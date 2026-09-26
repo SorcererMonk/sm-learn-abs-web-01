@@ -1,0 +1,25 @@
+{
+  "name": "01-foundations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HTML & CSS: the presentation layer, from the parser to taste.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev --open",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "coverage": "node ../shared/tools/coverage.ts --site 01-foundations",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "8.0.2",
+    "@astrojs/markdown-remark": "7.3.1",
+    "@learn/shared": "1.0.0",
+    "astro": "7.3.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10"
+  }
+}

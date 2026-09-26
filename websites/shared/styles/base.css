@@ -1,0 +1,283 @@
+/* Element defaults: the site should read well with only this layer applied. */
+
+:root {
+  color-scheme: light dark;
+  --gutter: clamp(1rem, 4vi, 2.5rem);
+  --header-height: 4rem;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  scroll-padding-block-start: calc(var(--header-height) + 1rem);
+  scrollbar-gutter: stable;
+  hanging-punctuation: first;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:focus-within {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  min-block-size: 100dvh;
+  font-size: var(--step-0);
+  font-kerning: normal;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 560;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  font-optical-sizing: auto;
+}
+h1 {
+  font-size: var(--step-6);
+  font-weight: 620;
+}
+h2 {
+  font-size: var(--step-4);
+}
+h3 {
+  font-size: var(--step-2);
+  line-height: 1.2;
+}
+h4 {
+  font-size: var(--step-1);
+  line-height: 1.25;
+}
+h5,
+h6 {
+  font-size: var(--step-0);
+}
+
+p,
+li,
+dd,
+figcaption {
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration-line: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
+  text-decoration-skip-ink: auto;
+}
+a:hover {
+  text-decoration-thickness: 0.12em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--color-accent-subtle);
+  color: var(--color-text);
+}
+
+strong,
+b {
+  font-weight: 650;
+}
+
+small {
+  font-size: var(--step-n1);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  padding: 0.08em 0.35em;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+kbd {
+  border: 1px solid var(--color-border-strong);
+  border-block-end-width: 2px;
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.4em;
+  background: var(--color-surface);
+}
+
+pre {
+  padding: var(--space-s);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+/* Shiki dual themes: light values inline, dark values in --shiki-dark-* */
+:root[data-theme='dark'] .astro-code,
+:root[data-theme='dark'] .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .astro-code,
+  :root:not([data-theme='light']) .astro-code span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+  }
+}
+
+blockquote {
+  border-inline-start: 3px solid var(--color-accent);
+  padding-inline-start: var(--space-s);
+  font-family: var(--font-display);
+  font-size: var(--step-1);
+  line-height: 1.4;
+}
+
+hr {
+  border: 0;
+  block-size: 1px;
+  background: var(--color-border);
+  margin-block: var(--space-l);
+}
+
+mark {
+  background: var(--color-accent-subtle);
+  color: inherit;
+  padding-inline: 0.15em;
+  border-radius: 2px;
+}
+
+abbr[title] {
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+table {
+  border-collapse: collapse;
+  inline-size: 100%;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: var(--step-n1);
+}
+caption {
+  text-align: start;
+  font-weight: 600;
+  padding-block-end: var(--space-2xs);
+}
+th,
+td {
+  text-align: start;
+  vertical-align: top;
+  padding: var(--space-2xs) var(--space-xs);
+  border-block-end: 1px solid var(--color-border);
+}
+thead th {
+  border-block-end: 2px solid var(--color-border-strong);
+  font-weight: 650;
+  white-space: nowrap;
+}
+tbody th {
+  font-weight: 600;
+}
+td.num,
+th.num {
+  text-align: end;
+}
+
+details > summary {
+  cursor: pointer;
+}
+
+dt {
+  font-weight: 650;
+}
+dd {
+  margin-inline-start: 0;
+  margin-block-end: var(--space-2xs);
+}
+
+fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-s);
+  margin: 0;
+}
+legend {
+  font-weight: 650;
+  padding-inline: var(--space-3xs);
+}
+
+input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']),
+select,
+textarea {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.45em 0.65em;
+  min-block-size: 2.5rem;
+  max-inline-size: 100%;
+}
+textarea {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+:where(input, select, textarea):user-invalid {
+  border-color: var(--color-danger);
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'],
+progress,
+meter {
+  accent-color: var(--color-accent-strong);
+}
+input[type='checkbox'],
+input[type='radio'] {
+  inline-size: 1.15em;
+  block-size: 1.15em;
+  flex-shrink: 0;
+}
+
+label {
+  cursor: pointer;
+}
+
+/* Windows High Contrast / forced colours: restore affordances that colours alone gave. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+  :not(pre) > code,
+  kbd {
+    border-color: CanvasText;
+  }
+}

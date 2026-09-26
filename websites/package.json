@@ -1,0 +1,34 @@
+{
+  "name": "learn-websites",
+  "private": true,
+  "type": "module",
+  "description": "Five learning websites built from the L/T curriculum files in the repository root.",
+  "workspaces": [
+    "shared",
+    "01-foundations"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "tokens": "node shared/tools/build-tokens.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.20.4",
+    "eslint": "10.11.0",
+    "eslint-plugin-astro": "3.2.1",
+    "globals": "17.12.0",
+    "prettier": "3.9.9",
+    "prettier-plugin-astro": "1.1.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.2"
+  }
+}

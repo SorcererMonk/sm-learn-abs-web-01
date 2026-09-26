@@ -1,0 +1,13 @@
+---
+/** Inline quiz (see lib/render-quiz.ts). */
+import { renderQuiz, type QuizQuestion } from '../lib/render-quiz.ts';
+
+interface Props {
+  id: string;
+  title?: string;
+  questions: QuizQuestion[];
+}
+const { id, title = 'Check yourself', questions } = Astro.props;
+---
+
+<Fragment set:html={renderQuiz(id, questions, title)} />

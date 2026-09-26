@@ -1,0 +1,149 @@
+---
+title: Orientation, Toolchain & Mental Models
+source: L1-coding-html-css.md
+part: 0
+tier: Core
+summary: What HTML and CSS really are, the three trees behind every page, the pipeline from bytes to pixels, how standards ship, and the tools you'll live in.
+anchors:
+  - "HTML answers *what is this?* CSS answers *how should it look and where should it go?* When you make HTML answer the second question (a `<table>` for layout, `<br>` for spacing, `<h3>` because it looks right), both languages get worse."
+  - "CSS is not \"styling\". It is a constraint system with several layout engines inside. Learn the engines and CSS stops being unpredictable."
+checks:
+  - q: "Explain the difference between the DOM, the box tree, and the accessibility tree. Give one element that appears in the DOM but not the box tree, and one pseudo-element in the box tree but not the DOM."
+    a: "The **DOM** is what the HTML parser built: every element, text and comment node. The **box tree** is what CSS generates from the DOM: boxes for rendering, after `display` and generated content are applied. The **accessibility tree** is what assistive technology reads: roles, names, states and values derived from the DOM, ARIA and some CSS.\n\nAn element with `display: none` (or `<head>`, `<script>`) is in the DOM but has no box. `::before`/`::after` with `content`, and `::marker`, produce boxes that are not DOM nodes. Bugs live in the gaps: text visible only via `::before` may or may not be announced; a `display: none` \"skip link\" is invisible to everyone."
+  - q: "Explain what \"Baseline widely available\" means and how you'd decide whether to ship a feature without a fallback."
+    a: "Baseline marks features supported in the current versions of all major engines (Chrome, Edge, Firefox, Safari). *Newly available* means it just reached that state; *widely available* means it has been Baseline for about 30 months, so older-but-supported browsers have it too.\n\nShip without a fallback when a feature is widely available **and** your analytics/browser-support policy agrees. For newly available features, ship with progressive enhancement: the page must still work (maybe less polished) without it, e.g. via `@supports` or declaration repetition."
+  - q: "Read the propdef table for `line-height` on MDN or in the spec, and explain what each row tells you."
+    a: "**Name** `line-height`. **Value** `normal | <number> | <length-percentage>`: the allowed syntax. **Initial** `normal`: the value before any cascade. **Applies to** non-replaced inline boxes and block containers (via the strut). **Inherited** yes: children inherit it. **Percentages** refer to the element's own font size. **Computed value** for a `<number>`, the number itself (so children multiply by *their* font size, which is why unitless line-height is recommended); for a length or percentage, an absolute length (children inherit the fixed px value). **Animation type** by computed value type: it interpolates."
+build: "A \"web-standards lab\" repository: a live-reload dev server, Stylelint and a formatter configured, an HTML-validation script, a page that opens in all three engines, and a `NOTES.md` where every surprising behaviour gets a spec citation."
+steps:
+  - "Create the repo with a `package.json` whose scripts run a static dev server with live reload (e.g. `npx vite`)."
+  - "Add Prettier and Stylelint (`stylelint-config-standard`) and make `npm run lint` pass on an empty page."
+  - "Add `npm run validate` that runs the Nu HTML Checker (`npx vnu-jar` or the web service) on every `.html` file."
+  - "Install Playwright's WebKit and Firefox and write a script that screenshots your page in all three engines."
+  - "Start `NOTES.md`: one entry per surprise, each with a spec or MDN link."
+taste: "Learn the platform, not a framework's dialect of it. Tailwind classes, CSS-in-JS APIs, and component-library props all compile down to the same cascade and the same layout algorithms. The person who knows those outlasts every tool."
+quiz:
+  - q: "The HTML parser meets `<p>Hello <div>world</div></p>`. What happens?"
+    options:
+      - "It throws a syntax error and renders nothing"
+      - "The `<div>` closes the `<p>` early; the final `</p>` creates an extra empty paragraph"
+      - "The `<div>` nests inside the `<p>` exactly as written"
+    answer: 1
+    why: "A `<p>` can only contain phrasing content, so the parser implies `</p>` before the `<div>`. The stray `</p>` then creates an empty `<p></p>`. The parser never fails; it recovers."
+  - q: "Which change can the browser apply in the composite stage alone, without layout or paint?"
+    options: ["`width`", "`color`", "`transform`", "`margin-top`"]
+    answer: 2
+    why: "`transform` (and `opacity`) move or blend an already-painted layer. Geometry properties re-run layout; colour re-runs paint."
+  - q: "Where does \"JavaScript can't read files\" come from?"
+    options: ["The ECMAScript language", "The host environment (the browser)", "The HTML specification"]
+    answer: 1
+    why: "Capabilities come from the host. In Node, JavaScript reads files happily. The same split applies to HTML/CSS: behaviour moves into the platform over time."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import ParserLab from '../../components/demos/ParserLab.astro';
+import TreesLab from '../../components/demos/TreesLab.astro';
+import PipelineStepper from '../../components/demos/PipelineStepper.astro';
+
+## What HTML actually is
+
+HTML is a markup language **whose specification includes its own parser**. The WHATWG HTML Living Standard defines the elements, what they mean, the DOM they produce, and exactly how every malformed document is recovered. That last part is unusual: most languages reject bad input, but HTML has a precise, deterministic recovery for *every* possible byte sequence. "Invalid HTML still renders" is designed behaviour, not luck, and it is why two browsers build the same DOM from the same mess.
+
+The practical consequence: you never get an error for broken markup. You get a *different document* from the one you meant. Paste something broken below and compare.
+
+<ParserLab />
+
+<Try task="Predict the DOM for `<ul><li>One<li>Two</ul>` before typing it into the parser museum. How many `<li>` end tags does the result contain?">
+  Two complete list items. `</li>` is an *optional* end tag: a new `<li>` implies the previous one closed, and `</ul>` closes the last. The serialised output shows `<li>One</li><li>Two</li>`.
+</Try>
+
+## What CSS actually is
+
+CSS is a **declarative, rule-based language for assigning values to properties on boxes**. You never tell it *how* to lay things out step by step. You state constraints ("at least 16rem wide", "share the remaining space", "wrap when you must") and the layout algorithms resolve them. The shift from imperative thinking ("move this 20px left") to constraint thinking ("these items should be spaced evenly, whatever their count") is the first real lesson.
+
+```css
+/* Constraints, not instructions: the browser works out the columns. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+  gap: 1rem;
+}
+```
+
+<Playground
+  id="p0-constraints"
+  title="State constraints, let the algorithm solve them"
+  task="Add three more cards, then change 12rem to 8rem. You never compute a column count: the grid algorithm does."
+  html={`<div class="cards">\n  <article>One</article>\n  <article>Two</article>\n  <article>Three</article>\n</div>`}
+  css={`.cards {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));\n  gap: 1rem;\n}\narticle {\n  padding: 1rem;\n  border: 2px solid #c2410c;\n  border-radius: .75rem;\n}`}
+/>
+
+## The three trees
+
+Keep three trees in your head:
+
+- **The DOM**: what the parser built.
+- **The box tree**: what CSS generates from the DOM. Some elements produce no box (`display: none`, `<head>`), some produce several (a list item and its `::marker`), and pseudo-elements add boxes the DOM never had.
+- **The accessibility tree**: what assistive technology sees: roles, names, states. It is derived from the DOM plus ARIA plus *some* CSS (`display: none` removes nodes; `content` in pseudo-elements can contribute to names).
+
+Almost every "works for me, broken for them" bug lives in the gap between two of these trees.
+
+<TreesLab />
+
+## The pipeline in one line
+
+**bytes → tokens → DOM → style (cascade + computed values) → box tree → layout → paint → composite.** Each arrow is a stage your code can make expensive. Changing geometry re-runs layout and everything after it; changing a colour only repaints; changing `transform` or `opacity` can skip straight to compositing. The browser-engineering detail lives in L18 Part 1; here, learn to ask "which stage does this change hit?"
+
+<PipelineStepper />
+
+## How standards happen
+
+- **WHATWG** writes the living standards for HTML, DOM, Fetch and URL. There are no versions, only the current text.
+- **The W3C CSS Working Group** ships CSS as independent *modules* at *levels* (Selectors 4, Color 5, Cascade 6). There is no "CSS4".
+- **Browser engines** (Blink, WebKit, Gecko) implement, publish standards positions, and run origin trials.
+- **Baseline** says whether a feature works in all major engines (newly vs widely available). **Interop** is the yearly cross-browser project that fixes agreed focus areas: for 2026, anchor positioning, scroll-driven animations, view transitions and more.
+- **caniuse** and MDN's compatibility tables are the day-to-day lookup.
+
+<Try task="Look up `:has()`, `@scope` and customisable `<select>` (appearance: base-select) on MDN. Write down each one's Baseline status and whether you'd ship it today without a fallback.">
+  As of September 2026: `:has()` is Baseline widely available, so ship it (with a thought for huge, fast-mutating DOMs). `@scope` reached Baseline newly available in late 2025, so ship it for enhancements with a fallback strategy for older browsers. Customisable `<select>` is still moving and uneven: ship only as progressive enhancement over a normal `<select>`.
+</Try>
+
+## Your toolchain
+
+A code editor with Emmet, a formatter (Prettier or Biome), **Stylelint**, the **Nu HTML Checker**, all three browser engines (Chrome, Firefox, and Safari or WebKit via Playwright), Firefox's grid and flex inspectors, a screen reader, a local static server with live reload, and Figma or Penpot for exploring designs.
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "lint:css": "stylelint \"**/*.css\"",
+    "format": "prettier --write .",
+    "validate": "vnu --skip-non-html ."
+  }
+}
+```
+
+<Try task="Open this page in Firefox, pick the card grid in the playground above with the inspector, and turn on the grid overlay. Name two things the overlay shows that you couldn't see before.">
+  Line numbers (positive and negative), track sizes, gaps, and area names if any. The overlay turns an invisible algorithm into something you can see and argue about.
+</Try>
+
+## Reading the sources that matter
+
+Read **MDN** first. Read the **CSS specs** for mechanism: they are more readable than their reputation. Learn the property definition ("propdef") table: *initial value, applies to, inherited, percentages, computed value, animation type*. It answers most "why doesn't this work?" questions before you ask them. For HTML, each element's spec entry lists its **content categories**, **content model** and **permitted ARIA**. Supplement with the CSS-Tricks almanac and web.dev's *Learn HTML*, *Learn CSS* and *Learn Design*.
+
+<Try task="Find the propdef table for `z-index`. Which row explains why `z-index` does nothing on a static element?">
+  **Applies to: positioned elements** (plus flex and grid items, per the Positioned Layout and flexbox specs). A static, non-flex, non-grid element isn't in the "applies to" set, so the declaration is valid but inactive.
+</Try>
+
+## Where HTML and CSS end
+
+HTML and CSS describe documents and presentation. Behaviour is JavaScript, data is the server, and design judgement is yours. But every year the platform moves behaviour *into* HTML and CSS: dialogs, popovers, invoker commands, exclusive accordions, carousels, scroll-driven animations, view transitions, anchored tooltips. The modern designer-developer reaches for the declarative version first and adds script only where the platform stops.
+
+<Playground
+  id="p0-declarative"
+  title="Behaviour with zero JavaScript"
+  task="Open the popover and the accordion. Then add a third `<details name=faq>` and notice only one stays open at a time."
+  html={`<button popovertarget="menu">Open menu</button>\n<div id="menu" popover>\n  <p>A popover: top layer, light dismiss, no script.</p>\n</div>\n\n<details name="faq" open>\n  <summary>What is a popover?</summary>\n  <p>An element in the top layer.</p>\n</details>\n<details name="faq">\n  <summary>Do I need JavaScript?</summary>\n  <p>Not for this.</p>\n</details>`}
+  css={`[popover] { padding: 1rem; border-radius: .75rem; }\ndetails { margin-block: .5rem; }\nsummary { cursor: pointer; font-weight: 600; }`}
+/>

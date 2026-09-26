@@ -1,0 +1,66 @@
+/*
+ * Modern reset. Each line names the problem it prevents.
+ * Lives in the lowest layer, so any author style overrides it without specificity games.
+ */
+
+/* Sizes include padding and border: widths mean what they say. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Remove default margins; spacing is applied deliberately by layout primitives (.stack etc.). */
+:where(body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd, ul, ol, pre) {
+  margin: 0;
+}
+
+/* Lists with a class are UI, not prose. `role="list"` in markup keeps Safari announcing them. */
+:where(ul, ol)[class] {
+  list-style: none;
+  padding: 0;
+}
+
+html {
+  /* iOS landscape text inflation off; user zoom still works. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Media never overflows its container and sits on its own line (no baseline gap). */
+:where(img, picture, video, canvas, svg) {
+  display: block;
+  max-inline-size: 100%;
+}
+
+/* Images keep their aspect ratio when max-inline-size shrinks them. */
+:where(img, video) {
+  block-size: auto;
+}
+
+/* Form controls inherit typography instead of the UA's 13px system font. */
+:where(input, button, textarea, select) {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+/* Textareas only resize vertically: horizontal resizing breaks layouts. */
+:where(textarea) {
+  resize: vertical;
+}
+
+/* Long words and URLs wrap instead of causing horizontal scroll. */
+:where(p, li, dd, h1, h2, h3, h4, h5, h6, td, th, figcaption, blockquote) {
+  overflow-wrap: break-word;
+}
+
+/* Anchor targets are not hidden under the sticky header (WCAG 2.4.11). */
+:where(:target) {
+  scroll-margin-block-start: 5rem;
+}
+
+/* `hidden` wins even over display rules set by classes. */
+[hidden]:not([hidden='until-found']) {
+  display: none !important;
+}

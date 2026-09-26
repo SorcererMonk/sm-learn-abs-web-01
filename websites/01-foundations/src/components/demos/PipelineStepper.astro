@@ -1,0 +1,105 @@
+---
+/**
+ * The rendering pipeline, stage by stage, plus "what does changing this property cost?":
+ * pick a property and see which stages re-run (layout → paint → composite).
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+interface Props {
+  title?: string;
+}
+const { title = 'Bytes to pixels: the rendering pipeline' } = Astro.props;
+
+const stages = [
+  ['Bytes', 'The HTML arrives over the network, often streamed in chunks.'],
+  ['Tokens', 'The tokeniser turns characters into start tags, end tags, text and comments.'],
+  ['DOM', 'Tree construction builds nodes, recovering from any error (implied end tags, foster parenting).'],
+  ['Style', 'The cascade picks a winning value for every property of every element: computed values.'],
+  ['Box tree', 'CSS generates boxes: display:none makes none, ::before adds one, display:contents drops its own.'],
+  ['Layout', 'Flow, flex, grid and positioning algorithms resolve sizes and positions (used values).'],
+  ['Paint', 'Boxes become drawing commands: backgrounds, borders, text, shadows, in stacking order.'],
+  ['Composite', 'Painted layers are combined, often on the GPU; transform and opacity can change here alone.'],
+];
+const properties = [
+  ['width', 'Layout', 'Geometry changes, so everything after layout re-runs.'],
+  ['margin-top', 'Layout', 'Moves boxes: layout, paint and composite.'],
+  ['font-size', 'Layout', 'Text metrics change, so line boxes and everything around them re-layout.'],
+  ['display', 'Box tree', 'Changes which boxes exist at all: box tree, layout, paint, composite.'],
+  ['color', 'Paint', 'No geometry change: repaint and composite only.'],
+  ['background-color', 'Paint', 'Repaint the box, then composite.'],
+  ['box-shadow', 'Paint', 'Paint-only, but large blurs are expensive to paint every frame.'],
+  ['transform', 'Composite', 'Moves an already painted layer: can run on the compositor thread.'],
+  ['opacity', 'Composite', 'Blends an existing layer: compositor-only, the cheapest thing to animate.'],
+];
+---
+
+<Demo title={title}>
+  <div class="pipeline stack" data-pipeline>
+    <ol class="pipeline__stages" role="list">
+      {
+        stages.map(([name, text], i) => (
+          <li class="pipeline__stage" data-stage={name}>
+            <span class="pipeline__index" aria-hidden="true">{i + 1}</span>
+            <strong>{name}</strong>
+            <span class="muted">{text}</span>
+          </li>
+        ))
+      }
+    </ol>
+    <label class="control" for="pipeline-prop">
+      <span>If this property changes on an element…</span>
+      <select id="pipeline-prop" data-pipeline-prop>
+        {properties.map(([p, stage, why]) => <option value={p} data-stage={stage} data-why={why}>{p}</option>)}
+      </select>
+    </label>
+    <p class="result-line" aria-live="polite" data-pipeline-out>Choose a property.</p>
+  </div>
+</Demo>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-pipeline]').forEach((root) => {
+    const select = root.querySelector<HTMLSelectElement>('[data-pipeline-prop]');
+    const out = root.querySelector<HTMLElement>('[data-pipeline-out]');
+    const stages = [...root.querySelectorAll<HTMLElement>('[data-stage]')].filter((el) => el.tagName === 'LI');
+    const render = (): void => {
+      const option = select?.selectedOptions[0];
+      const from = stages.findIndex((s) => s.dataset.stage === option?.dataset.stage);
+      stages.forEach((s, i) => s.toggleAttribute('data-rerun', from >= 0 && i >= from));
+      if (out && option)
+        out.textContent = `${option.value}: re-runs ${stages.slice(from).map((s) => s.dataset.stage).join(' → ')}. ${option.dataset.why}`;
+    };
+    select?.addEventListener('change', render);
+    render();
+  });
+</script>
+
+<style>
+  .pipeline__stages {
+    display: grid;
+    gap: var(--space-2xs);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+  }
+  .pipeline__stage {
+    display: grid;
+    gap: var(--space-3xs);
+    padding: var(--space-xs);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    font-size: var(--step-n1);
+  }
+  .pipeline__stage[data-rerun] {
+    border-color: var(--color-accent-strong);
+    background: var(--color-accent-subtle);
+  }
+  .pipeline__index {
+    font-family: var(--font-display);
+    font-size: var(--step-2);
+    line-height: 1;
+    color: var(--color-accent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .pipeline__stage {
+      transition: background-color var(--duration-base) var(--ease-standard);
+    }
+  }
+</style>

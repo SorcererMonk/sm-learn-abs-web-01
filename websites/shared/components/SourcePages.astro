@@ -1,0 +1,46 @@
+---
+/**
+ * One page that materialises a non-PART section ("Capstone Projects", "Resource Library",
+ * "Suggested Learning Order") for every learning source of the site.
+ */
+import BaseLayout from './BaseLayout.astro';
+import SourceSection from './SourceSection.astro';
+import { repoPath } from '../lib/content.ts';
+import { parseCurriculum } from '../lib/md-source.ts';
+import { readFileSync } from 'node:fs';
+import type { SiteConfig } from '../lib/site.ts';
+
+interface Props {
+  site: SiteConfig;
+  section: string;
+  title: string;
+  kicker: string;
+  lede: string;
+  trackable?: boolean;
+}
+const { site, section, title, kicker, lede, trackable = false } = Astro.props;
+const sources = site.sources.filter((s) =>
+  parseCurriculum(readFileSync(repoPath(s.file), 'utf8'), s.file).sections.some((x) => x.title === section),
+);
+---
+
+<BaseLayout site={site} title={title}>
+  <div class="page-grid" style="--page-row-gap: var(--space-l)">
+    <header class="lesson-hero stack">
+      <p class="kicker">{kicker}</p>
+      <h1>{title}</h1>
+      <p class="lede">{lede}</p>
+    </header>
+    <slot />
+    {
+      sources.map((s) => (
+        <section class="stack" id={s.file.replace(/\.md$/, '')} aria-labelledby={`${s.file}-h`}>
+          <h2 id={`${s.file}-h`}>
+            {s.label} <span class="muted">· {section}</span>
+          </h2>
+          <SourceSection path={repoPath(s.file)} file={s.file} section={section} trackable={trackable} />
+        </section>
+      ))
+    }
+  </div>
+</BaseLayout>

@@ -1,0 +1,24 @@
+---
+/** Renders one non-PART section of a learning file (capstones, resources, learning order). */
+import { readFileSync } from 'node:fs';
+import { parseCurriculum } from '../lib/md-source.ts';
+import { renderBlocks } from '../lib/render-md.ts';
+
+interface Props {
+  path: string;
+  file: string;
+  /** Section title as it appears in the source, e.g. "Capstone Projects". */
+  section: string;
+  /** Make list items trackable checkboxes. */
+  trackable?: boolean;
+}
+const { path, file, section, trackable = false } = Astro.props;
+const found = parseCurriculum(readFileSync(path, 'utf8'), file).sections.find((s) => s.title === section);
+if (!found) throw new Error(`Section "${section}" not found in ${file}`);
+const html = renderBlocks(found.blocks, section, {
+  headingBase: 1,
+  ...(trackable ? { progressKey: `${file}:${section}`, mode: 'checklist' as const } : {}),
+});
+---
+
+<div class="prose source-section" set:html={html} />
