@@ -1,0 +1,226 @@
+---
+/**
+ * Hostile content harness: feed one profile card the content its mock-up never showed (long
+ * names and URLs, no avatar, huge counts, German, Arabic, 200% text) and toggle the defensive
+ * CSS that makes it survive.
+ */
+import Demo from '@learn/shared/components/Demo.astro';
+
+const toggles = [
+  ['name', 'Very long name'],
+  ['url', 'Unbroken URL'],
+  ['noimg', 'Missing avatar'],
+  ['count', '1,000,000 followers'],
+  ['de', 'German labels (+35%)'],
+  ['rtl', 'Arabic, right-to-left'],
+  ['big', '200% text'],
+  ['empty', 'Empty bio'],
+];
+---
+
+<Demo title="Hostile content: the card the mock-up never showed">
+  <div class="stack" data-hostile>
+    <fieldset class="hc-toggles">
+      <legend>Content</legend>
+      {toggles.map(([v, label]) => (
+        <label>
+          <input type="checkbox" value={v} /> {label}
+        </label>
+      ))}
+    </fieldset>
+    <label class="hc-defend">
+      <input type="checkbox" data-hc-defend checked /> Defensive CSS on
+    </label>
+    <div class="hc-stage" data-hc-stage data-defend="true">
+      <article class="hc-card" data-hc-card lang="en" dir="ltr">
+        <div class="hc-avatar" data-hc-avatar role="img" aria-label="Avatar"></div>
+        <div class="hc-body">
+          <h4 class="hc-name" data-hc-name>
+            Asha Rao
+          </h4>
+          <p class="hc-link" data-hc-url>
+            asha.design
+          </p>
+          <p class="hc-bio" data-hc-bio>
+            Designs type systems.
+          </p>
+        </div>
+        <div class="hc-actions">
+          <span class="hc-count" data-hc-count>
+            1,204
+          </span>
+          <span class="hc-button" data-hc-button>
+            Follow
+          </span>
+        </div>
+      </article>
+    </div>
+  </div>
+  <p slot="note">
+    Turn on every content toggle, then switch defensive CSS off: text overflows, the avatar
+    collapses, the button squashes and RTL mirrors wrongly. Each fix is one declaration:
+    <code>min-inline-size: 0</code>, <code>overflow-wrap: anywhere</code>,
+    <code>flex-wrap: wrap</code>, <code>flex: none</code>, logical properties, <code>:empty</code>.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '@learn/shared/client/controls.ts';
+
+  const content = {
+    name: ['Asha Rao', 'Anastasiya Konstantinovna Vasilyeva-Montgomery'],
+    url: ['asha.design', 'https://asha.design/portfolio/2026/case-studies/the-extremely-long-slug'],
+    count: ['1,204', '1,000,000'],
+    button: { en: 'Follow', de: 'Abonnieren und folgen', ar: 'متابعة' },
+    bio: { en: 'Designs type systems.', de: 'Entwirft Schriftsysteme.', ar: 'تصمم أنظمة الخطوط.' },
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-hostile]').forEach((root) => {
+    const stage = need<HTMLElement>(root, '[data-hc-stage]');
+    const card = need<HTMLElement>(root, '[data-hc-card]');
+    const render = (): void => {
+      const on = new Set(
+        [...root.querySelectorAll<HTMLInputElement>('.hc-toggles input:checked')].map(
+          (i) => i.value,
+        ),
+      );
+      const lang = on.has('rtl') ? 'ar' : on.has('de') ? 'de' : 'en';
+      card.lang = lang;
+      card.dir = on.has('rtl') ? 'rtl' : 'ltr';
+      need<HTMLElement>(root, '[data-hc-name]').textContent =
+        content.name[Number(on.has('name'))] ?? '';
+      need<HTMLElement>(root, '[data-hc-url]').textContent =
+        content.url[Number(on.has('url'))] ?? '';
+      need<HTMLElement>(root, '[data-hc-count]').textContent =
+        content.count[Number(on.has('count'))] ?? '';
+      need<HTMLElement>(root, '[data-hc-button]').textContent = content.button[lang];
+      need<HTMLElement>(root, '[data-hc-bio]').textContent = on.has('empty')
+        ? ''
+        : content.bio[lang];
+      need<HTMLElement>(root, '[data-hc-avatar]').dataset.missing = String(on.has('noimg'));
+      stage.style.fontSize = on.has('big') ? '200%' : '';
+      stage.dataset.defend = String(need<HTMLInputElement>(root, '[data-hc-defend]').checked);
+    };
+    root.addEventListener('change', render);
+    render();
+  });
+</script>
+
+<style>
+  .hc-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-m);
+    border: 0;
+    padding: 0;
+  }
+  .hc-toggles legend {
+    font-weight: 600;
+  }
+  .hc-toggles label,
+  .hc-defend {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .hc-defend {
+    font-weight: 600;
+  }
+  .hc-stage {
+    inline-size: min(100%, 26rem);
+    padding: var(--space-s);
+    background: var(--color-surface-2);
+    border-radius: var(--radius-md);
+    /* the undefended card overflows: keep that inside the demo instead of the page */
+    overflow: auto;
+  }
+  /* The naive card: exactly what the mock-up needed, nothing more */
+  .hc-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #fff;
+    color: #1d1a19;
+    border-radius: 12px;
+    border-left: 4px solid #c2410c;
+    height: 88px;
+  }
+  .hc-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #fdba74, #c2410c);
+  }
+  .hc-avatar[data-missing='true'] {
+    background: none;
+  }
+  .hc-name {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .hc-link,
+  .hc-bio {
+    margin: 0;
+    font-size: 0.85em;
+    color: #57534e;
+  }
+  .hc-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .hc-button {
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: #1d1a19;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .hc-count {
+    font-weight: 700;
+  }
+
+  /* Defensive CSS: each line answers "and what if…?" */
+  [data-defend='true'] .hc-card {
+    height: auto; /* text can grow */
+    min-block-size: 88px;
+    flex-wrap: wrap; /* actions drop below when there's no room */
+    border-left: 0;
+    border-inline-start: 4px solid #c2410c; /* mirrors in RTL */
+  }
+  [data-defend='true'] .hc-avatar {
+    flex: none; /* never squashed */
+    background-color: #e7e5e4; /* visible even without an image */
+  }
+  [data-defend='true'] .hc-body {
+    flex: 1 1 10rem;
+    min-inline-size: 0; /* allow shrinking below content size */
+  }
+  [data-defend='true'] .hc-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  [data-defend='true'] .hc-link {
+    overflow-wrap: anywhere;
+  }
+  [data-defend='true'] .hc-bio:empty {
+    display: none; /* no gap for missing content */
+  }
+  [data-defend='true'] .hc-actions {
+    margin-left: 0;
+    margin-inline-start: auto;
+    flex-wrap: wrap;
+    font-variant-numeric: tabular-nums;
+  }
+  [data-defend='true'] .hc-button {
+    white-space: normal;
+    text-align: center;
+  }
+  @media (forced-colors: active) {
+    .hc-card {
+      forced-color-adjust: none;
+    }
+  }
+</style>

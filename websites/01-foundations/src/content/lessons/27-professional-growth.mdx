@@ -1,0 +1,110 @@
+---
+title: Professional Growth
+source: L1-coding-html-css.md
+part: 27
+tier: Lifelong
+summary: Investing by timescale, participating in the platform, portfolio evidence that carries weight, career shapes for designer-developers, interviews, collaboration, and staying current without churn.
+anchors:
+  - "Invest in proportion to how long knowledge lasts: HTML semantics and the cascade compound over decades; frameworks and aesthetic trends rotate in years and seasons."
+  - "The strongest evidence of skill is a thing people can use: a fast, accessible, original site, a documented component library, or a bug you got fixed in a browser."
+checks:
+  - q: "Sort ten things you learned last year by the timescale over which they stay valuable, and decide where next year's learning time goes."
+    a: "Decades: semantic HTML, the cascade and specificity, accessibility fundamentals, layout algorithms, typography and colour principles. Career: flex/grid internals, performance mental models, design-system thinking. Years: specific frameworks (React patterns, Tailwind versions), build tools. Seasons: aesthetic trends, a particular animation library's API. A healthy split puts most time in the first two rows, with just enough in the last two to ship."
+  - q: "Write a reduced test case for a browser bug and draft the report."
+    a: "Strip the page down until only the elements and rules needed to reproduce remain (often under 20 lines of HTML and CSS), confirm it fails in one engine and works in others, and write: summary (one line), steps, expected vs actual (with screenshots), the minimal file attached or on a live URL, browser versions and OS, and a link to the spec section. File it at crbug.com, bugs.webkit.org or bugzilla.mozilla.org, and search for duplicates first."
+  - q: "Turn one project into a case study that shows process, not just the result."
+    a: "Structure: the problem (who, what hurt, a number), constraints (time, tech, brand, accessibility), explorations (2–3 directions with sketches and why they were rejected), the decision (what and why, trade-offs named), and the result with numbers (conversion, LCP, CLS, accessibility issues fixed, support tickets). Include one detail that shows craft (a focus style, a motion token, an edge case handled)."
+build: "A professional portfolio that is itself the proof: a personal site (fast, accessible, original), three process-driven case studies, a small documented component library, one accessibility audit with fixes, and one public contribution (a browser bug report, an MDN edit or an open-source PR)."
+steps:
+  - "Build the personal site with the techniques from this course; hit Lighthouse 95+ and zero axe violations."
+  - "Write three case studies in the problem → constraints → explorations → decision → result format."
+  - "Publish a tiny component library with docs and live examples."
+  - "Audit a real site's accessibility, write it up, and propose fixes."
+  - "Make one public contribution and link it."
+taste: "Let your work do the talking: a small number of excellent, well-explained things beats a long list of logos."
+quiz:
+  - q: "What makes a browser bug report most likely to be fixed?"
+    options: ["A long description", "A minimal reduced test case with expected vs actual behaviour", "Tagging many people"]
+    answer: 1
+    why: "Engineers fix what they can reproduce in seconds."
+  - q: "What is the most convincing portfolio piece for a design engineer?"
+    options: ["A list of technologies", "A case study showing the process and measurable results", "A screenshot gallery"]
+    answer: 1
+    why: "Hiring teams look for judgement: problem, constraints, decisions and outcomes."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## Separate the timescales
+
+HTML semantics and the cascade **compound over decades**; layout algorithms and design fundamentals over a **career**; CSS features arrive **yearly** (and become permanent once shipped); frameworks and methodologies rotate every **few years**; aesthetic trends every **season**. Invest in that proportion.
+
+<Playground
+  id="p27-timescales"
+  title="Sort your learning by how long it lasts"
+  task="Drag isn't needed: press Sort to see where each skill belongs, then add three things you learned this year and place them."
+  html={`<ul id="skills">\n  <li data-t="decades">Semantic HTML</li><li data-t="seasons">Glassmorphism</li><li data-t="decades">The cascade</li>\n  <li data-t="years">A framework's routing API</li><li data-t="career">Grid and flex algorithms</li><li data-t="yearly">Anchor positioning</li>\n  <li data-t="career">Typography principles</li><li data-t="years">A CSS-in-JS library</li><li data-t="decades">Accessibility</li>\n</ul>\n<button id="sort">Sort by timescale</button>\n<div id="out" class="cols"></div>`}
+  css={`#skills { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; }\n#skills li { padding: .25rem .6rem; border-radius: 99px; background: #f4f1ee; }\n.cols { display: grid; grid-template-columns: repeat(5, 1fr); gap: .5rem; margin-top: 1rem; font-size: .85rem; }\n.cols h4 { margin: 0 0 .25rem; font-size: .8rem; }\n.cols section { background: #fff4ed; padding: .5rem; border-radius: .5rem; }`}
+  js={`const order = ['decades', 'career', 'yearly', 'years', 'seasons'];\ndocument.getElementById('sort').onclick = () => {\n  const items = [...document.querySelectorAll('#skills li')];\n  document.getElementById('out').innerHTML = order.map((t) => '<section><h4>' + t + '</h4>' + items.filter((i) => i.dataset.t === t).map((i) => '<div>' + i.textContent + '</div>').join('') + '</section>').join('');\n};`}
+/>
+
+## Participation
+
+**File browser bugs** with reduced test cases (engines fix well-reported bugs), **comment on CSSWG issues** (the working group reads them), **contribute to MDN**, write up techniques with demos, and give talks about something you built.
+
+<Playground
+  id="p27-reduced"
+  title="Reduce a bug to its essence"
+  task="This 'bug report' has 20 irrelevant lines. Delete everything that isn't needed to show the problem (a sticky header not sticking) until only the cause remains."
+  html={`<div class="app">\n  <nav class="side">Sidebar</nav>\n  <div class="wrap">\n    <header class="sticky">Sticky header</header>\n    <main>${'<p>Content line to scroll past.</p>'.repeat(12)}</main>\n  </div>\n</div>`}
+  css={`body { font: 14px system-ui; }\n.app { display: flex; height: 16rem; }\n.side { width: 8rem; background: #f4f1ee; }\n.wrap { flex: 1; overflow: hidden; overflow-y: auto; }\n.sticky { position: sticky; top: 0; background: #1d1a19; color: white; padding: .5rem; }\n.wrap { border: 1px solid #ddd; }\nmain p { margin: .75rem; }`}
+  solution={{ html: `<div class="scroller">\n  <div class="clip">\n    <header class="sticky">Sticky header</header>\n    <p>1</p><p>2</p><p>3</p><p>4</p><p>5</p><p>6</p><p>7</p><p>8</p>\n  </div>\n</div>`, css: `/* Reduced: sticky fails because .clip has overflow: hidden, so it becomes the scroll container */\n.scroller { height: 8rem; overflow: auto; }\n.clip { overflow: hidden; }\n.sticky { position: sticky; top: 0; background: black; color: white; }` }}
+/>
+
+## Portfolio evidence that carries weight
+
+A **personal site that is itself the proof** (fast, accessible, beautiful, original); **case studies showing process** (problem → constraints → explorations → decision → result, with numbers); a **design system or component library with docs**; recreations and experiments (a CodePen collection with craft); an **accessibility audit and fix**; and **open-source contributions**.
+
+<Try task="Draft the outline of one case study from your own work in the problem → constraints → explorations → decision → result format, with at least two numbers.">
+  "Problem: 38% of mobile users abandoned checkout at the address step. Constraints: two weeks, existing React app, WCAG 2.2 AA, no backend changes. Explorations: (a) a multi-step wizard, (b) a single page with autofill, (c) address lookup; (c) rejected because of API cost. Decision: single page with correct autocomplete tokens, inline validation with :user-invalid, and an error summary. Result: abandonment fell to 24%, completion time from 94 s to 51 s, zero axe violations." Add one screenshot of the before and after, and one detail of craft.
+</Try>
+
+## Career shapes
+
+**Frontend engineer**, **design engineer / UX engineer** (Vercel, Linear, Stripe, Apple, Google-style roles), design-systems engineer, **creative developer** (agencies, award-winning marketing sites, WebGL), **accessibility specialist**, email developer, UI/product designer who codes, **developer advocate** for the web platform, and freelancer or studio owner (where the full-stack HTML/CSS/backend breadth of this course is a business advantage).
+
+<Try task="Pick two career shapes from the list. For each, write the three skills from this course it leans on most and one skill you'd still need to build.">
+  Design engineer: design fundamentals (Part 18), motion (Parts 16–17), component APIs and tokens (Part 19); still needed, perhaps React or Swift depending on the company. Accessibility specialist: accessible markup (Part 7), forms (Part 3), testing (Parts 7 and 24); still needed, WCAG conformance auditing and legal context (L18 Part 6). Freelancer: server-rendered HTML (Part 22), performance (Part 21), taste (Part 26); still needed, sales and project scoping.
+</Try>
+
+## Interviews
+
+Build a component live (a **modal, tabs, a responsive card grid**) with accessibility and edge cases; explain **the cascade, specificity, stacking contexts, and the flex and grid algorithms**; **debug a broken layout**; critique a design; talk through a portfolio piece's decisions; and hold design-system and architecture discussions.
+
+<Playground
+  id="p27-interview"
+  title="Interview drill: an accessible modal in ten minutes"
+  task="Finish the modal: it must trap focus (showModal does), close on Escape and via a Close button, return focus to the trigger, and label itself. Talk through each decision out loud as you would in an interview."
+  forms
+  html={`<button id="open">Delete account…</button>\n<dialog id="d">\n  <!-- your markup: a heading, text, and two buttons -->\n</dialog>`}
+  css={`dialog { border: 0; border-radius: .75rem; padding: 1.25rem; max-width: 22rem; }\ndialog::backdrop { background: rgb(0 0 0 / .4); }`}
+  js={`document.getElementById('open').onclick = () => document.getElementById('d').showModal();`}
+  solution={{ html: `<button id="open">Delete account…</button>\n<dialog id="d" aria-labelledby="d-title">\n  <h2 id="d-title">Delete your account?</h2>\n  <p>This removes your projects for good.</p>\n  <form method="dialog">\n    <button value="cancel">Cancel</button>\n    <button value="delete">Delete account</button>\n  </form>\n</dialog>` }}
+/>
+
+## Collaboration
+
+With **designers**: speak Figma, push back with prototypes, not opinions. With **backend engineers**: HTML contracts, forms, APIs. With **content writers**: real content early. With **accessibility and legal teams**: involve them before launch, not after.
+
+<Try task="A designer hands you a card with a fixed 280px height and three lines of title. Write the message you'd send, including a prototype link, that pushes back without an opinion war.">
+  "I built the card with real titles from our CMS (link). About 15% of titles wrap to four lines in German and get cut off at 280px. Two options in the prototype: (a) min-height 280px so cards grow, with subgrid keeping rows aligned; (b) clamp titles to three lines with the full title in the link's accessible name. (a) keeps all content visible; (b) keeps the grid rigid. Which matters more for this page?" A prototype plus a question moves the decision to the right person.
+</Try>
+
+## Staying current without churn
+
+Follow the platform (release notes, **Baseline**, **Interop**), try new features **in demos before production**, adopt them **with fallbacks** when they reach "newly available", and keep one **"platform-only" project** where you test everything without a framework. (This site is one.)
+
+<Try task="Pick one feature from this course marked [Frontier]. Build a 30-line demo, write its Baseline status and fallback, and decide whether you'd ship it today.">
+  E.g. customisable `<select>`: the demo uses `appearance: base-select` inside `@supports`, and the fallback is the native select, fully functional. Baseline: not yet in all engines at the time of writing (check the current status). Ship it today? Yes, because the fallback is the normal select: progressive enhancement means frontier CSS can ship early when failure is harmless.
+</Try>

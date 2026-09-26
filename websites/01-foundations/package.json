@@ -12,7 +12,8 @@
     "check": "astro check",
     "coverage": "node ../shared/tools/coverage.ts --site 01-foundations",
     "test:e2e": "playwright test",
-    "guestbook": "node --no-warnings=ExperimentalWarning examples/guestbook/server.ts"
+    "guestbook": "node --no-warnings=ExperimentalWarning examples/guestbook/server.ts",
+    "test": "cd .. && vitest run 01-foundations shared"
   },
   "dependencies": {
     "@astrojs/mdx": "8.0.2",

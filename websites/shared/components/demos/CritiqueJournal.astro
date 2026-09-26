@@ -1,0 +1,164 @@
+---
+/**
+ * The daily design-critique journal from the taste exercises: one screen, three sentences
+ * (goal, what works, what doesn't), a principle tag, saved in this browser and exportable as
+ * Markdown. Saving needs JavaScript; without it the three prompts still work as a template.
+ */
+import Demo from '../Demo.astro';
+
+const principles = [
+  'Hierarchy',
+  'Spacing / proximity',
+  'Typography',
+  'Colour',
+  'Alignment',
+  'Motion',
+  'Copy',
+  'Accessibility',
+  'Consistency',
+];
+---
+
+<Demo title="Critique journal: one screen a day, three sentences">
+  <div class="stack" data-journal>
+    <form class="cj-form stack stack-sm" data-cj-form>
+      <div class="switcher" style="--switcher-threshold: 34rem">
+        <label class="control" for="cj-screen">
+          <span>Screen or site</span>
+          <input id="cj-screen" name="screen" required placeholder="e.g. Linear's issue view" />
+        </label>
+        <label class="control" for="cj-principle">
+          <span>Main principle</span>
+          <select id="cj-principle" name="principle">
+            {principles.map((p) => (
+              <option>{p}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label class="control" for="cj-goal">
+        <span>1. What is this screen trying to achieve?</span>
+        <textarea id="cj-goal" name="goal" rows="2" required></textarea>
+      </label>
+      <label class="control" for="cj-works">
+        <span>2. What works, and which principle explains it?</span>
+        <textarea id="cj-works" name="works" rows="2" required></textarea>
+      </label>
+      <label class="control" for="cj-fails">
+        <span>3. What doesn't, and what would you change first?</span>
+        <textarea id="cj-fails" name="fails" rows="2" required></textarea>
+      </label>
+      <div class="cluster">
+        <button class="btn">Save entry</button>
+        <button type="button" class="btn btn--ghost" data-cj-export hidden>
+          Export as Markdown
+        </button>
+        <span role="status" class="muted" data-cj-status></span>
+      </div>
+    </form>
+    <ol class="cj-entries" role="list" data-cj-list></ol>
+  </div>
+  <p slot="note">
+    Entries stay in this browser only (nothing is sent anywhere). After a month, read them back: the
+    principles you keep naming are your taste forming.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '../../client/controls.ts';
+  import { read, write } from '../../client/store.ts';
+
+  interface Entry {
+    date: string;
+    screen: string;
+    principle: string;
+    goal: string;
+    works: string;
+    fails: string;
+  }
+  const KEY = 'critique-journal';
+
+  document.querySelectorAll<HTMLElement>('[data-journal]').forEach((root) => {
+    const form = need<HTMLFormElement>(root, '[data-cj-form]');
+    const list = need<HTMLOListElement>(root, '[data-cj-list]');
+    const status = need<HTMLElement>(root, '[data-cj-status]');
+    const exportButton = need<HTMLButtonElement>(root, '[data-cj-export]');
+
+    const render = (): void => {
+      const entries = read<Entry[]>(KEY, []);
+      exportButton.hidden = entries.length === 0;
+      list.replaceChildren(
+        ...entries
+          .slice()
+          .reverse()
+          .map((e) => {
+            const li = document.createElement('li');
+            li.className = 'cj-entry';
+            const h = document.createElement('p');
+            const strong = document.createElement('strong');
+            strong.textContent = e.screen;
+            h.append(strong, ` · ${e.principle} · ${e.date}`);
+            const body = document.createElement('p');
+            body.textContent = `${e.goal} ${e.works} ${e.fails}`;
+            li.append(h, body);
+            return li;
+          }),
+      );
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(form)) as Record<string, string>;
+      const entries = read<Entry[]>(KEY, []);
+      entries.push({
+        date: new Date().toISOString().slice(0, 10),
+        screen: data.screen ?? '',
+        principle: data.principle ?? '',
+        goal: data.goal ?? '',
+        works: data.works ?? '',
+        fails: data.fails ?? '',
+      });
+      write(KEY, entries);
+      form.reset();
+      status.textContent = `Saved. ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} so far.`;
+      render();
+    });
+
+    exportButton.addEventListener('click', () => {
+      const md = read<Entry[]>(KEY, [])
+        .map(
+          (e) =>
+            `## ${e.date} · ${e.screen} (${e.principle})\n\n- Goal: ${e.goal}\n- Works: ${e.works}\n- Doesn't: ${e.fails}\n`,
+        )
+        .join('\n');
+      const url = URL.createObjectURL(
+        new Blob([`# Critique journal\n\n${md}`], { type: 'text/markdown' }),
+      );
+      const a = Object.assign(document.createElement('a'), {
+        href: url,
+        download: 'critique-journal.md',
+      });
+      a.click();
+      URL.revokeObjectURL(url);
+      status.textContent = 'Exported critique-journal.md';
+    });
+
+    render();
+  });
+</script>
+
+<style>
+  .cj-entries {
+    display: grid;
+    gap: var(--space-xs);
+  }
+  .cj-entries :global(.cj-entry) {
+    padding: var(--space-xs) var(--space-s);
+    border-inline-start: 3px solid var(--color-accent);
+    background: var(--color-surface-2);
+    border-radius: var(--radius-sm);
+  }
+  .cj-entries :global(.cj-entry p) {
+    margin: 0;
+  }
+</style>

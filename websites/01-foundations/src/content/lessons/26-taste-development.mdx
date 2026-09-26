@@ -1,0 +1,94 @@
+---
+title: Taste Development
+source: L1-coding-html-css.md
+part: 26
+tier: Deep → Lifelong
+summary: What good HTML and CSS looks like, the people and sources worth following, deliberate exercises (copywork, constraint studies, unstyled reviews, resize-and-break, a critique journal, a swipe file), and the anti-taste list.
+anchors:
+  - "Good work is recognisable before it's styled: semantic HTML that reads well with CSS off, a cascade you can predict by reading, and layouts that survive content, language and zoom."
+  - "Taste is trained, not declared: copy masters deliberately, write down why things work, and let your style emerge from what you consistently keep and remove."
+checks:
+  - q: "Turn CSS off on a page you built. Does it still read well, top to bottom? List what breaks."
+    a: "With styles off you see the document the way screen readers, reader modes and search engines do. Common breaks: navigation that's a wall of links with no list structure, headings chosen for size (an h4 above an h2), buttons made of divs with no text, content order that only made sense in a grid, and decorative images with alt text that repeats nearby words. Each is a markup fix, not a CSS fix."
+  - q: "Pick one site you admire and describe its tokens, layers, layout primitives and motion easings after reading its CSS in DevTools."
+    a: "A good write-up names concrete values: \"a 4px spacing base with steps 4/8/12/16/24/32/48; two families (a grotesque for UI, a serif for headlines) and six sizes; colours as custom properties with a light-dark() switch; cascade layers for reset/base/components; grid page layout with named lines; all transitions 150–250ms on cubic-bezier(0.2, 0, 0, 1), transform/opacity only\". Then one sentence on why the restraint works."
+  - q: "Name five items from the anti-taste list you've done yourself, and what you'd do instead now."
+    a: "For example: `!important` to win a fight (use layers or lower the other rule's specificity); a fixed height on a card (use min-block-size and let content decide); removing focus outlines (design a visible :focus-visible ring); `transition: all` (list the properties); lorem ipsum in a design review (write real, awkward content). The honest list is the point: taste grows from noticing your own habits."
+build: "A month of deliberate practice: four copywork recreations (one a week), four constraint studies, a daily critique-journal entry, a weekly new-CSS-feature demo with its Baseline status, and a swipe file of 40 annotated references, reviewed at the end of the month."
+steps:
+  - "Week 1–4: recreate one excellent interface a week from a screenshot, then compare with its real CSS."
+  - "Build one page four ways: one size and weight, greyscale only, no borders, no JavaScript."
+  - "Write one critique-journal entry a day (the journal on this page saves them locally)."
+  - "Try one new CSS feature a week in a demo; write down its Baseline status and fallback."
+  - "Keep a swipe file with a note on *why* for every item; review it at month end."
+taste: "Taste is the accumulation of small, deliberate choices, made visible. Keep the list of things you'll never ship again, and keep adding to it."
+quiz:
+  - q: "What is \"copywork\" as a design exercise?"
+    options: ["Copying code from a site", "Recreating an excellent interface from a screenshot without viewing its source, then comparing", "Writing marketing copy"]
+    answer: 1
+    why: "The painters' method: rebuilding trains your eye for spacing, type and colour."
+  - q: "Which is on the anti-taste list?"
+    options: ["`:focus-visible` styles", "`transition: all`", "Logical properties"]
+    answer: 1
+    why: "It animates things you didn't intend and costs performance."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import CritiqueJournal from '@learn/shared/components/demos/CritiqueJournal.astro';
+
+## What good looks like
+
+Semantic HTML that **reads well unstyled**; a small, explicit cascade (layers, low specificity, tokens); layouts that respond to their space and **survive any content, language or zoom level**; typography with restraint and generous spacing; colour defined perceptually and used sparingly; motion that is fast, meaningful and optional; **native elements styled beautifully** instead of divs rebuilt badly; components whose every state is designed; pages that are fast on a mid-range phone and **work without JavaScript**; and a visual voice that is recognisably yours without being loud.
+
+<Playground
+  id="p26-unstyled"
+  title="The unstyled review: turn the CSS off"
+  task="Press Remove all CSS. The first card still reads as a heading, a price, a list and a real button; the second collapses into anonymous text. Fix the second card's markup so it survives too."
+  html={`<button id="off">Remove all CSS</button>\n<div class="pair">\n  <article class="card"><h3>Pro plan</h3><p><data value="499">₹499</data> a month</p><ul><li>Unlimited projects</li><li>Priority support</li></ul><button>Choose Pro</button></article>\n  <div class="card"><div class="t">Team plan</div><div>₹1,999 a month</div><div>Everything in Pro</div><div>SSO</div><div class="b" onclick="">Choose Team</div></div>\n</div>`}
+  css={`.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }\n.card { padding: 1rem; border-radius: 1rem; background: #fff4ed; }\n.card h3, .t { font: 700 1.2rem system-ui; margin: 0 0 .5rem; }\n.card button, .b { display: inline-block; margin-top: .5rem; padding: .5rem .9rem; border: 0; border-radius: .5rem; background: #1d1a19; color: white; font: 600 1rem system-ui; }\n.card ul { padding-left: 1.1rem; }`}
+  js={`document.getElementById('off').onclick = () => { document.querySelectorAll('style').forEach((s) => s.remove()); console.log('All CSS removed: this is what screen readers, reader modes and search engines get'); };`}
+/>
+
+## Sources worth following
+
+**Specs and platform**: MDN, the CSS Working Group drafts, the WHATWG HTML spec, web.dev (*Learn HTML*, *Learn CSS*, *Learn Design*, *Learn Accessibility*), Chrome, WebKit and Firefox release notes, Baseline and Interop dashboards. **People**: Jen Simmons and Rachel Andrew (layout), Miriam Suzanne (layers, `@scope`, container queries), Una Kravets and Adam Argyle (new CSS, motion), Bramus Van Damme (scroll-driven animations, view transitions), Josh W. Comeau (mental models), Kevin Powell (teaching), Ahmad Shadeed (defensive CSS), Andy Bell and Heydon Pickering (CUBE CSS, *Every Layout*, *Inclusive Components*), Sara Soueidan (SVG, accessibility), Adrian Roselli and Léonie Watson (accessibility), Lea Verou (*CSS Secrets*, colour), Stephanie Eckles (Modern CSS Solutions), Jhey Tompkins (creative CSS), Cassie Evans (SVG and GSAP), Val Head (UI motion), Steve Schoger and Adam Wathan (*Refactoring UI*), Erik Kennedy (Learn UI Design), Oliver Reichenstein (typography), Matthew Butterick (*Practical Typography*). **Publications and galleries**: Smashing Magazine, the CSS-Tricks archives, Codrops, Awwwards, Godly, Mobbin, Land-book.
+
+<Try task="Set up a reading system in 20 minutes: subscribe (RSS or email) to three browser release-note feeds and five people from the list, and create a 'swipe file' folder. Next week, note one technique you learned and where you'll use it.">
+  A workable setup: an RSS reader with the Chrome, WebKit and Firefox release blogs plus web.dev and five personal blogs (e.g. Josh W. Comeau, Ahmad Shadeed, Bramus, Stephanie Eckles, Andy Bell), and a swipe-file folder (Are.na, a Figma page, or a plain folder of screenshots with a notes file). The weekly note is what turns reading into skill: "Learned `@starting-style` from Bramus; use it for the toast entrance on our dashboard, with a fade fallback."
+</Try>
+
+## Deliberate exercises
+
+- **Copywork**: recreate one excellent interface a week from a screenshot, without viewing its source, then compare with the real CSS.
+- **Constraint studies**: the same page with one font size and weight only, greyscale only, no borders, no images, no JavaScript. Constraints reveal what actually creates hierarchy.
+- **Read the CSS of sites you admire** in DevTools: tokens, layers, layout primitives, easings.
+- **Unstyled review**: turn CSS off on your own pages monthly and read them.
+- **Resize-and-break sessions**: 280px to 2560px, 400% zoom, RTL; fix what breaks.
+- **One new CSS feature a week**, used in a real demo, with its Baseline status and fallback written down.
+- **Design critique journal**: one screen a day, three sentences on what works and what doesn't.
+- **Swipe file**: interfaces, type, palettes and motion you love, with notes on *why*.
+
+<CritiqueJournal />
+
+<Playground
+  id="p26-constraint"
+  title="Constraint study: one font size, one weight"
+  task="Every element here uses the same size and weight. Create a clear hierarchy using only space, colour value, case and position. What did you learn about which lever matters most?"
+  html={`<article class="c">\n  <p class="kicker">Case study</p>\n  <h2>Rebuilding a checkout in a week</h2>\n  <p class="meta">Asha Rao · 6 min read</p>\n  <p>We cut the checkout from five steps to two, and conversion rose by eleven percent. Here is what we removed.</p>\n  <a href="#more">Read the case study</a>\n</article>`}
+  css={`.c, .c * { font: 400 1rem/1.5 system-ui, sans-serif; margin: 0; }\n.c { max-width: 28rem; }`}
+  solution={{ css: `.c, .c * { font: 400 1rem/1.5 system-ui, sans-serif; margin: 0; }\n.c { max-width: 28rem; display: grid; }\n.kicker { text-transform: uppercase; letter-spacing: .12em; color: #9a3412; margin-bottom: 1.5rem; }\n.c h2 { color: #0c0a09; }\n.meta { color: #78716c; margin-bottom: 1rem; }\n.c p:not(.kicker):not(.meta) { color: #44403c; margin-bottom: 1rem; }\n.c a { color: #0c0a09; text-underline-offset: .25em; }` }}
+/>
+
+## Anti-taste
+
+`div` soup · buttons that are links and links that are buttons · `!important` as conflict resolution · IDs for styling · deep nesting and 0-4-0 specificity · magic numbers (`top: 37px`) · fixed heights on text containers · `px` font sizes that ignore user settings · `user-scalable=no` · removing focus outlines without replacements · placeholder as label · animating layout properties · `transition: all` · parallax and scroll-jacking by default · carousels nobody asked for · five fonts and nine weights · pure-black shadows and pure-grey neutrals · colour as the only signal · CSS frameworks nobody on the team can read without the docs · dark mode by `filter: invert()` · lorem ipsum in "final" designs · decorative motion that ignores reduced motion · copying a trendy aesthetic without the judgement that made the original work.
+
+<Playground
+  id="p26-anti-taste"
+  title="Anti-taste bingo: find and fix twelve"
+  task="This small component commits at least twelve items from the list. Find them all (hint: look at the element choices, the selectors, the units and every transition), then rewrite it."
+  html={`<div id="promo" class="box">\n  <div class="title">SALE!!!</div>\n  <input placeholder="Email">\n  <a href="javascript:void(0)" class="btn" onclick="subscribe()">Subscribe</a>\n  <div class="btn2">Learn more</div>\n</div>`}
+  css={`#promo.box { height: 120px; font-size: 13px; background: linear-gradient(#ff0000, #0000ff); box-shadow: 5px 5px 10px #000; }\n#promo .title { font: 900 22px Impact, fantasy; color: #ff0; position: relative; top: 37px; }\n#promo input:focus { outline: none; }\n#promo .btn { color: #fff !important; transition: all .8s; }\n#promo .btn:hover { margin-left: 20px; }\n#promo .btn2 { color: #999; font-family: Comic Sans MS, cursive; }`}
+  solution={{ html: `<section class="promo" aria-labelledby="promo-title">\n  <h2 id="promo-title">20% off all plans this week</h2>\n  <form action="/subscribe" method="post">\n    <label for="promo-email">Email</label>\n    <input id="promo-email" name="email" type="email" autocomplete="email" required>\n    <button>Subscribe</button>\n  </form>\n  <a href="/pricing">See pricing</a>\n</section>`, css: `.promo { display: grid; gap: .75rem; padding: 1.25rem; border-radius: 1rem; background: oklch(0.96 0.03 60); font-size: 1rem; }\n.promo h2 { margin: 0; font: 700 1.4rem/1.2 system-ui; }\n.promo form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }\n.promo label { flex-basis: 100%; }\n.promo input { flex: 1 1 12rem; font: inherit; padding: .4rem; }\n.promo input:focus-visible { outline: 2px solid #c2410c; outline-offset: 2px; }\n.promo button { font: inherit; padding: .45rem .9rem; border: 0; border-radius: .5rem; background: #c2410c; color: white; transition: background-color .15s; }\n.promo button:hover { background: #9a3412; }` }}
+/>

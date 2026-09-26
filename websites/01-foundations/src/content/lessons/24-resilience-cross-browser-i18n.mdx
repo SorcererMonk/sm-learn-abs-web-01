@@ -1,0 +1,176 @@
+---
+title: "Resilience: Cross-Browser, Internationalisation, Defensive CSS & Testing"
+source: L1-coding-html-css.md
+part: 24
+tier: Core → Deep
+summary: Progressive enhancement as layers, CSS fallbacks, cross-browser realities, defensive CSS, content stress-testing, internationalisation, user preferences and overrides, testing HTML and CSS, and a browser support policy.
+anchors:
+  - "Defensive CSS is imagining the content you *didn't* design with. The layout in the mock-up is the best case. Production will send the worst case within a week."
+  - "Logical properties make RTL support almost free if you use them from day one, and expensive if you add them later."
+checks:
+  - q: "Take a component and list ten content-driven ways it can break; fix each defensively."
+    a: "For a profile card: (1) long name overflows → `overflow-wrap: anywhere`; (2) long URL → same, or truncate with the full URL in the link; (3) no avatar → a background colour and initials; (4) avatar squashed by flex → `flex: none`; (5) text refuses to shrink → `min-inline-size: 0`; (6) huge follower count widens the row → tabular numbers and wrapping; (7) German button label → `white-space: normal`, no fixed width; (8) RTL mirrors wrongly → logical properties; (9) 200% text overflows a fixed height → `min-block-size` instead of `height`; (10) empty bio leaves a gap → `:empty { display: none }` or `gap` instead of margins. The hostile-content demo on this page toggles all of these."
+  - q: "Convert a page to support Arabic with correct mirroring, bidirectional user names, and an appropriate font, and explain which icons you didn't mirror."
+    a: "Set `<html lang=\"ar\" dir=\"rtl\">`, use logical properties throughout, wrap user names in `<bdi>` (or `dir=\"auto\"` on user content) so Latin names don't scramble punctuation, and add an Arabic-capable font (Noto Naskh/Sans Arabic, IBM Plex Arabic) with larger line height and no letter-spacing. Mirror directional icons (back/forward arrows, progress direction, list bullets pointing inwards) with `:dir(rtl) { scale: -1 1 }`. Don't mirror media controls (play points right in every culture), clocks, checkmarks, logos, or anything representing a real-world object."
+  - q: "Write a `@supports` strategy for shipping anchor-positioned tooltips with a fallback."
+    a: "Default (no support): position the tooltip below its trigger in normal flow or with `position: absolute` inside a `position: relative` wrapper, and keep it inside the viewport with `max-inline-size`. Enhanced: `@supports (anchor-name: --a) { .trigger { anchor-name: --tip; } .tooltip { position: fixed; position-anchor: --tip; position-area: top; position-try-fallbacks: flip-block; } }`. Optionally load the anchor-positioning polyfill only when `CSS.supports('anchor-name: --a')` is false. Both paths use the same markup (a popover with `popover=\"hint\"`)."
+  - q: "Set up visual regression across three widths, two themes, and two locales, and explain how you keep it from being flaky."
+    a: "Playwright `toHaveScreenshot()` in a project matrix: viewports 375/768/1440 × `colorScheme` light/dark × pages rendered in `en` and `de`. Anti-flake: self-host and preload fonts and wait for `document.fonts.ready`; disable animations (`reducedMotion: 'reduce'` and a test stylesheet zeroing transitions); freeze time and random data; mask dynamic regions (dates, avatars); run in one pinned browser build inside Docker; and set a small `maxDiffPixelRatio` rather than zero."
+build: "A \"hostile content\" test harness for your component library: stories fed with extreme content, pseudo-localised strings, RTL, forced colours, 200% text, and reduced motion, run in three engines with screenshot diffs and axe, gating merges in CI."
+steps:
+  - "Write fixtures of extreme content: empty, 1 char, 400 chars, long names/URLs, 0/1/1,000,000 items."
+  - "Add pseudo-localisation (accents + 35% longer) and an RTL locale."
+  - "Render each component × fixture as a story or test page."
+  - "Playwright in Chromium, WebKit and Firefox: screenshots + axe, with forced-colors and 200% text variants."
+  - "Gate merges on the suite in CI."
+taste: "Build for the content and people you haven't met yet. Resilience isn't a feature you add at the end. It is a habit of writing CSS that asks \"and what if…?\" every time you type a fixed value."
+quiz:
+  - q: "What happens to `a:hover, a:unknown-pseudo { color: red }` in a browser that doesn't know the second selector?"
+    options: ["Only the first applies", "The whole rule is dropped", "Both apply"]
+    answer: 1
+    why: "An invalid selector invalidates the whole selector list; use :is() (forgiving) or separate rules."
+  - q: "Which icons should NOT be mirrored in RTL?"
+    options: ["Back arrows", "Media play buttons and clocks", "Progress direction"]
+    answer: 1
+    why: "Play and clocks represent real-world conventions that don't flip."
+  - q: "Baseline \"widely available\" means a feature…"
+    options: ["Is in one browser", "Has worked in all core browsers for about 30 months", "Is a proposal"]
+    answer: 1
+    why: "Newly available = in all core engines; widely available = 30 months later."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import HostileContent from '../../components/demos/HostileContent.astro';
+
+## Progressive enhancement as layered design
+
+Core **content and function in HTML** → **presentation in CSS** with fallbacks → **behaviour in JavaScript**. "Cutting the mustard": a feature test decides whether to load the enhanced experience at all. And remember: **every user is on the no-JS path** while JavaScript loads, and some stay there when it fails.
+
+<Playground
+  id="p24-layers"
+  title="Cutting the mustard: enhance only when the browser can"
+  task="Change the feature test to something that fails (e.g. a made-up API) and see the baseline: a working link. Then add a CSS-only layer that styles the enhanced state with :has(dialog[open])."
+  html={`<a href="/help" class="help" id="help">Help (opens the help page)</a>\n<dialog id="dlg"><p>Quick help, shown in a dialog because this browser can.</p><form method="dialog"><button>Close</button></form></dialog>`}
+  css={`.help { display: inline-block; padding: .5rem .9rem; border-radius: .5rem; background: #1d1a19; color: white; }\ndialog { border: 0; border-radius: .75rem; padding: 1rem 1.25rem; }`}
+  forms
+  js={`// Baseline: a link that navigates. Enhancement: a dialog, only when supported.\nconst mustard = 'showModal' in HTMLDialogElement.prototype && CSS.supports('selector(:has(a))');\nif (mustard) {\n  document.getElementById('help').addEventListener('click', (e) => {\n    e.preventDefault();\n    document.getElementById('dlg').showModal();\n  });\n  console.log('Enhanced: help opens in a dialog');\n} else console.log('Baseline: help is a normal link');`}
+/>
+
+## Fallbacks in CSS
+
+**Declaration repetition** (older value first, modern one second), **`@supports`** feature queries (`@supports (anchor-name: --a)`, `@supports selector(:has(a))`, `@supports not (…)`), `var()` fallbacks, `min()`/`max()` fallbacks. The trap: **one unsupported selector in a list invalidates the whole rule**, so use the forgiving `:is()` or separate rules.
+
+<Playground
+  id="p24-fallbacks"
+  title="Repetition, @supports and the forgiving selector list"
+  task="The third rule dies because of one unknown pseudo-class. Fix it with :is(), then add an @supports not block for engines without :has()."
+  html={`<p class="a">Repetition: a solid colour, then OKLCH</p>\n<p class="b">@supports: grid with subgrid, else flex</p>\n<a href="#" class="c">Hover or focus me</a>`}
+  css={`.a { background: #fdba74; background: oklch(0.8 0.12 55); padding: .5rem; }\n.b { display: flex; gap: .5rem; }\n@supports (grid-template-rows: subgrid) { .b { display: grid; } }\n.c:hover, .c:focus-visible, .c:-some-future-state { color: white; background: #c2410c; }`}
+  solution={{ css: `.a { background: #fdba74; background: oklch(0.8 0.12 55); padding: .5rem; }\n.b { display: flex; gap: .5rem; }\n@supports (grid-template-rows: subgrid) { .b { display: grid; } }\n.c:is(:hover, :focus-visible, :-some-future-state) { color: white; background: #c2410c; }\n@supports not selector(:has(a)) { .c { text-decoration: underline wavy; } }` }}
+/>
+
+## Cross-browser realities
+
+Three engines: **Blink** (Chrome, Edge, Opera, Samsung), **WebKit** (Safari, and every iOS browser in most regions), **Gecko** (Firefox). **Safari/iOS is the special case**: viewport quirks, the virtual keyboard, `position: fixed` behaviour, form-control styling, and release cycles tied to OS updates. Drive your testing matrix from **analytics**, test on **real devices** as well as emulation (BrowserStack, Sauce Labs), and read the **Interop dashboard** and caniuse critically (partial support notes matter).
+
+<Playground
+  id="p24-engine"
+  title="What engine and features is this preview running on?"
+  task="Open this page in Chrome, Safari and Firefox and compare the table. Add two features you rely on at work."
+  html={`<table><tbody id="rows"></tbody></table>`}
+  css={`table { border-collapse: collapse; font: .9rem system-ui; }\ntd { border-bottom: 1px solid #eee; padding: .3rem .75rem; }\ntd:last-child { font-weight: 700; }`}
+  js={`const ua = navigator.userAgent;\nconst engine = /Firefox\\//.test(ua) ? 'Gecko' : /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg/.test(ua) ? 'WebKit' : 'Blink';\nconst checks = {\n  'Engine (from UA, for display only)': engine,\n  ':has()': CSS.supports('selector(:has(a))'),\n  'Container queries': CSS.supports('container-type: inline-size'),\n  'Anchor positioning': CSS.supports('anchor-name: --a'),\n  'View transitions': 'startViewTransition' in document,\n  'Scroll-driven animations': CSS.supports('animation-timeline: view()'),\n  'Customisable select': CSS.supports('appearance: base-select'),\n  '@starting-style': 'CSSStartingStyleRule' in window,\n};\ndocument.getElementById('rows').innerHTML = Object.entries(checks).map(([k, v]) => '<tr><td>' + k + '</td><td>' + (v === true ? 'yes' : v === false ? 'no' : v) + '</td></tr>').join('');`}
+/>
+
+## Defensive CSS
+
+Ahmad Shadeed's catalogue and beyond: long words and URLs (`overflow-wrap: anywhere`), long names in flex items (**`min-width: 0`**), images without dimensions (`object-fit`), `flex-wrap` on anything that might wrap, **`minmax(0, 1fr)`**, scrollbar gutters, `max-width: 100%` on media, background images with a fallback colour, button text that might grow, vertical centring that survives two lines, spacing that survives missing elements (`gap` over margins, `:empty`), `auto-fit` vs `auto-fill`, and sticky/overflow conflicts.
+
+<HostileContent />
+
+## Content stress-testing
+
+Test with the **real extremes**: empty, one character, 400 characters, very long names, user images of any aspect ratio, **0, 1 and 1,000,000 items**, translations 30–40% longer (German, Finnish) or much shorter (Chinese), and larger user font sizes. **Pseudo-localisation** (accented, padded strings) finds all of these before translators do.
+
+<Playground
+  id="p24-pseudo"
+  title="Pseudo-localise any page"
+  task="Press Pseudo-localise: every text node gets accents and ~35% extra length, so you can see what breaks in German before you have German. Find the button that breaks and fix its CSS."
+  html={`<nav class="bar"><a href="#">Home</a><a href="#">Pricing</a><a href="#">Contact</a><button class="cta">Sign up</button></nav>\n<p class="note">Save 20% on annual plans.</p>\n<button id="pseudo">Pseudo-localise</button>`}
+  css={`.bar { display: flex; gap: 1rem; align-items: center; padding: .5rem; background: #1d1a19; }\n.bar a { color: white; }\n.cta { width: 5rem; height: 2rem; overflow: hidden; white-space: nowrap; }\n#pseudo { margin-top: 1rem; }`}
+  js={`const map = { a: 'á', e: 'é', i: 'î', o: 'ö', u: 'ü', c: 'ç', n: 'ñ', A: 'Å', E: 'É', S: 'Š' };\nconst pseudo = (t) => '[' + t.replace(/[aeioucnAES]/g, (c) => map[c]) + ' ' + '·'.repeat(Math.ceil(t.length * 0.35)) + ']';\ndocument.getElementById('pseudo').addEventListener('click', () => {\n  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);\n  const nodes = [];\n  while (walker.nextNode()) if (walker.currentNode.textContent.trim() && walker.currentNode.parentElement.id !== 'pseudo') nodes.push(walker.currentNode);\n  nodes.forEach((n) => (n.textContent = pseudo(n.textContent.trim())));\n});`}
+  solution={{ css: `.bar { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding: .5rem; background: #1d1a19; }\n.bar a { color: white; }\n.cta { min-inline-size: 5rem; min-block-size: 2rem; padding-inline: .75rem; }\n#pseudo { margin-top: 1rem; }` }}
+/>
+
+## Internationalisation in markup and styles
+
+Correct **`lang`** at the document and phrase level; `dir="rtl"` and **`dir="auto"`** for user content; **`<bdi>`** to isolate names; logical properties everywhere; **mirror directional icons** (arrows, progress, "back") but not others (media controls, clocks, checkmarks), with `:dir(rtl)` for exceptions; text expansion; script-appropriate fonts and line heights; vertical writing modes; numbers, dates and currency formatted by **`Intl`** and rendered into `<time>` and `<data>`; and pseudo-localisation for testing.
+
+<Playground
+  id="p24-bidi"
+  title="Bidirectional names with <bdi> and dir=auto"
+  task="The first line scrambles because an Arabic name is followed by a number. Wrap each name in <bdi> (or give the list items dir=auto) and compare."
+  html={`<ul class="scores">\n  <li>إيمان: 3 posts</li>\n  <li><bdi>إيمان</bdi>: 3 posts</li>\n  <li>Asha: 5 posts</li>\n</ul>\n<p dir="auto">مرحبا! This comment's direction comes from its first strong character.</p>`}
+  css={`.scores { font-size: 1.1rem; }\nbdi { background: #fef3c7; }`}
+/>
+
+## User preferences and overrides
+
+Your CSS runs **on the user's terms**: user stylesheets, **minimum font sizes**, text-only zoom, reader mode, high-contrast themes and **forced colours**, reduced motion, reduced transparency, and extensions that rewrite pages (dark-mode extensions, translators, ad blockers).
+
+<Playground
+  id="p24-prefs"
+  title="Does the layout survive a user's minimum font size and a translator?"
+  task="Press Simulate user overrides: text jumps to a 24px minimum and every word gets longer (like a translation extension). Fix the fixed heights and widths so nothing clips."
+  html={`<button id="sim">Simulate user overrides</button>\n<div class="tiles"><div class="tile"><h4>Plan</h4><p>Pro</p></div><div class="tile"><h4>Seats</h4><p>12</p></div></div>`}
+  css={`.tiles { display: flex; gap: .5rem; margin-top: .75rem; }\n.tile { width: 7rem; height: 5rem; overflow: hidden; padding: .5rem; background: #fff4ed; border-radius: .5rem; font-size: 12px; }\n.tile h4, .tile p { margin: 0; }\nbody.override .tile { font-size: 24px; }`}
+  js={`document.getElementById('sim').addEventListener('click', () => {\n  document.body.classList.add('override');\n  document.querySelectorAll('.tile h4').forEach((h) => (h.textContent += ' (übersetzt)'));\n});`}
+  solution={{ css: `.tiles { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }\n.tile { min-inline-size: 7rem; min-block-size: 5rem; padding: .5rem; background: #fff4ed; border-radius: .5rem; font-size: .75rem; overflow-wrap: anywhere; }\n.tile h4, .tile p { margin: 0; }\nbody.override .tile { font-size: 24px; }` }}
+/>
+
+## Testing HTML and CSS
+
+**HTML validation** in CI (the Nu checker); **accessibility checks** (axe with Playwright); **visual regression** (Playwright screenshots, Chromatic, Percy, BackstopJS) across widths, themes and locales, with a strategy for font and animation nondeterminism; component stories as fixtures; **cross-browser runs** with Playwright's three engines; **link checking**; and **Lighthouse CI** for regressions. This site runs axe, a console-error check and a link crawl on every page in its end-to-end suite.
+
+```ts
+// playwright.config.ts: three engines × two themes, animations off for stable screenshots
+import { defineConfig, devices } from '@playwright/test';
+export default defineConfig({
+  use: { baseURL: 'http://localhost:4321', reducedMotion: 'reduce' },
+  projects: [
+    { name: 'chromium-light', use: { ...devices['Desktop Chrome'], colorScheme: 'light' } },
+    { name: 'webkit-dark', use: { ...devices['iPhone 15'], colorScheme: 'dark' } },
+    { name: 'firefox-light', use: { ...devices['Desktop Firefox'], colorScheme: 'light' } },
+  ],
+});
+
+// card.spec.ts
+test('card survives hostile content', async ({ page }) => {
+  await page.goto('/fixtures/card?name=long&locale=de&rtl=1');
+  await page.evaluate(() => document.fonts.ready);
+  await expect(page.locator('.card')).toHaveScreenshot({ maxDiffPixelRatio: 0.01 });
+  const axe = await new AxeBuilder({ page }).include('.card').analyze();
+  expect(axe.violations).toEqual([]);
+});
+```
+
+<Try task="Run this site's own tests (`npm test` and `npm run test:e2e` in websites/01-foundations). Which checks run on every page, and what would you add for your own project?">
+  Unit tests cover the teaching libraries (cascade, specificity, flex, srcset, accessible names, head audit, escaping, sanitiser, mini server, guestbook). The end-to-end suite visits every page, fails on console errors, runs axe (WCAG 2.2 A/AA) and checks that every internal link resolves. For your own project, add visual regression across widths and themes, HTML validation, and Lighthouse CI budgets.
+</Try>
+
+## Browser support policy
+
+Define it with **browserslist** and **Baseline** ("widely available" as the default bar; "newly available" with fallbacks), **document** it, and revisit it yearly. "Supports" can mean **identical**, **functionally equivalent** or **content-accessible**; pick one per browser tier.
+
+```text
+Browser support policy (reviewed September 2026)
+Tier 1, identical experience: Baseline widely available (last 30 months of Chrome, Edge, Firefox, Safari)
+Tier 2, functionally equivalent: Baseline newly available features ship behind @supports with fallbacks
+Tier 3, content-accessible: any browser that parses HTML gets the content and working forms, unstyled if need be
+browserslist: "baseline widely available, not dead"
+```
+
+<Try task="Write a support policy for a product whose analytics show 70% Chrome, 20% Safari iOS 17+, 6% Firefox, 3% Samsung Internet and 1% old Android WebViews. Which features from this course would you ship without a fallback?">
+  Tier 1 (identical): current Chrome, Safari iOS 17+, Firefox, Samsung Internet. Tier 3 (content-accessible): old WebViews. Without fallbacks: grid and subgrid, container queries, `:has()`, `clamp()`, logical properties, `aspect-ratio`, `<dialog>`, cascade layers (all Baseline widely available). Behind `@supports` with fallbacks: anchor positioning, scroll-driven animations, customisable select, `interestfor`, `text-box-trim`. Revisit next September.
+</Try>
