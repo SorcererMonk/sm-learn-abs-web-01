@@ -1,0 +1,216 @@
+---
+/**
+ * Easing lab (lib/motion.ts): edit a cubic-bezier or a spring (duration + bounce), see the
+ * curve, get the CSS, and play it against linear. Springs become linear() easings.
+ * Plays only on request, and with prefers-reduced-motion the ball fades instead of travelling.
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+
+const presets = [
+  ['0.2, 0, 0, 1', 'Standard (this site)'],
+  ['0.05, 0.7, 0.1, 1', 'Emphasised out (entrances)'],
+  ['0.3, 0, 0.8, 0.15', 'Emphasised in (exits)'],
+  ['0.42, 0, 0.58, 1', 'ease-in-out'],
+  ['0.34, 1.56, 0.64, 1', 'Overshoot (back out)'],
+];
+---
+
+<Demo title="Easing lab: cubic-bezier and springs as linear()">
+  <div class="stack" data-easing-lab>
+    <div class="controls">
+      <label class="control" for="el-mode">
+        <span>Curve type</span>
+        <select id="el-mode">
+          <option value="bezier">cubic-bezier()</option>
+          <option value="spring">Spring → linear()</option>
+        </select>
+      </label>
+      <label class="control" for="el-bezier" data-el-bezier>
+        <span>cubic-bezier(x1, y1, x2, y2)</span>
+        <select id="el-bezier">
+          {presets.map(([v, n]) => (
+            <option value={v}>
+              {n}: {v}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Control
+        id="el-duration"
+        label="Duration / spring response"
+        min={100}
+        max={1200}
+        step={10}
+        value={400}
+        unit="ms"
+      />
+      <Control id="el-bounce" label="Spring bounce" min={0} max={0.6} step={0.01} value={0.25} />
+    </div>
+    <div class="el-view">
+      <svg
+        viewBox="-10 -40 220 260"
+        class="el-plot"
+        role="img"
+        aria-label="Easing curve: progress over time"
+        data-el-plot
+      >
+        <rect x="0" y="0" width="200" height="200" class="el-frame"></rect>
+        <line x1="0" y1="200" x2="200" y2="0" class="el-linear"></line>
+        <path d="" class="el-curve" data-el-path></path>
+      </svg>
+      <div class="stack stack-sm">
+        <button type="button" class="btn btn--small" data-el-play>
+          Play
+        </button>
+        <div class="el-track">
+          <span class="el-ball" data-el-ball>
+            eased
+          </span>
+        </div>
+        <div class="el-track">
+          <span class="el-ball el-ball--linear" data-el-linear>
+            linear
+          </span>
+        </div>
+      </div>
+    </div>
+    <p class="result-line" data-el-css></p>
+  </div>
+  <p slot="note">
+    Springs are physical (stiffness, damping, mass); here they're set SwiftUI-style by response and
+    bounce, simulated, and sampled into a <code>linear()</code> easing whose duration is the settle
+    time. Overshoot shows as the curve leaving the box.
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+  import { prefersReducedMotion } from '../../client/store.ts';
+  import {
+    cubicBezierAt,
+    springFromDurationBounce,
+    springSamples,
+    springToLinear,
+    type Bezier,
+  } from '../../lib/motion.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-easing-lab]').forEach((root) => {
+    const path = need<SVGPathElement>(root, '[data-el-path]');
+    const css = need<HTMLElement>(root, '[data-el-css]');
+    const ball = need<HTMLElement>(root, '[data-el-ball]');
+    const linearBall = need<HTMLElement>(root, '[data-el-linear]');
+    let current = { easing: 'linear', duration: 400 };
+
+    const render = (): void => {
+      const spring = need<HTMLSelectElement>(root, '#el-mode').value === 'spring';
+      need<HTMLElement>(root, '[data-el-bezier]').hidden = spring;
+      const bounce = need<HTMLElement>(root, '#el-bounce').closest<HTMLElement>('.control');
+      if (bounce) bounce.hidden = !spring;
+      let points: number[];
+      if (spring) {
+        const s = springFromDurationBounce(
+          num(root, '#el-duration') / 1000,
+          num(root, '#el-bounce'),
+        );
+        current = springToLinear(s, 40);
+        points = springSamples(s, current.duration / 1000, 60);
+      } else {
+        const bezier = need<HTMLSelectElement>(root, '#el-bezier')
+          .value.split(',')
+          .map(Number) as Bezier;
+        current = {
+          easing: `cubic-bezier(${bezier.join(', ')})`,
+          duration: num(root, '#el-duration'),
+        };
+        points = Array.from({ length: 61 }, (_, i) => cubicBezierAt(bezier, i / 60));
+      }
+      const n = points.length - 1;
+      path.setAttribute(
+        'd',
+        points
+          .map(
+            (y, i) => `${i ? 'L' : 'M'}${((i / n) * 200).toFixed(1)} ${(200 - y * 200).toFixed(1)}`,
+          )
+          .join(' '),
+      );
+      css.textContent = `transition: transform ${current.duration}ms ${current.easing};`;
+    };
+
+    need<HTMLButtonElement>(root, '[data-el-play]').addEventListener('click', () => {
+      const distance = (ball.parentElement?.clientWidth ?? 300) - ball.offsetWidth;
+      const reduce = prefersReducedMotion();
+      const frames = reduce
+        ? [{ opacity: 0.2 }, { opacity: 1 }]
+        : [{ transform: 'translateX(0)' }, { transform: `translateX(${distance}px)` }];
+      ball.animate(frames, {
+        duration: current.duration,
+        easing: current.easing,
+        fill: 'forwards',
+      });
+      linearBall.animate(frames, {
+        duration: current.duration,
+        easing: 'linear',
+        fill: 'forwards',
+      });
+    });
+
+    bindControls(root, render);
+  });
+</script>
+
+<style>
+  .el-view {
+    display: grid;
+    grid-template-columns: minmax(10rem, 16rem) 1fr;
+    gap: var(--space-m);
+    align-items: center;
+  }
+  @media (width < 36rem) {
+    .el-view {
+      grid-template-columns: 1fr;
+    }
+  }
+  .el-view .btn {
+    align-self: start;
+    justify-self: start;
+  }
+  .el-plot {
+    overflow: visible;
+  }
+  .el-frame {
+    fill: var(--color-surface-2);
+    stroke: var(--color-border);
+  }
+  .el-linear {
+    stroke: var(--color-border-strong);
+    stroke-dasharray: 4 4;
+  }
+  .el-curve {
+    fill: none;
+    stroke: var(--color-accent-strong);
+    stroke-width: 3;
+    stroke-linejoin: round;
+  }
+  .el-track {
+    position: relative;
+    padding: 0.25rem;
+    border-radius: 99px;
+    background: var(--color-surface-2);
+  }
+  .el-ball {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 4.5rem;
+    block-size: 2rem;
+    border-radius: 99px;
+    background: var(--color-accent-strong);
+    color: var(--color-on-accent);
+    font-size: var(--step-n2);
+    font-weight: 600;
+  }
+  .el-ball--linear {
+    background: var(--color-text);
+    color: var(--color-surface);
+  }
+</style>

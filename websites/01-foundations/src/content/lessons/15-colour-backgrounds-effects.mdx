@@ -1,0 +1,242 @@
+---
+title: Colour, Backgrounds & Visual Effects
+source: L1-coding-html-css.md
+part: 15
+tier: Core → Deep
+summary: Colour science and OKLCH, syntax and wide gamut, colour-mix and relative colour, palettes and colour theory, contrast (WCAG 2 and APCA), dark mode and forced colours, backgrounds, gradients, borders, shadows, filters and blending, masks, textures and other visual properties.
+anchors:
+  - "Define colours in a perceptual space (OKLCH) and derive everything else from a few tokens with relative colour syntax. Palettes built by eyeballing hex codes drift. Palettes built from lightness steps stay coherent."
+  - "Realism comes from layers: several soft shadows, a subtle gradient, a hairline highlight, a touch of noise. Any single effect at high intensity looks cheap. Several at low intensity look expensive."
+checks:
+  - q: "Generate an 11-step tonal scale in OKLCH for a brand colour, show where HSL would have produced uneven steps, and verify contrast pairs for text on each step."
+    a: "Hold the hue, step L evenly from ≈0.97 to ≈0.2, and taper chroma towards both ends so the extremes stay in gamut (the palette lab does this and prints the custom properties). The HSL row at the same hue with even 9% lightness steps shows OKLCH lightness jumping unevenly, badly around yellow and blue. Each swatch reports whether white or black text passes 4.5:1; typically steps 50–400 take black text and 600–950 take white, with 500 the risky middle."
+  - q: "Derive hover, active, subtle-background, and border colours from one `--brand` token using relative colour syntax."
+    a: "`--brand-hover: oklch(from var(--brand) calc(l - 0.06) c h); --brand-active: oklch(from var(--brand) calc(l - 0.12) c h); --brand-subtle: oklch(from var(--brand) 0.96 calc(c * 0.25) h); --brand-border: oklch(from var(--brand) 0.85 calc(c * 0.5) h);`. All four follow automatically when `--brand` changes, and lightness shifts stay perceptually even."
+  - q: "Explain why pure-black shadows and pure-black dark-mode backgrounds look wrong, and fix both."
+    a: "Real shadows are tinted by the surface and the ambient light, so `rgb(0 0 0 / .5)` looks dirty and flat; use several layered shadows tinted with the background hue at low opacity (`oklch(0.3 0.03 var(--hue) / 0.12)`). Pure black (#000) behind light text causes halation and makes elevation impossible (nothing can be darker, and shadows vanish). Use a dark grey tinted with the brand hue (L ≈ 0.18–0.22) and express elevation with *lighter* surfaces."
+  - q: "Build a frosted-glass navigation bar with a legible fallback when `backdrop-filter` is unsupported or reduced transparency is requested."
+    a: "Default to an opaque background (`background: var(--surface)`); inside `@supports (backdrop-filter: blur(1px)) and (prefers-reduced-transparency: no-preference)` switch to `background: oklch(from var(--surface) l c h / 0.7); backdrop-filter: blur(16px) saturate(1.4);`. Check text contrast against the busiest content that can scroll underneath, not the empty page. This site's header does exactly this."
+  - q: "Style a component for forced-colors mode and verify it in emulation."
+    a: "Use `currentColor` for SVG icons, give custom controls a transparent border (it becomes visible), use system colours inside `@media (forced-colors: active)` (`border-color: ButtonText; background: ButtonFace;` and `Highlight`/`HighlightText` for selected states), and use `forced-color-adjust: none` only for colour swatches that must show real colours. Verify with DevTools → Rendering → Emulate CSS media feature forced-colors: active."
+build: "A theming engine: brand tokens in OKLCH, generated light and dark palettes via relative colour, `light-dark()` and a persisted no-flash toggle, forced-colors support, a contrast report (WCAG 2 and APCA) generated automatically, and a \"surface lab\" demonstrating layered shadows, glass, grain, gradient borders, and masks."
+steps:
+  - "Brand tokens in OKLCH in a DTCG JSON file (this site's tokens are an example)."
+  - "Generate light and dark palettes with relative colour syntax and `light-dark()`."
+  - "A three-way theme toggle (auto/light/dark), persisted, with a blocking inline script to avoid the flash."
+  - "A test that computes WCAG 2 and APCA for every text/background pair and fails below target (this site has one)."
+  - "A surface lab: layered shadows, glass with fallback, grain, gradient borders, masks."
+  - "Forced-colors pass with DevTools emulation."
+taste: "Colour is the fastest way to look amateur and the hardest to fix late. Start in greyscale (hierarchy through value and space alone), add one accent with purpose, and only then add the rest."
+quiz:
+  - q: "Why is OKLCH better than HSL for building palettes?"
+    options: ["It's newer", "Its lightness is perceptually uniform, so equal L steps look equal", "It has more colours"]
+    answer: 1
+    why: "HSL lightness is a formula on RGB channels; yellow at 50% looks far lighter than blue at 50%."
+  - q: "What does `light-dark(black, white)` need to work?"
+    options: ["A media query", "`color-scheme: light dark` on the element or an ancestor", "JavaScript"]
+    answer: 1
+    why: "light-dark() picks a value based on the used color-scheme."
+  - q: "`background-attachment: fixed` is best avoided because…"
+    options: ["It isn't supported", "It forces repaints on scroll (janky) and is ignored on iOS", "It breaks gradients"]
+    answer: 1
+    why: "It repaints on every scroll frame and iOS Safari doesn't support it."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import PaletteLab from '@learn/shared/components/demos/PaletteLab.astro';
+import ContrastLab from '@learn/shared/components/demos/ContrastLab.astro';
+
+## Colour science for CSS
+
+The eye perceives **lightness**, **chroma** (colourfulness) and **hue**. A **colour space** is a coordinate system; a **gamut** is the range a device can show (sRGB < Display-P3 < Rec. 2020). **HSL is not perceptually uniform**: a yellow and a blue at the same HSL lightness look nothing alike. **OKLab/OKLCH** fix that: equal steps in L look equal, chroma is predictable, and hue doesn't drift as you lighten or darken. That's why they're the modern authoring spaces.
+
+<Playground
+  id="p15-science"
+  title="Same HSL lightness, very different perceived lightness"
+  task="Switch the bottom row to OKLCH at L 0.7, C 0.15 across hues: the lightness now looks even. Convert to greyscale with `filter: grayscale(1)` on body to check."
+  html={`<p>HSL, every swatch at l = 50%</p>\n<div class="row hsl"><i style="--h:60"></i><i style="--h:120"></i><i style="--h:180"></i><i style="--h:240"></i><i style="--h:300"></i><i style="--h:0"></i></div>\n<p>OKLCH, every swatch at L = 0.7</p>\n<div class="row ok"><i style="--h:100"></i><i style="--h:145"></i><i style="--h:195"></i><i style="--h:265"></i><i style="--h:330"></i><i style="--h:25"></i></div>`}
+  css={`.row { display: flex; gap: 4px; margin-bottom: 1rem; }\n.row i { flex: 1; height: 3rem; border-radius: .4rem; }\n.hsl i { background: hsl(var(--h) 100% 50%); }\n.ok i { background: oklch(0.7 0.15 var(--h)); }`}
+/>
+
+## Colour syntax
+
+Named colours, hex (`#rrggbbaa`), `rgb()`/`hsl()`/`hwb()` in the modern space-separated syntax with `/ alpha`, `lab()`/`lch()`, **`oklab()`/`oklch()`**, `color(display-p3 r g b)`, `transparent`, **`currentColor`**, and `none` for missing components (useful in interpolation).
+
+<Playground
+  id="p15-syntax"
+  title="One orange, many syntaxes"
+  task="Add an 8-digit hex with 50% alpha and an `oklch()` with `/ 50%`. Then use `none` for the hue of a grey."
+  html={`<ul class="s">\n  <li style="--c: #c2410c">#c2410c</li>\n  <li style="--c: rgb(194 65 12)">rgb(194 65 12)</li>\n  <li style="--c: hsl(17 88% 40%)">hsl(17 88% 40%)</li>\n  <li style="--c: oklch(0.55 0.18 40)">oklch(0.55 0.18 40)</li>\n  <li style="--c: color(display-p3 0.72 0.28 0.08)">color(display-p3 …)</li>\n  <li style="--c: currentColor; color: #0f766e">currentColor (teal text)</li>\n</ul>`}
+  css={`.s { list-style: none; padding: 0; display: grid; gap: .3rem; }\n.s li { display: flex; gap: .75rem; align-items: center; font-family: ui-monospace, monospace; }\n.s li::before { content: ""; width: 3rem; height: 1.5rem; border-radius: .3rem; background: var(--c); }`}
+/>
+
+## Wide gamut
+
+Many screens show **Display-P3**, about 25% more colours than sRGB, mostly vivid greens, oranges and reds. Author P3 colours with `oklch()` (high chroma) and serve them inside `@media (color-gamut: p3)`. Out-of-gamut colours are **gamut-mapped** by the browser (reducing chroma until they fit), which is why vivid brand colours look different on different screens.
+
+<Playground
+  id="p15-gamut"
+  title="sRGB vs P3 on your screen"
+  task="On a P3 display (most recent Macs and phones), the right half of each swatch is more vivid. Add a P3 green with `oklch(0.85 0.3 145)`."
+  html={`<p id="gamut"></p>\n<div class="pair"><span class="srgb o"></span><span class="p3 o"></span></div>\n<div class="pair"><span class="srgb r"></span><span class="p3 r"></span></div>`}
+  css={`.pair { display: flex; width: 16rem; height: 3rem; margin-bottom: .5rem; }\n.pair span { flex: 1; }\n.srgb.o { background: rgb(255 100 0); }\n.p3.o { background: rgb(255 100 0); }\n.srgb.r { background: rgb(230 0 50); }\n.p3.r { background: rgb(230 0 50); }\n@media (color-gamut: p3) {\n  .p3.o { background: color(display-p3 1 0.35 0); }\n  .p3.r { background: oklch(0.6 0.28 20); }\n}`}
+  js={`document.getElementById('gamut').textContent = matchMedia('(color-gamut: p3)').matches ? 'This screen supports Display-P3.' : 'This screen is sRGB: both halves look the same.';`}
+/>
+
+## Colour functions: mix, derive, switch
+
+**`color-mix(in oklch, var(--a) 30%, var(--b))`** mixes in a chosen space (the space matters: sRGB mixes go muddy). **Relative colour syntax** derives variants from one token: `oklch(from var(--brand) calc(l + 0.1) c h)`. **`light-dark(light, dark)`** with `color-scheme` themes in one declaration. **`contrast-color()`** picks accessible text for any background automatically. System colours (`Canvas`, `CanvasText`…) follow the user's platform.
+
+<Playground
+  id="p15-functions"
+  title="Hover, active, subtle and border from one --brand token"
+  task="Change `--brand` to `oklch(0.55 0.15 250)`: every variant follows. Then toggle `color-scheme: dark` on :root."
+  html={`<button class="b">Primary</button> <span class="chip">Subtle chip</span>\n<p class="mix">color-mix in srgb vs oklch:</p>\n<div class="mixes"><i class="srgb"></i><i class="oklch"></i></div>`}
+  css={`:root { --brand: oklch(0.58 0.19 40); color-scheme: light; background: light-dark(white, #1d1a19); color: light-dark(#1d1a19, #f5f5f4); }\n.b { font: 600 1rem system-ui; border: 0; border-radius: .6rem; padding: .6rem 1rem; color: white; background: var(--brand); }\n.b:hover { background: oklch(from var(--brand) calc(l - 0.06) c h); }\n.b:active { background: oklch(from var(--brand) calc(l - 0.12) c h); }\n.chip { padding: .25rem .6rem; border-radius: 99px; background: oklch(from var(--brand) 0.95 calc(c * .25) h); border: 1px solid oklch(from var(--brand) 0.85 calc(c * .5) h); color: oklch(from var(--brand) 0.4 c h); }\n.mixes { display: flex; gap: 4px; width: 16rem; }\n.mixes i { flex: 1; height: 2.5rem; }\n.srgb { background: color-mix(in srgb, blue, yellow); }\n.oklch { background: color-mix(in oklch, blue, yellow); }`}
+/>
+
+## Building palettes
+
+**Tonal scales** (50–950) generated in OKLCH with even lightness steps and chroma that tapers at the extremes. **Neutrals** with a hint of the brand hue (never pure grey). **Semantic** colours (success, warning, danger, info), **state** colours (hover, active, disabled, focus), and **data-visualisation** palettes (categorical, sequential, diverging; colour-blind-safe). Tools: Radix Colors, Tailwind's OKLCH palette, Leonardo, Huetone.
+
+<PaletteLab />
+
+## Colour theory for designers
+
+Hue, saturation, **value**: value contrast carries hierarchy (the squint test). Harmonies (monochromatic, analogous, complementary, split-complementary, triadic) are starting points, not rules. **60-30-10**: a dominant neutral, a secondary, a small accent. Colour psychology and cultural meaning, held with humility. The **brand colour is rarely right** for large surfaces or body text. And restraint: **one accent**.
+
+<Playground
+  id="p15-theory"
+  title="Harmonies from one hue, applied 60-30-10"
+  task="Change the hue input and pick a harmony. Notice how the 60-30-10 layout stays calm with any harmony, and how the complementary accent pops."
+  html={`<label>Base hue <input type="range" id="h" min="0" max="360" value="35"></label>\n<select id="mode"><option>complementary</option><option>analogous</option><option>triadic</option><option>split-complementary</option></select>\n<div class="swatches" id="sw"></div>\n<section class="ui"><header>Header (30%)</header><main>Content surface (60%) <button>Accent (10%)</button></main></section>`}
+  css={`.swatches { display: flex; gap: 4px; margin: .75rem 0; }\n.swatches i { width: 3rem; height: 2rem; border-radius: .3rem; }\n.ui { border-radius: .75rem; overflow: hidden; border: 1px solid #ddd; }\n.ui header { padding: .75rem; background: var(--c2); color: white; }\n.ui main { padding: 1.5rem .75rem; background: var(--c1); }\n.ui button { margin-left: .5rem; border: 0; padding: .4rem .8rem; border-radius: .4rem; background: var(--c3); color: white; font: inherit; }`}
+  js={`const offsets = { complementary: [0, 180], analogous: [0, -30, 30], triadic: [0, 120, 240], 'split-complementary': [0, 150, 210] };\nconst render = () => {\n  const h = Number(document.getElementById('h').value);\n  const hues = offsets[document.getElementById('mode').value].map((o) => (h + o + 360) % 360);\n  document.getElementById('sw').innerHTML = hues.map((x) => '<i style="background:oklch(0.62 0.16 ' + x + ')"></i>').join('');\n  const s = document.querySelector('.ui').style;\n  s.setProperty('--c1', 'oklch(0.97 0.01 ' + hues[0] + ')');\n  s.setProperty('--c2', 'oklch(0.35 0.06 ' + hues[0] + ')');\n  s.setProperty('--c3', 'oklch(0.55 0.18 ' + hues[hues.length - 1] + ')');\n};\ndocument.addEventListener('input', render);\nrender();`}
+/>
+
+## Contrast and accessibility
+
+**WCAG 2** contrast ratio: 4.5:1 for body text, 3:1 for large text (24px, or 18.66px bold), UI component boundaries and focus indicators (1.4.11). Its known flaws: it overrates dark-on-dark and underrates some light-on-dark pairs (white on orange). **APCA**, proposed for WCAG 3, models perception better: use it as a design aid, and meet WCAG 2 for compliance. Never use colour alone to convey meaning (1.4.1).
+
+<ContrastLab />
+
+## Dark mode done properly
+
+`color-scheme` for native controls and scrollbars; `prefers-color-scheme` plus a **user toggle** that persists and doesn't flash (a blocking inline script or a server-side cookie: this site uses the script). A **separate dark palette**, not inversion: lower saturation, **avoid pure black** for large surfaces, **raise elevated surfaces with lighter colours** (shadows barely show on dark), re-check every contrast pair. Dim photos slightly, swap illustrations with `<picture>` and `prefers-color-scheme`, and keep it in one place with `light-dark()`.
+
+<Playground
+  id="p15-dark"
+  title="Elevation by lightness in dark mode"
+  task="Toggle dark mode. In dark, the raised card is lighter than the page, not shadowed. Replace the page background with pure #000 and compare the halation around the text."
+  html={`<label><input type="checkbox" id="dark"> Dark</label>\n<section class="page"><article class="card"><h3>Raised card</h3><p>Elevation in dark mode comes from lighter surfaces.</p><article class="card inner">Higher still</article></article></section>`}
+  css={`:root { color-scheme: light; }\n:root:has(#dark:checked) { color-scheme: dark; }\n.page { padding: 1rem; background: light-dark(oklch(0.97 0.01 60), oklch(0.18 0.01 60)); color: light-dark(oklch(0.2 0.02 60), oklch(0.93 0.01 60)); }\n.card { padding: 1rem; border-radius: .75rem; background: light-dark(white, oklch(0.24 0.012 60)); box-shadow: light-dark(0 1px 2px oklch(0.3 0.03 60 / .1), 0 0 0 1px oklch(1 0 0 / .06)), light-dark(0 8px 24px oklch(0.3 0.03 60 / .12), none); }\n.inner { margin-top: .75rem; background: light-dark(white, oklch(0.3 0.014 60)); }`}
+/>
+
+## Forced colours and high contrast
+
+In Windows' contrast themes, **`forced-colors: active`** replaces your colours with the user's system colours, removes background images and box shadows, and makes borders reappear. Use **system colour keywords** (`Canvas`, `CanvasText`, `LinkText`, `ButtonFace`, `ButtonText`, `Highlight`, `HighlightText`, `GrayText`, `AccentColor`), give custom controls **transparent borders** (they become visible), use `currentColor` in SVG icons, and reserve `forced-color-adjust: none` for rare cases like colour swatches.
+
+<Playground
+  id="p15-forced"
+  title="A selected card that survives forced colours"
+  task="In DevTools → Rendering, emulate `forced-colors: active`. The first card's selection (a background tint and shadow) disappears; the second uses a transparent border and a system colour and stays clear."
+  html={`<div class="card bad selected">Selected (shadow + tint only)</div>\n<div class="card good selected">Selected (with a transparent border)</div>`}
+  css={`.card { padding: 1rem; margin-bottom: .75rem; border-radius: .6rem; background: #f4f1ee; }\n.bad.selected { background: #fde7d9; box-shadow: 0 0 0 3px #fdba74; }\n.good { border: 3px solid transparent; }\n.good.selected { background: #fde7d9; border-color: #c2410c; }\n@media (forced-colors: active) { .good.selected { border-color: Highlight; } }`}
+/>
+
+## Backgrounds
+
+Multiple **layers** (the first listed is on top), `background-size` (`cover`, `contain`, lengths), `background-position` with edge offsets (`right 1rem bottom 1rem`), `background-repeat` (`space`, `round`), `background-origin`/`background-clip` (including **`background-clip: text`** for gradient text), `background-attachment` (and why `fixed` is janky and ignored on iOS), and `image-set()` for resolution and format.
+
+<Playground
+  id="p15-backgrounds"
+  title="Layered backgrounds, edge offsets and gradient text"
+  task="Move the badge layer to `left 1rem top 1rem`, then change the heading's gradient direction."
+  html={`<div class="panel"><h2 class="grad">Gradient text</h2></div>`}
+  css={`.panel { height: 12rem; border-radius: 1rem; padding: 1rem;\n  background:\n    radial-gradient(circle, #fff 0 .6rem, transparent .65rem) right 1rem bottom 1rem / 1.5rem 1.5rem no-repeat,\n    repeating-linear-gradient(45deg, rgb(255 255 255 / .08) 0 10px, transparent 10px 20px),\n    linear-gradient(135deg, #7c2d12, #c2410c); }\n.grad { font: 900 3rem/1 system-ui; margin: 0; background: linear-gradient(90deg, #fde68a, #fdba74, #fff); background-clip: text; color: transparent; }`}
+/>
+
+## Gradients
+
+`linear-gradient`, `radial-gradient` (shape, size keywords like `closest-side`, position), **`conic-gradient`** (pie charts, colour wheels, loaders) and the `repeating-` variants for stripes. Colour stops and **hints** shape transitions. **Interpolate in OKLCH** (`linear-gradient(in oklch, …)`) to avoid the grey dead zone of sRGB; `longer hue` for rainbows. **Easing gradients** (scrims) make text legible over images without a visible edge. Fight banding with a little noise, and fake **mesh gradients** with stacked radials.
+
+<Playground
+  id="p15-gradients"
+  title="sRGB vs OKLCH interpolation, conic charts and a mesh"
+  task="Change the conic chart to 45% / 30% / 25%. Add `longer hue` to the OKLCH gradient."
+  html={`<div class="bar srgb">in srgb</div>\n<div class="bar oklch">in oklch</div>\n<div class="pie" role="img" aria-label="Pie chart: 60% A, 25% B, 15% C"></div>\n<div class="mesh"></div>`}
+  css={`.bar { height: 2.5rem; color: white; font: 600 .9rem system-ui; padding: .6rem; margin-bottom: .4rem; border-radius: .4rem; }\n.srgb { background: linear-gradient(in srgb to right, blue, yellow); }\n.oklch { background: linear-gradient(in oklch to right, blue, yellow); }\n.pie { width: 8rem; aspect-ratio: 1; border-radius: 50%; background: conic-gradient(#c2410c 0 60%, #fdba74 0 85%, #1d1a19 0); display: inline-block; margin: .5rem 1rem 0 0; }\n.mesh { display: inline-block; width: 12rem; height: 8rem; border-radius: 1rem; background: radial-gradient(at 20% 20%, oklch(0.8 0.15 60) 0, transparent 50%), radial-gradient(at 80% 30%, oklch(0.7 0.18 20) 0, transparent 50%), radial-gradient(at 50% 90%, oklch(0.6 0.15 300) 0, transparent 55%), oklch(0.95 0.02 60); }`}
+/>
+
+## Borders, radius and outlines
+
+Border styles, `border-image` (including gradients), `border-radius` with elliptical radii (`50% / 30%`) and percentage tricks, **nested-radius maths** (inner radius = outer radius − padding, or the corners look wrong), **`corner-shape`** (`squircle`, `bevel`, `scoop`, `notch`) **[Frontier]**, and outlines as focus rings (they follow `border-radius` now).
+
+<Playground
+  id="p15-borders"
+  title="Nested radii, gradient borders and corner-shape"
+  task="Change the outer padding to 1rem and fix the inner radius so the corners stay concentric (inner = outer − padding)."
+  html={`<div class="outer"><div class="inner">Concentric corners</div></div>\n<div class="gborder">Gradient border</div>\n<div class="squircle">corner-shape: squircle</div>`}
+  css={`.outer { --r: 1.5rem; --p: .5rem; padding: var(--p); border-radius: var(--r); background: #1d1a19; max-width: 16rem; }\n.inner { border-radius: calc(var(--r) - var(--p)); background: #fed7aa; padding: 1rem; }\n.gborder { margin-top: 1rem; max-width: 16rem; padding: 1rem; border: 3px solid transparent; border-radius: 1rem; background: linear-gradient(white, white) padding-box, linear-gradient(135deg, #f59e0b, #c2410c, #7c3aed) border-box; }\n.squircle { margin-top: 1rem; max-width: 16rem; padding: 1rem; border-radius: 2rem; corner-shape: squircle; background: #c2410c; color: white; }`}
+/>
+
+## Shadows and depth
+
+`box-shadow` (offset, blur, spread, inset, several at once). **Layered shadows** look real: several shadows with increasing blur and decreasing opacity, **tinted with the background hue**, never pure black. Keep one **light source** and a consistent **elevation scale**. `text-shadow` helps legibility on images; **`filter: drop-shadow()`** follows alpha shapes (cut-out images, SVG).
+
+<Playground
+  id="p15-shadows"
+  title="One harsh shadow vs a layered, tinted one"
+  task="Build an elevation scale: add a `.e1` (subtle) and `.e3` (floating) using the same light direction."
+  html={`<div class="row"><div class="card harsh">Single black shadow</div><div class="card layered">Layered, tinted</div></div>\n<svg class="drop" viewBox="0 0 100 100" width="80" height="80"><path d="M50 5 L95 90 L5 90 Z" fill="#fdba74"/></svg>`}
+  css={`body { background: oklch(0.96 0.01 60); }\n.row { display: flex; gap: 1.5rem; padding: 1rem; }\n.card { padding: 1.5rem; border-radius: 1rem; background: white; width: 11rem; }\n.harsh { box-shadow: 5px 5px 10px #000; }\n.layered { box-shadow: 0 1px 1px oklch(0.4 0.05 60 / .08), 0 2px 4px oklch(0.4 0.05 60 / .08), 0 8px 16px oklch(0.4 0.05 60 / .08), 0 24px 48px oklch(0.4 0.05 60 / .1); }\n.drop { filter: drop-shadow(0 6px 8px oklch(0.4 0.1 50 / .35)); margin: 0 1rem; }`}
+/>
+
+## Filters and blending
+
+`filter` (`blur`, `brightness`, `contrast`, `grayscale`, `hue-rotate`, `invert`, `saturate`, `sepia`, `drop-shadow`, `url(#svg-filter)`). **`backdrop-filter`** makes frosted glass: check legibility over the busiest content, provide a fallback, and mind the GPU cost. `mix-blend-mode` and `background-blend-mode` (`multiply`, `screen`, `overlay`, `difference`, `luminosity`), with `isolation: isolate` to contain blending.
+
+<Playground
+  id="p15-glass"
+  title="Frosted glass with a legible fallback"
+  task="Emulate `prefers-reduced-transparency: reduce` in DevTools (or delete the @supports block): the bar becomes opaque. Try `mix-blend-mode: difference` on the heading."
+  html={`<div class="scene">\n  <nav class="glass">Frosted navigation</nav>\n  <h2 class="blend">Blend</h2>\n  <div class="blobs"><i></i><i></i><i></i></div>\n</div>`}
+  css={`.scene { position: relative; height: 14rem; overflow: hidden; border-radius: 1rem; background: #fff7ed; isolation: isolate; }\n.blobs i { position: absolute; width: 8rem; aspect-ratio: 1; border-radius: 50%; }\n.blobs i:nth-child(1) { background: #fb923c; left: 1rem; top: 1rem; }\n.blobs i:nth-child(2) { background: #7c3aed; left: 7rem; top: 3rem; }\n.blobs i:nth-child(3) { background: #0ea5e9; left: 13rem; top: 0; }\n.glass { position: absolute; z-index: 1; inset: .75rem .75rem auto; padding: .75rem 1rem; border-radius: .75rem; font: 600 1rem system-ui; background: white; }\n@supports (backdrop-filter: blur(1px)) {\n  @media (prefers-reduced-transparency: no-preference) {\n    .glass { background: rgb(255 255 255 / .55); backdrop-filter: blur(14px) saturate(1.5); border: 1px solid rgb(255 255 255 / .6); }\n  }\n}\n.blend { position: absolute; z-index: 1; bottom: .5rem; left: 1rem; margin: 0; font: 900 3rem system-ui; color: white; mix-blend-mode: overlay; }`}
+/>
+
+## Masking and clipping
+
+`clip-path` with `inset()`, `circle()`, `ellipse()`, `polygon()`, `path()`, the responsive **`shape()`** function, `xywh()` and `rect()`; animate clip-paths for reveals. `mask-image` with gradients (faded edges, **scroll shadows**) or images; `mask-mode`, `mask-composite`; SVG masks.
+
+<Playground
+  id="p15-masks"
+  title="A clip-path reveal and a scroll-fade mask"
+  task="Hover the image to reveal it. Change the polygon into a hexagon. Make the list's fade only at the bottom."
+  html={`<div class="reveal"></div>\n<ul class="fade">${Array.from({ length: 12 }, (_, i) => '<li>Item ' + (i + 1) + '</li>').join('')}</ul>`}
+  css={`.reveal { width: 12rem; aspect-ratio: 4 / 3; background: linear-gradient(135deg, #fdba74, #c2410c); clip-path: polygon(0 0, 30% 0, 10% 100%, 0 100%); transition: clip-path .4s cubic-bezier(.2, 0, 0, 1); }\n.reveal:hover { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }\n.fade { height: 8rem; overflow: auto; margin-top: 1rem; width: 12rem; mask-image: linear-gradient(transparent, black 1.5rem, black calc(100% - 1.5rem), transparent); }\n@media (prefers-reduced-motion: reduce) { .reveal { transition: none; } }`}
+/>
+
+## Textures and "premium" surfaces
+
+**Grain/noise** overlays (SVG `feTurbulence` or a tiny tiling PNG), glassmorphism with restraint, subtle gradients on "flat" surfaces, an **inner highlight** (a 1px inset light edge), soft glows, **duotones** (blend modes or SVG filters), halftones. Each has a performance cost at full-screen size: measure before shipping.
+
+<Playground
+  id="p15-texture"
+  title="A premium button: gradient, inner highlight, glow and grain"
+  task="Remove each layer one at a time (gradient, inset highlight, glow, grain) and decide which ones earn their place."
+  html={`<button class="premium">Get started</button>\n<svg width="0" height="0" aria-hidden="true"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter></svg>`}
+  css={`body { background: #1d1a19; padding: 2rem; }\n.premium { position: relative; isolation: isolate; overflow: hidden; font: 600 1.1rem system-ui; color: white; border: 0; border-radius: .9rem; padding: .9rem 1.6rem;\n  background: linear-gradient(180deg, oklch(0.68 0.19 45), oklch(0.55 0.2 35));\n  box-shadow: inset 0 1px 0 oklch(1 0 0 / .35), 0 0 0 1px oklch(0.45 0.16 35), 0 8px 24px oklch(0.6 0.2 40 / .45); }\n.premium::after { content: ""; position: absolute; inset: 0; z-index: -1; filter: url(#noise); opacity: .18; mix-blend-mode: overlay; background: white; }`}
+/>
+
+## Other visual properties
+
+`opacity`, `visibility`, `object-fit`, **`image-rendering: pixelated`** (pixel art), `cursor` (custom cursors need a fallback keyword and shouldn't hide the pointer's meaning), **`caret-color`**, `accent-color`, `scrollbar-color`, `-webkit-text-stroke` with `paint-order` for outlined type, and `appearance`.
+
+<Playground
+  id="p15-other"
+  title="Pixelated scaling, outlined type, caret and cursor"
+  task="Switch `image-rendering` to `auto` and see the pixel art blur. Change the caret colour and the stroke width."
+  html={`<img class="pixel" alt="Pixel heart" width="80" height="80" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJ0lEQVR42mNgAIJDjjz/QZgBClD4MA4uTAUF+KxhQAZ4JbG6nlgAAOOVUjExAWwXAAAAAElFTkSuQmCC">\n<h2 class="outline">Outlined</h2>\n<input class="caret" value="Type here: orange caret">\n<button class="help">Hover for the help cursor</button>`}
+  css={`.pixel { image-rendering: pixelated; }\n.outline { font: 900 3rem system-ui; color: white; -webkit-text-stroke: 3px #c2410c; paint-order: stroke fill; margin: .5rem 0; }\n.caret { caret-color: #c2410c; font: inherit; padding: .4rem; width: 16rem; }\n.help { cursor: help; margin-top: .5rem; display: block; font: inherit; }`}
+/>

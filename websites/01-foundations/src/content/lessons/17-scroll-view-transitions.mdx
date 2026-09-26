@@ -1,0 +1,160 @@
+---
+title: "Scroll, Page & Spatial Motion: Scroll-Driven Animations, View Transitions & Beyond"
+source: L1-coding-html-css.md
+part: 17
+tier: Deep → Frontier
+summary: Scroll-driven animations, scroll snap, CSS carousels, scroll behaviour and the scroll-jacking critique, same- and cross-document view transitions, motion beyond CSS (GSAP, Rive, shaders, text and pointer effects), award-site craft, and choosing the right tool.
+anchors:
+  - "Scroll-driven animations replace time with scroll position as the clock. Everything you know about keyframes still applies. Only the timeline changes."
+  - "A view transition is a screenshot crossfade with superpowers: the browser freezes the old state, applies your change, and animates between images. Most weirdness in view transitions is explained by \"these are images, not live elements\"."
+checks:
+  - q: "Build a reading-progress bar and a reveal-on-scroll section with no JavaScript, and explain `animation-range: entry 0% cover 30%`."
+    a: "Progress: a fixed bar with `transform-origin: left; animation: grow linear both; animation-timeline: scroll(root);` where `@keyframes grow { from { scale: 0 1 } }`. Reveal: `animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% cover 30%;`. The range says: start when the element's leading edge enters the scrollport (entry 0%) and finish when it has travelled 30% of the full cover range (from first appearing to fully leaving). This site's reading bar and `.reveal` class work this way."
+  - q: "Build a shared-element transition from a grid of thumbnails to a detail view in a single page, then as a cross-document transition between two HTML files."
+    a: "Same-document: give the clicked thumbnail `view-transition-name: hero` just before calling `document.startViewTransition(() => showDetail(id))`, and give the detail image the same name after the update; the browser morphs one into the other. Cross-document: add `@view-transition { navigation: auto; }` to both pages' CSS, set `view-transition-name: hero` on the thumbnail (in a `pageswap` handler or with an id-specific rule) and on the detail page's image; same-origin navigation then animates with no JavaScript. Names must be unique per snapshot."
+  - q: "Explain why a scroll-snapping carousel with `mandatory` snapping can trap keyboard users, and design the fix."
+    a: "With `mandatory`, the container must rest on a snap point. If a slide is taller or wider than the viewport, content between snap points can't be reached (the browser snaps past it), and arrow-key scrolling jumps whole slides. Fixes: use `proximity`, ensure slides fit the scrollport, add `scroll-snap-stop: normal`, give every slide focusable content or real previous/next buttons (or `::scroll-button()`), and don't hide overflow content."
+  - q: "Take one GSAP ScrollTrigger effect and reimplement it with native scroll-driven animations. List what you couldn't reproduce."
+    a: "E.g. a pinned section whose image scales while text steps scroll past: native `position: sticky` pins, `animation-timeline: view()` with `animation-range: contain` scales the image. Not reproducible natively (or awkward): scrub smoothing/inertia (`scrub: 1`), callbacks on enter/leave (use scroll-state queries or a tiny IntersectionObserver), snapping to labels in a timeline, and sequencing many tweens with relative offsets on one timeline."
+build: "A scrollytelling story (a data story or product narrative): a sticky visual pinned while text steps scroll past, scroll-driven chart reveals, snapping chapters, cross-document view transitions between chapters, a WebGL or SVG-filter hero with a static fallback, a full reduced-motion mode, and a performance trace at 4× CPU throttling."
+steps:
+  - "Outline 5 chapters; each is its own HTML page with `@view-transition { navigation: auto; }`."
+  - "Sticky visual + stepping text with `view()` timelines and `animation-range`."
+  - "Scroll-driven chart reveals (bars grow as they enter)."
+  - "Snapping chapter openers with `proximity`."
+  - "An SVG-filter or WebGL hero with a static fallback."
+  - "Reduced-motion mode: no scroll-linked movement, crossfades only."
+  - "Trace at 4× CPU throttling and fix any long frames."
+taste: "Spectacle is easy to add and hard to justify. Put one memorable motion moment on a page, make everything else quiet and fast, and make the whole experience work perfectly with motion turned off."
+quiz:
+  - q: "Which timeline tracks an element's progress through the scrollport?"
+    options: ["`scroll()`", "`view()`", "`document.timeline`"]
+    answer: 1
+    why: "view() follows one element's visibility; scroll() follows a scroll container's overall progress."
+  - q: "What do both pages need for a cross-document view transition?"
+    options: ["The same JavaScript", "`@view-transition { navigation: auto; }` and the same origin", "A service worker"]
+    answer: 1
+    why: "Both documents must opt in, and the navigation must be same-origin."
+  - q: "Why do text morphs in view transitions sometimes look stretched?"
+    options: ["A browser bug", "Old and new states are images, scaled between two sizes", "Fonts aren't loaded"]
+    answer: 1
+    why: "The group animates between two bitmaps; when their aspect ratios differ, the images stretch unless you adjust object-fit or the animation."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+
+## Scroll-driven animations
+
+Replace the clock with scroll position: **`animation-timeline: scroll()`** follows a scroll container's progress; **`view()`** follows one element's journey through the scrollport. Name timelines with `scroll-timeline`/`view-timeline` and share them across the tree with `timeline-scope`. **`animation-range`** (`entry`, `exit`, `cover`, `contain`, with offsets) chooses which part of the journey drives the keyframes. They run on the compositor where possible and replace most scroll listeners and IntersectionObserver class toggles: reading-progress bars, reveals, parallax, sticky storytelling, image sequences, horizontal sections, shrinking headers. (The reading bar at the top of this page and the card reveals on the home page are scroll-driven.)
+
+<Playground
+  id="p17-scroll-driven"
+  title="Progress bar, reveal-on-scroll and a shrinking header, no JavaScript"
+  task="Scroll inside the preview. Change the reveal's range to `entry 0% entry 100%` and compare. Then make the header shrink over the first 200px of scroll."
+  html={`<header class="top"><div class="progress"></div><h1>Scroll story</h1></header>\n<main>${Array.from({ length: 6 }, (_, i) => '<section class="reveal"><h2>Chapter ' + (i + 1) + '</h2><p>Scroll-driven animations use scroll position as their clock.</p></section>').join('')}</main>`}
+  css={`body { margin: 0; }\n.top { position: sticky; top: 0; background: white; padding: 1rem; z-index: 1; animation: shrink linear both; animation-timeline: scroll(root); animation-range: 0 200px; }\n.top h1 { margin: 0; font-size: 1.5rem; }\n@keyframes shrink { to { padding-block: .25rem; box-shadow: 0 4px 12px rgb(0 0 0 / .1); } }\n.progress { position: absolute; inset: auto 0 0 0; height: 4px; background: #c2410c; transform-origin: left; animation: grow linear both; animation-timeline: scroll(root); }\n@keyframes grow { from { scale: 0 1; } }\nsection { margin: 2rem 1rem; padding: 2rem 1rem; background: #fff4ed; border-radius: 1rem; }\n@media (prefers-reduced-motion: no-preference) {\n  .reveal { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% cover 30%; }\n}\n@keyframes reveal { from { opacity: 0; translate: 0 2rem; } }`}
+/>
+
+## Scroll snap
+
+`scroll-snap-type` (`x`/`y`, `mandatory`/`proximity`) on the container, **`scroll-snap-align`** on children, `scroll-snap-stop: always` to stop flings skipping items, and **`scroll-padding`** / **`scroll-margin`** (also used so sticky headers don't cover anchor targets). Snap events `scrollsnapchange` and `scrollsnapchanging` **[Frontier]**. **Mandatory snapping becomes a trap** when content is taller or wider than the viewport: the browser snaps past what you need to read.
+
+<Playground
+  id="p17-snap"
+  title="Snapping gallery, and a mandatory-snap trap"
+  task="Scroll both. In the second, the tall middle card can't be read fully because mandatory snapping pulls you past it. Change it to `proximity`."
+  html={`<div class="gallery">${Array.from({ length: 6 }, (_, i) => '<div class="slide">' + (i + 1) + '</div>').join('')}</div>\n<div class="trap"><div class="card">Short</div><div class="card tall">Tall card: the end of this text is hard to reach with mandatory snapping. Keep reading... the last line is here.</div><div class="card">Short</div></div>`}
+  css={`.gallery { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 1rem; padding: 1rem; }\n.slide { flex: 0 0 70%; height: 8rem; scroll-snap-align: start; border-radius: 1rem; background: linear-gradient(135deg, #fdba74, #c2410c); display: grid; place-items: center; color: white; font: 800 2rem system-ui; }\n.trap { height: 10rem; overflow-y: auto; scroll-snap-type: y mandatory; border: 2px solid #1d1a19; margin-top: 1rem; }\n.card { height: 10rem; scroll-snap-align: start; padding: 1rem; border-bottom: 1px dashed #aaa; }\n.tall { height: 22rem; }`}
+/>
+
+## CSS carousels **[Frontier]**
+
+Carousels built on scroll containers get keyboard, touch and assistive-technology support for free. New pseudo-elements add controls: **`::scroll-marker`** on each item and **`scroll-marker-group`** on the container create dot navigation (styled with **`:target-current`**), and **`::scroll-button(left|right)`** creates previous/next buttons. The browser supplies the accessibility semantics (a tablist of markers, labelled buttons).
+
+<Playground
+  id="p17-carousel"
+  title="A carousel with native markers and buttons"
+  task="In a supporting engine, use the generated dots and arrows. Elsewhere it's still a scroll-snapping list. Change the marker style for the active dot."
+  html={`<ul class="carousel" aria-label="Featured products">${['Lamp', 'Chair', 'Rug', 'Vase', 'Clock'].map((p) => '<li><span>' + p + '</span></li>').join('')}</ul>`}
+  css={`.carousel { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; list-style: none; padding: 1rem 0; scroll-marker-group: after; anchor-name: --c; }\n.carousel li { flex: 0 0 60%; scroll-snap-align: center; height: 8rem; border-radius: 1rem; background: #fed7aa; display: grid; place-items: center; font: 700 1.5rem system-ui; }\n.carousel li::scroll-marker { content: ""; width: .75rem; height: .75rem; border-radius: 50%; background: #d6d3d1; }\n.carousel li::scroll-marker:target-current { background: #c2410c; }\n.carousel::scroll-marker-group { display: flex; gap: .5rem; justify-content: center; }\n.carousel::scroll-button(left) { content: "◀" / "Previous"; }\n.carousel::scroll-button(right) { content: "▶" / "Next"; }\n.carousel::scroll-button(*) { position: absolute; position-anchor: --c; top: anchor(center); border: 0; border-radius: 50%; width: 2rem; height: 2rem; background: #1d1a19; color: white; }\n.carousel::scroll-button(left) { left: anchor(left); }\n.carousel::scroll-button(right) { right: anchor(right); }`}
+/>
+
+## Scrolling behaviour and the scroll-jacking critique
+
+`scroll-behavior: smooth` (always behind `prefers-reduced-motion: no-preference`), `overscroll-behavior: contain` (no scroll chaining from modals and drawers), **scroll anchoring** (`overflow-anchor`: the browser keeps your place when content loads above), `scrollbar-gutter`, and scroll-state queries (Part 13). **Scroll-jacking** and smooth-scroll libraries (Lenis and friends) are beautiful on trackpads and hostile to keyboard, assistive-technology and low-power users unless handled carefully: they fight the platform's own physics.
+
+<Playground
+  id="p17-scrolling"
+  title="Smooth scrolling gated on reduced motion, and scroll anchoring"
+  task="Click the jump link: smooth only if you allow motion. Then press Insert above while reading item 20: scroll anchoring keeps your place. Set `overflow-anchor: none` and try again."
+  html={`<a href="#item-20">Jump to item 20</a> <button id="insert">Insert above</button>\n<div class="feed" id="feed">${Array.from({ length: 30 }, (_, i) => '<p id="item-' + (i + 1) + '">Item ' + (i + 1) + '</p>').join('')}</div>`}
+  css={`@media (prefers-reduced-motion: no-preference) { .feed { scroll-behavior: smooth; } }\n.feed { height: 12rem; overflow-y: auto; border: 2px solid #1d1a19; margin-top: .5rem; overflow-anchor: auto; }\n.feed p { margin: 0; padding: .5rem; border-bottom: 1px solid #eee; }\n:target { background: #fef3c7; }`}
+  js={`document.getElementById('insert').addEventListener('click', () => {\n  const feed = document.getElementById('feed');\n  const p = document.createElement('p');\n  p.textContent = 'New item at the top';\n  p.style.height = '4rem';\n  feed.prepend(p);\n});`}
+/>
+
+## View Transitions
+
+### Same-document
+
+`document.startViewTransition(update)`: the browser snapshots the old state, runs your update, snapshots the new state, and animates between them. Give elements a **`view-transition-name`** for shared-element morphs (a thumbnail becoming a hero), `view-transition-class` to style groups, `match-element` for automatic names **[Frontier]**. Style the **pseudo-element tree** (`::view-transition`, `::view-transition-group(name)`, `::view-transition-image-pair()`, `::view-transition-old()`, `::view-transition-new()`) with normal CSS animations; use **transition types** for directional navigation and `:active-view-transition` for global styles during the transition. Respect reduced motion.
+
+### Cross-document (multi-page)
+
+Add **`@view-transition { navigation: auto; }`** to both pages. Same-origin navigations then animate with no JavaScript; the `pageswap` and `pagereveal` events customise them, and `<link rel="expect" blocking="render">` holds the first paint until key content arrives. **Multi-page sites get app-like transitions with zero framework**: navigate between lessons on this site to see the page fade out and rise in while the logo stays put.
+
+### Pitfalls
+
+Names must be **unique per snapshot**; aspect-ratio changes stretch images (set `object-fit` on the image pair); text distorts during morphs; long-running updates freeze the page (the old snapshot stays up); and you must manage focus and scroll after the swap.
+
+<Playground
+  id="p17-view-transition"
+  title="Thumbnail to detail with a shared-element view transition"
+  task="Click a thumbnail, then Back. Slow it down by setting the group animation-duration to 2s. Remove the `view-transition-name` lines and see it fall back to a crossfade."
+  html={`<ul class="grid" id="grid">${['#fdba74', '#c2410c', '#7c3aed', '#0ea5e9'].map((c, i) => '<li><button class="thumb" data-i="' + i + '" style="background:' + c + '" aria-label="Open item ' + (i + 1) + '"></button></li>').join('')}</ul>\n<section class="detail" id="detail" hidden><div class="hero" id="hero"></div><h3 id="title"></h3><button id="back">Back</button></section>`}
+  css={`.grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }\n.thumb { width: 100%; aspect-ratio: 1; border: 0; border-radius: .75rem; }\n.hero { height: 10rem; border-radius: 1rem; }\n::view-transition-group(*) { animation-duration: .35s; animation-timing-function: cubic-bezier(.2, 0, 0, 1); }\n@media (prefers-reduced-motion: reduce) { ::view-transition-group(*) { animation-duration: 0s; } }`}
+  js={`const grid = document.getElementById('grid'), detail = document.getElementById('detail'), hero = document.getElementById('hero');\nconst swap = (update) => (document.startViewTransition ? document.startViewTransition(update) : update());\nlet current;\ngrid.addEventListener('click', (e) => {\n  const t = e.target.closest('.thumb');\n  if (!t) return;\n  current = t;\n  t.style.viewTransitionName = 'hero';\n  swap(() => {\n    t.style.viewTransitionName = '';\n    hero.style.background = t.style.background;\n    hero.style.viewTransitionName = 'hero';\n    document.getElementById('title').textContent = 'Item ' + (Number(t.dataset.i) + 1);\n    grid.hidden = true; detail.hidden = false;\n    document.getElementById('back').focus();\n  });\n});\ndocument.getElementById('back').addEventListener('click', () => {\n  swap(() => {\n    hero.style.viewTransitionName = '';\n    current.style.viewTransitionName = 'hero';\n    grid.hidden = false; detail.hidden = true;\n    current.focus();\n  }).finished?.then(() => (current.style.viewTransitionName = ''));\n});`}
+/>
+
+```css
+/* Cross-document transitions on every page of this site (shared/styles/motion.css) */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root) { animation: var(--duration-fast) var(--ease-in) both vt-fade-out; }
+  ::view-transition-new(root) { animation: var(--duration-slow) var(--ease-out) both vt-rise-in; }
+}
+.brand { view-transition-name: site-brand; } /* the logo is its own group: it stays put */
+```
+
+## Beyond CSS: libraries, authored animation, shaders, text and pointer effects
+
+- **GSAP** (timelines, ScrollTrigger, SplitText, Flip, MorphSVG; now free) is the creative-motion workhorse; **Motion** (formerly Framer Motion) for React layout animations and gestures; **Lenis** for smooth scroll; **Theatre.js** for authored timelines.
+- **Designer-authored animation**: Lottie (After Effects → JSON) and **Rive** (interactive state machines), with their bundle and runtime costs.
+- **3D and shaders**: Three.js / React Three Fiber, GLSL fragment shaders, post-processing, WebGPU **[Frontier]**, with obligations: pause, fallbacks, reduced motion, battery.
+- **Text effects**: split-text animation is accessible only when the original text stays in the accessibility tree and the split spans are `aria-hidden`; kinetic type, variable-axis animation, scramble effects, marquees (with a pause).
+- **Pointer-driven effects**: custom cursors, magnetic buttons, a spotlight following the pointer (a custom property updated on `pointermove`), tilt cards, and the touch and keyboard alternatives each needs.
+
+<Playground
+  id="p17-beyond"
+  title="Accessible split text and a pointer spotlight"
+  task="Inspect the heading: screen readers get one aria-label, the letters are aria-hidden. Move the pointer over the card (keyboard users get the glow on focus). Make the letters stagger slower."
+  html={`<h2 class="split" aria-label="Made with care"></h2>\n<button class="spot">Pointer spotlight card</button>`}
+  css={`.split span { display: inline-block; white-space: pre; animation: rise .6s cubic-bezier(.05, .7, .1, 1) both; animation-delay: calc(var(--i) * 30ms); }\n@keyframes rise { from { opacity: 0; translate: 0 .6em; } }\n.spot { --x: 50%; --y: 50%; width: 100%; height: 8rem; border: 0; border-radius: 1rem; color: white; font: 600 1rem system-ui; background: radial-gradient(circle 8rem at var(--x) var(--y), rgb(255 255 255 / .25), transparent 70%), #1d1a19; }\n.spot:focus-visible { --x: 50%; --y: 50%; outline: 3px solid #c2410c; }\n@media (prefers-reduced-motion: reduce) { .split span { animation: none; } }`}
+  js={`const h = document.querySelector('.split');\n[...h.getAttribute('aria-label')].forEach((ch, i) => {\n  const s = document.createElement('span');\n  s.textContent = ch; s.style.setProperty('--i', i); s.setAttribute('aria-hidden', 'true');\n  h.append(s);\n});\nconst spot = document.querySelector('.spot');\nspot.addEventListener('pointermove', (e) => {\n  const r = spot.getBoundingClientRect();\n  spot.style.setProperty('--x', (e.clientX - r.left) + 'px');\n  spot.style.setProperty('--y', (e.clientY - r.top) + 'px');\n});`}
+/>
+
+## "Awwwards-level" craft, deconstructed
+
+Award-winning sites usually combine: **strong typography**, **a grid**, **restrained colour**, **one signature interaction**, page transitions, scroll choreography, preloaders that earn their wait, and opt-in sound. Study them by slowing animations down (DevTools → Animations panel at 10%), reading their CSS and JavaScript, and tracing performance. And critique them: many are inaccessible, heavy and fragile. **Learn the craft and refuse the costs.**
+
+<Try task="Pick one award-winning site. With the Animations panel at 10% speed and a Performance trace, write down: its signature interaction, how it's built (CSS, WAAPI, GSAP, WebGL), its JavaScript weight, and what happens with reduced motion and a keyboard.">
+  A typical write-up: "Signature: a WebGL image distortion on hover (Three.js shader, ~600 KB JS). Page transitions via GSAP + a router. Scroll uses Lenis. Reduced motion: ignored, parallax still runs. Keyboard: the custom cursor hides focus, and the menu isn't reachable with Tab." Then redesign it: keep the signature distortion behind `prefers-reduced-motion: no-preference`, replace the router with cross-document view transitions, and drop Lenis.
+</Try>
+
+## Choosing the tool
+
+CSS transitions → CSS animations → scroll-driven animations / view transitions → WAAPI → a motion library → canvas/WebGL. **Move right only when the step to the left genuinely can't do it.**
+
+<Try task="Choose the lightest tool for: a button hover, a looping loading indicator, a header that shrinks on scroll, a list that animates reordering, a drag-to-dismiss sheet with velocity, and a 3D product turntable.">
+  Hover: CSS transition. Loading indicator: CSS animation (paused under reduced motion). Shrinking header: scroll-driven animation (or a scroll-state query). Reordering list: view transition with `view-transition-name` per item, or FLIP with WAAPI. Drag-to-dismiss with velocity: a motion library (gestures and velocity hand-off) or hand-written pointer events with a spring. 3D turntable: WebGL (Three.js) with a static image fallback.
+</Try>

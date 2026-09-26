@@ -91,6 +91,35 @@ export function rgbToHex(rgb: Rgb): string {
     .join('')}`;
 }
 
+/** HSL (h in degrees, s and l 0..1) -> gamma-encoded sRGB, for comparing HSL scales with OKLCH ones. */
+export function hslToRgb(h: number, s: number, l: number): Rgb {
+  const k = (n: number): number => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+  return [f(0), f(8), f(4)];
+}
+
+/**
+ * Nudges a text colour's OKLCH lightness (away from the background) until it reaches the
+ * target WCAG contrast ratio; returns undefined if even black or white can't reach it.
+ */
+export function fixContrast(text: Oklch, background: Rgb, target = 4.5): Oklch | undefined {
+  if (contrastRatio(oklchToSrgb(text), background) >= target) return text;
+  const darker = relativeLuminance(background) > 0.18;
+  let lo = darker ? 0 : text.l;
+  let hi = darker ? text.l : 1;
+  const passes = (l: number): boolean =>
+    contrastRatio(oklchToSrgb({ ...text, l }), background) >= target;
+  if (!passes(darker ? 0 : 1)) return undefined;
+  for (let i = 0; i < 30; i += 1) {
+    const mid = (lo + hi) / 2;
+    // move towards the original lightness while the target still holds
+    if (passes(mid) === darker) lo = mid;
+    else hi = mid;
+  }
+  return { ...text, l: darker ? lo : hi };
+}
+
 /** Parses the subset of CSS colour syntax the tokens use: `oklch(L C H [/ A])` and hex. */
 export function parseCssColor(input: string): Oklch {
   const value = input.trim();

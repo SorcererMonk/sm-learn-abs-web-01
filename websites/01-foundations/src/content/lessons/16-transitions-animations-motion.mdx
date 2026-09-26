@@ -1,0 +1,265 @@
+---
+title: Transitions, Animations & Motion Design
+source: L1-coding-html-css.md
+part: 16
+tier: Core → Deep
+summary: Why UI motion exists, transitions, entry and exit from display none, animating to auto, keyframes, easing, transforms and 3D, motion paths, animated custom properties, WAAPI, FLIP, performance, accessibility, motion design principles, springs and micro-interactions.
+anchors:
+  - "Motion is a sentence: something *was* here, *moves*, and *is now* there. If the user can't read the sentence (too fast, too slow, no direction), the motion failed however smooth it was."
+  - "Compositor-only properties are the fast lane. `transform` and `opacity` animate on a separate thread even when the main thread is busy. Everything else competes with your JavaScript for the same 16 ms."
+checks:
+  - q: "Animate a `<dialog>` and a popover in *and out* with no JavaScript, including the backdrop, and explain `@starting-style` and `allow-discrete`."
+    a: "Transition `opacity`, `translate`, and also `display` and `overlay` with `allow-discrete`: `dialog { transition: opacity .25s, translate .25s, display .25s allow-discrete, overlay .25s allow-discrete; opacity: 0; translate: 0 1rem; } dialog[open] { opacity: 1; translate: 0; } @starting-style { dialog[open] { opacity: 0; translate: 0 1rem; } }` and the same for `::backdrop`. `@starting-style` supplies the \"before\" values for an element's first style (it was `display: none`, so there was nothing to transition from). `allow-discrete` lets `display` and `overlay` (discrete properties) flip at the right end of the transition: they stay visible and in the top layer until the exit animation finishes."
+  - q: "Write a spring-like easing with `linear()` and compare it to `cubic-bezier` ease-out."
+    a: "Simulate a damped spring (e.g. response 0.5s, bounce 0.25), sample its position at ~30–40 evenly spaced times until it settles, and list them: `linear(0, 0.14, 0.44, 0.78, 1.02, 1.12, 1.1, 1.04, 0.99, 0.98, 0.99, 1)` over the settle duration. Unlike `cubic-bezier(0.2, 0, 0, 1)`, which decelerates smoothly into the target, the spring overshoots and settles, which reads as physical. The easing lab on this page generates both."
+  - q: "Explain why animating `height` janks under load while animating `transform: scaleY` doesn't, and when the latter is unacceptable (text distortion)."
+    a: "`height` changes geometry, so every frame runs style, layout, paint and composite on the main thread, competing with JavaScript; a busy main thread drops frames. `scaleY` is a compositor-only change to an already painted layer, so it keeps running smoothly on the compositor thread. But scaling distorts content: text and borders squash. It's fine for backgrounds or when counter-scaling children (FLIP), not for a panel of text; use `interpolate-size` or the grid `0fr → 1fr` technique for those."
+  - q: "Implement FLIP for reordering a list by hand with WAAPI."
+    a: "First: record each item's `getBoundingClientRect()`. Last: reorder the DOM. Invert: for each item compute `dx = first.left − last.left`, `dy = first.top − last.top`. Play: `item.animate([{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'none' }], { duration: 250, easing: 'cubic-bezier(.2,0,0,1)' })`. The FLIP playground on this page does exactly this."
+  - q: "Design a reduced-motion variant for a hero with parallax, a page transition, and an auto-playing carousel."
+    a: "Parallax: remove the differential movement entirely (it's the classic vestibular trigger) and show a static layered image. Page transition: replace slides and zooms with a short crossfade (150 ms), keeping the continuity cue. Carousel: don't auto-advance at all; show controls and let the user move it (auto-advancing beyond 5 s also needs a pause button for everyone under WCAG 2.2.2)."
+build: "A micro-interaction library of 20 components (buttons, toggles, checkboxes, inputs, tabs, accordions with `height: auto`, toasts, dialogs, menus, skeletons, progress rings with `@property`, a like button, a copy-to-clipboard confirmation), each with motion tokens, a reduced-motion variant, and a performance trace proving compositor-only animation where claimed."
+steps:
+  - "Define motion tokens: 150/250/400 ms and standard/out/in/spring easings (this site's tokens)."
+  - "Build the 20 components, each using only tokens."
+  - "Give each a reduced-motion variant (fade instead of move, keep feedback)."
+  - "Record a Performance trace for each animated state; confirm compositor-only where claimed."
+  - "Document each: purpose of the motion, duration, easing, trigger."
+taste: "Fast, subtle, and purposeful beats slow, bouncy, and impressive. The best UI motion is felt, not watched: users should notice that the interface feels responsive, not that it animates."
+quiz:
+  - q: "Which easing suits an element entering the screen?"
+    options: ["ease-in", "ease-out (decelerate into place)", "linear"]
+    answer: 1
+    why: "Entrances decelerate to rest; exits accelerate away (ease-in)."
+  - q: "What does `animation-fill-mode: forwards` do?"
+    options: ["Plays the animation forwards", "Keeps the last keyframe's styles after the animation ends", "Starts from the end"]
+    answer: 1
+    why: "Without it, the element snaps back to its un-animated style when the animation finishes."
+  - q: "Under `prefers-reduced-motion: reduce`, the recommended approach is to…"
+    options: ["Remove all animation", "Reduce: replace large movement with fades and keep feedback", "Ignore it"]
+    answer: 1
+    why: "Motion can still explain change; it's large, vestibular-triggering movement that should go."
+---
+
+import Try from '@learn/shared/components/Try.astro';
+import Playground from '@learn/shared/components/Playground.astro';
+import EasingLab from '@learn/shared/components/demos/EasingLab.astro';
+import { springFromDurationBounce, springToLinear } from '@learn/shared/lib/motion.ts';
+
+export const lively = springToLinear(springFromDurationBounce(0.5, 0.3), 28);
+export const calm = springToLinear(springFromDurationBounce(0.5, 0), 20);
+
+## Why motion exists in UI
+
+Motion earns its place by doing one of five jobs: **explaining change** (continuity between states), **directing attention**, **giving feedback** (a press, a success), **expressing brand**, and **making waiting feel shorter**. Motion without one of these reasons is decoration that costs performance and accessibility.
+
+<Playground
+  id="p16-why"
+  title="The same state change with and without motion"
+  task="Add an item in each list. In the second, the new item grows in and highlights, so you can see where it went. Which job is that motion doing?"
+  html={`<div class="cols"><section><h4>No motion</h4><button class="add">Add item</button><ul></ul></section><section class="moving"><h4>With motion</h4><button class="add">Add item</button><ul></ul></section></div>`}
+  css={`.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }\nul { list-style: none; padding: 0; display: grid; gap: .25rem; }\nli { background: #f4f1ee; padding: .4rem .6rem; border-radius: .4rem; }\n.moving li:last-child { animation: arrive .4s cubic-bezier(.05, .7, .1, 1), flash 1.2s ease-out; }\n@keyframes arrive { from { opacity: 0; translate: 0 -.5rem; } }\n@keyframes flash { from { background: #fdba74; } }\n@media (prefers-reduced-motion: reduce) { .moving li:last-child { animation: flash 1.2s ease-out; } }`}
+  js={`let n = 0;\ndocument.querySelectorAll('.add').forEach((b) => b.addEventListener('click', () => {\n  const li = document.createElement('li');\n  li.textContent = 'Item ' + (++n);\n  b.nextElementSibling.append(li);\n}));`}
+/>
+
+## Transitions
+
+`transition-property`, `-duration`, `-timing-function`, `-delay`, or the shorthand with several comma-separated transitions. **`transition: all` is an anti-pattern**: it animates things you didn't intend (a colour-scheme switch, a layout change) and costs performance. What can animate depends on each property's *animation type* (discrete properties flip instead of interpolating). `transitionrun`, `transitionstart`, `transitionend` and `transitioncancel` events let scripts follow along.
+
+<Playground
+  id="p16-transitions"
+  title="Specific transitions vs transition: all"
+  task="Hover both buttons, then toggle the 'big' class on each (click). The `all` button animates its padding change too, which you probably didn't want."
+  html={`<button class="t specific">Specific</button> <button class="t all">transition: all</button>`}
+  css={`.t { font: 600 1rem system-ui; padding: .6rem 1rem; border: 0; border-radius: .6rem; background: #1d1a19; color: white; }\n.t:hover { background: #c2410c; scale: 1.04; }\n.t.big { padding: 1.2rem 2rem; }\n.specific { transition: background-color .15s ease-out, scale .15s ease-out; }\n.all { transition: all .6s ease-out; }`}
+  js={`document.querySelectorAll('.t').forEach((b) => {\n  b.addEventListener('click', () => b.classList.toggle('big'));\n  b.addEventListener('transitionend', (e) => console.log(b.textContent + ': ' + e.propertyName + ' ended'));\n});`}
+/>
+
+## Entry and exit from `display: none`
+
+Elements that appear from `display: none` have no previous style to transition from. **`@starting-style`** provides it: the "before-open" values for an element's first style. On exit, **`transition-behavior: allow-discrete`** lets `display` (and `overlay` for top-layer elements) flip *after* the exit transition instead of immediately. Together they animate dialogs and popovers in and out with no JavaScript.
+
+<Playground
+  id="p16-entry-exit"
+  title="Dialog and popover, animated in and out in pure CSS"
+  task="Open and close both. Then delete the @starting-style blocks: the entrance disappears, but the exit still works."
+  html={`<button commandfor="d" command="show-modal">Open dialog</button>\n<button popovertarget="p">Toggle popover</button>\n<dialog id="d"><p>Animated dialog</p><button commandfor="d" command="close">Close</button></dialog>\n<div id="p" popover>Animated popover</div>`}
+  css={`dialog, [popover] { border: 0; border-radius: .75rem; padding: 1rem; opacity: 1; translate: 0 0;\n  transition: opacity .25s, translate .25s cubic-bezier(.2, 0, 0, 1), display .25s allow-discrete, overlay .25s allow-discrete; }\ndialog:not([open]), [popover]:not(:popover-open) { opacity: 0; translate: 0 1rem; }\n@starting-style { dialog[open], [popover]:popover-open { opacity: 0; translate: 0 1rem; } }\ndialog::backdrop { background: rgb(0 0 0 / .4); transition: background .25s, display .25s allow-discrete, overlay .25s allow-discrete; }\ndialog:not([open])::backdrop { background: transparent; }\n@starting-style { dialog[open]::backdrop { background: transparent; } }\n@media (prefers-reduced-motion: reduce) { dialog, [popover] { translate: 0 0 !important; } }`}
+  js={`if (!('command' in HTMLButtonElement.prototype)) {\n  document.querySelectorAll('[commandfor]').forEach((b) => b.addEventListener('click', () => {\n    const d = document.getElementById(b.getAttribute('commandfor'));\n    b.getAttribute('command') === 'show-modal' ? d.showModal() : d.close();\n  }));\n}`}
+/>
+
+## Animating to `auto`
+
+`height: auto` couldn't animate because `auto` isn't a number. Now **`interpolate-size: allow-keywords`** (set once on `:root`) and **`calc-size()`** **[Frontier]** let browsers interpolate to intrinsic sizes: accordions without measuring in JavaScript. Older techniques still matter as fallbacks: **grid-template-rows `0fr` → `1fr`**, max-height hacks (guessing a maximum), and FLIP.
+
+<Playground
+  id="p16-auto"
+  title="Three ways to animate to height: auto"
+  task="Open each panel. Then remove `interpolate-size` from :root and see which technique still animates."
+  html={`<details class="a"><summary>interpolate-size + ::details-content</summary><p>Animates to its natural height with no measuring. It works for any amount of content.</p></details>\n<div class="grid-way"><button type="button" aria-expanded="false" id="g">Grid 0fr → 1fr</button><div class="wrap"><div><p>The panel's grid row goes from 0fr to 1fr, and its child's overflow is hidden.</p></div></div></div>`}
+  css={`:root { interpolate-size: allow-keywords; }\n.a::details-content { block-size: 0; overflow: hidden; transition: block-size .3s cubic-bezier(.2, 0, 0, 1), content-visibility .3s allow-discrete; }\n.a[open]::details-content { block-size: auto; }\n.wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s cubic-bezier(.2, 0, 0, 1); }\n.wrap > div { overflow: hidden; }\n[aria-expanded="true"] + .wrap { grid-template-rows: 1fr; }\nsummary, button { font: 600 1rem system-ui; margin: .5rem 0; }`}
+  js={`const g = document.getElementById('g');\ng.addEventListener('click', () => g.setAttribute('aria-expanded', String(g.getAttribute('aria-expanded') !== 'true')));`}
+/>
+
+## Keyframe animations
+
+`@keyframes` with percentages; `animation-name`, `-duration`, `-timing-function` (per keyframe too), `-delay` (**negative delays** start mid-way, great for desynchronising loops), `-iteration-count`, `-direction`, **`-fill-mode`** (`forwards` keeps the end state, `backwards` applies the first keyframe during the delay, `both`), `-play-state`, **`animation-composition`** (`add`, `accumulate`: stack animations on the same property), and several animations at once.
+
+<Playground
+  id="p16-keyframes"
+  title="fill-mode, negative delays and composition"
+  task="Remove `forwards` from the first bar and watch it snap back. Change the dots' delays to make a wave. Add a second animation to the square with `animation-composition: add`."
+  html={`<div class="bar"></div>\n<div class="dots"><i style="--d:0"></i><i style="--d:1"></i><i style="--d:2"></i><i style="--d:3"></i></div>\n<div class="sq"></div>`}
+  css={`.bar { height: .6rem; width: 0; background: #c2410c; animation: grow 1.5s cubic-bezier(.2, 0, 0, 1) 1 forwards; }\n@keyframes grow { to { width: 100%; } }\n.dots { display: flex; gap: .5rem; margin: 1rem 0; }\n.dots i { width: 1rem; height: 1rem; border-radius: 50%; background: #1d1a19; animation: bob 1s ease-in-out infinite alternate; animation-delay: calc(var(--d) * -0.25s); }\n@keyframes bob { to { translate: 0 -.75rem; } }\n.sq { width: 3rem; height: 3rem; background: #fdba74; animation: spin 3s linear infinite; }\n@keyframes spin { to { rotate: 1turn; } }\n@media (prefers-reduced-motion: reduce) { .dots i, .sq { animation: none; } }`}
+/>
+
+## Easing
+
+`linear`; `ease`; **`ease-in`** for exits (accelerate away); **`ease-out`** for entrances (the default choice for UI); `ease-in-out` for movement on screen; **`cubic-bezier()`** (read the curve; y values outside 0–1 overshoot); **`steps()`** for sprite animation and typewriters; and **`linear()`** with many stops for **spring and bounce approximations** in pure CSS. Easing is where motion gets its personality.
+
+<EasingLab />
+
+## Transforms
+
+`translate`, `rotate`, `scale`, `skew`, `matrix`. The **individual transform properties** (`translate:`, `rotate:`, `scale:`) animate independently, so a hover scale doesn't fight a keyframed rotation. In the `transform` list, **order matters** (functions apply right to left: `rotate(45deg) translate(100px)` orbits; `translate(100px) rotate(45deg)` moves then spins). `transform-origin` sets the pivot (`transform-box: fill-box` for SVG). Transforms **don't affect layout**: siblings don't move.
+
+<Playground
+  id="p16-transforms"
+  title="Transform order, origin and independent properties"
+  task="Swap the order of the functions on `.b`. Then hover the card: its `scale` animates without disturbing the keyframed `rotate`."
+  html={`<div class="stage"><div class="box a">translate → rotate</div><div class="box b">rotate → translate</div></div>\n<div class="card">Hover me</div>`}
+  css={`.stage { position: relative; height: 10rem; }\n.box { position: absolute; top: 3rem; left: 2rem; width: 6rem; padding: .25rem; font: 12px system-ui; background: #fed7aa; }\n.a { transform: translate(100px) rotate(30deg); }\n.b { transform: rotate(30deg) translate(100px); background: #fdba74; }\n.card { width: 8rem; padding: 1rem; background: #1d1a19; color: white; border-radius: .6rem; animation: wobble 3s ease-in-out infinite alternate; transition: scale .2s cubic-bezier(.2, 0, 0, 1); }\n.card:hover { scale: 1.1; }\n@keyframes wobble { from { rotate: -4deg; } to { rotate: 4deg; } }\n@media (prefers-reduced-motion: reduce) { .card { animation: none; } }`}
+/>
+
+## 3D transforms
+
+`perspective` on the parent (a shared vanishing point) vs `perspective()` inside the transform (per element); `perspective-origin`; **`transform-style: preserve-3d`** so children share 3D space; **`backface-visibility: hidden`** for card flips. Silent **flattening** triggers break 3D: `overflow` other than visible, `opacity < 1`, `filter` and `clip-path` on the preserve-3d element.
+
+<Playground
+  id="p16-3d"
+  title="A card flip, and what flattens it"
+  task="Hover (or focus) the card to flip it. Then add `opacity: .99` to `.inner` and flip again: 3D collapses."
+  html={`<div class="scene" tabindex="0" aria-label="Flip card"><div class="inner"><div class="face front">Front</div><div class="face back">Back</div></div></div>`}
+  css={`.scene { width: 12rem; height: 8rem; perspective: 800px; }\n.inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: rotate .6s cubic-bezier(.2, 0, 0, 1); }\n.scene:hover .inner, .scene:focus .inner { rotate: y 180deg; }\n.face { position: absolute; inset: 0; display: grid; place-items: center; border-radius: .75rem; backface-visibility: hidden; font: 700 1.25rem system-ui; }\n.front { background: #fdba74; }\n.back { background: #1d1a19; color: white; rotate: y 180deg; }\n@media (prefers-reduced-motion: reduce) { .inner { transition: none; } }`}
+/>
+
+## Motion path
+
+`offset-path` moves an element along a path: `path("M…")`, `ray(45deg closest-side)`, `url(#svg-path)` or basic shapes (`circle()`). Animate **`offset-distance`** from 0% to 100%, and `offset-rotate` (`auto` faces along the path).
+
+<Playground
+  id="p16-offset"
+  title="A plane following a curved route"
+  task="Change `offset-rotate` to `0deg`, then to `auto 90deg`. Replace the path with `circle(40%)`."
+  html={`<div class="map"><span class="plane" aria-hidden="true">✈</span></div>`}
+  css={`.map { position: relative; height: 12rem; border-radius: 1rem; background: #eff6ff; }\n.plane { position: absolute; font-size: 1.5rem; offset-path: path("M 20 150 C 80 20, 220 20, 300 120"); offset-rotate: auto; animation: fly 3s ease-in-out infinite alternate; }\n@keyframes fly { from { offset-distance: 0%; } to { offset-distance: 100%; } }\n@media (prefers-reduced-motion: reduce) { .plane { animation: none; offset-distance: 50%; } }`}
+/>
+
+## Animating custom properties
+
+Registered with **`@property`** (Part 8), custom properties interpolate: animate gradient angles, colour stops, conic progress rings, and **number counters** (a registered `<integer>` animated from 0 to 100 and displayed with `counter()`).
+
+<Playground
+  id="p16-property"
+  title="A rotating gradient border and a counting number"
+  task="Change the counter's target to 250 and its duration to 2s."
+  html={`<div class="glow">Rotating border</div>\n<p class="count" aria-label="100 percent"></p>`}
+  css={`@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }\n@property --n { syntax: "<integer>"; inherits: false; initial-value: 0; }\n.glow { padding: 1rem 1.5rem; width: fit-content; border: 3px solid transparent; border-radius: 1rem; background: linear-gradient(white, white) padding-box, conic-gradient(from var(--angle), #f59e0b, #c2410c, #7c3aed, #f59e0b) border-box; animation: turn 4s linear infinite; }\n@keyframes turn { to { --angle: 1turn; } }\n.count { font: 800 3rem system-ui; counter-reset: n var(--n); animation: count 1.2s cubic-bezier(.2, 0, 0, 1) forwards; }\n.count::after { content: counter(n) "%"; }\n@keyframes count { to { --n: 100; } }\n@media (prefers-reduced-motion: reduce) { .glow { animation: none; } .count { animation-duration: 1ms; } }`}
+/>
+
+## The Web Animations API
+
+`element.animate(keyframes, options)` returns an **`Animation`**: `play()`, `pause()`, `reverse()`, `finish()`, `cancel()`, `playbackRate`, `currentTime`, and a **`finished`** promise for sequencing. `document.getAnimations()` lists everything running (CSS ones too); `commitStyles()` writes the end state into inline styles; `KeyframeEffect` and timelines give lower-level control. It's the imperative surface over the same engine CSS uses.
+
+<Playground
+  id="p16-waapi"
+  title="Sequencing with finished, and scrubbing with currentTime"
+  task="Press Sequence: three steps run one after another using `await animation.finished`. Drag the scrubber to control a paused animation."
+  html={`<button id="go">Sequence</button>\n<div class="dots"><i></i><i></i><i></i></div>\n<label>Scrub <input type="range" id="scrub" min="0" max="1000" value="0"></label>\n<div class="scrubbed"></div>`}
+  css={`.dots { display: flex; gap: .5rem; margin: 1rem 0; }\n.dots i { width: 2rem; height: 2rem; border-radius: 50%; background: #fed7aa; }\n.scrubbed { width: 3rem; height: 3rem; background: #c2410c; border-radius: .5rem; margin-top: .5rem; }`}
+  js={`const dots = [...document.querySelectorAll('.dots i')];\ndocument.getElementById('go').addEventListener('click', async () => {\n  for (const dot of dots) {\n    await dot.animate([{ scale: 1 }, { scale: 1.4, background: '#c2410c' }, { scale: 1 }], { duration: 300, easing: 'cubic-bezier(.2,0,0,1)' }).finished;\n  }\n  console.log('All three finished, in order');\n});\nconst box = document.querySelector('.scrubbed');\nconst anim = box.animate([{ translate: '0 0', rotate: '0deg' }, { translate: '14rem 0', rotate: '180deg' }], { duration: 1000, fill: 'both' });\nanim.pause();\ndocument.getElementById('scrub').addEventListener('input', (e) => (anim.currentTime = Number(e.target.value)));`}
+/>
+
+## FLIP
+
+**First** (measure positions), **Last** (change the layout), **Invert** (apply a transform that puts each element back where it was), **Play** (animate the transform to none). The layout change happens instantly and only compositor-friendly transforms animate. It's the technique behind shared-element motion, list reordering and expanding cards; view transitions (Part 17) now automate much of it.
+
+<Playground
+  id="p16-flip"
+  title="FLIP a list reorder by hand"
+  task="Press Shuffle. Then remove the animate() call and see the instant jump FLIP was hiding."
+  html={`<button id="shuffle">Shuffle</button>\n<ul class="list">${['Apricot', 'Banana', 'Cherry', 'Damson', 'Elderberry'].map((f) => '<li>' + f + '</li>').join('')}</ul>`}
+  css={`.list { list-style: none; padding: 0; display: grid; gap: .35rem; max-width: 14rem; }\n.list li { padding: .5rem .75rem; background: #fed7aa; border-radius: .5rem; }`}
+  js={`const list = document.querySelector('.list');\ndocument.getElementById('shuffle').addEventListener('click', () => {\n  const items = [...list.children];\n  const first = new Map(items.map((el) => [el, el.getBoundingClientRect()]));\n  items.sort(() => Math.random() - 0.5).forEach((el) => list.append(el));\n  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;\n  for (const el of items) {\n    const a = first.get(el), b = el.getBoundingClientRect();\n    const dy = a.top - b.top;\n    if (dy) el.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.2,0,0,1)' });\n  }\n});`}
+/>
+
+## Performance of motion
+
+Animate **`transform` and `opacity`**: they're compositor-only, run off the main thread and stay smooth when JavaScript is busy. Avoid animating layout properties (`width`, `height`, `top`, `margin`) and paint-heavy ones (large `box-shadow` blurs, `filter` over big areas, `backdrop-filter`). Use **`will-change`** sparingly: it creates layers that cost memory (add before, remove after). Watch for layer explosions. Frame budgets: **16.7 ms at 60 Hz, 8.3 ms at 120 Hz**. Profile in the Performance panel and the Animations inspector.
+
+<Playground
+  id="p16-perf"
+  title="Block the main thread: which box keeps moving?"
+  task="Press Block main thread (a 1.5-second busy loop). The transform box keeps gliding on the compositor; the `left` box freezes."
+  html={`<button id="block">Block main thread for 1.5 s</button>\n<div class="lane"><div class="m t">transform</div></div>\n<div class="lane"><div class="m l">left</div></div>`}
+  css={`.lane { position: relative; height: 3rem; margin: .5rem 0; background: #f4f1ee; border-radius: .5rem; }\n.m { position: absolute; top: .5rem; width: 5.5rem; padding: .25rem; text-align: center; font: 600 .8rem system-ui; border-radius: .4rem; color: white; }\n.t { background: #15803d; animation: slide-t 1.5s ease-in-out infinite alternate; }\n.l { background: #b91c1c; animation: slide-l 1.5s ease-in-out infinite alternate; }\n@keyframes slide-t { to { transform: translateX(14rem); } }\n@keyframes slide-l { from { left: 0; } to { left: 14rem; } }`}
+  js={`document.getElementById('block').addEventListener('click', () => {\n  const end = performance.now() + 1500;\n  while (performance.now() < end) { /* busy */ }\n  console.log('Main thread free again');\n});`}
+/>
+
+## Accessibility of motion
+
+**`prefers-reduced-motion`**: the recommended pattern is to **reduce, not remove**: replace large movement (slides, zooms, parallax) with fades, keep feedback, and gate big motion behind `@media (prefers-reduced-motion: no-preference)`. Motion can trigger **vestibular disorders** (dizziness, nausea). WCAG **2.3.3** (motion from interactions can be disabled), **2.2.2 Pause, Stop, Hide** (anything moving automatically for more than 5 s needs a control), and **2.3.1 Three Flashes**. Parallax and zoom are the most common triggers.
+
+<Playground
+  id="p16-a11y-motion"
+  title="Reduce, don't remove"
+  task="Emulate `prefers-reduced-motion: reduce` in DevTools → Rendering and open the panel again: it fades instead of sliding, and the confirmation still appears."
+  html={`<button id="open" aria-expanded="false">Open panel</button>\n<aside class="panel" hidden>Settings saved ✓</aside>`}
+  css={`.panel { margin-top: .5rem; padding: 1rem; background: #1d1a19; color: white; border-radius: .75rem; animation: fade .2s ease-out; }\n@media (prefers-reduced-motion: no-preference) { .panel { animation: slide-in .4s cubic-bezier(.05, .7, .1, 1); } }\n@keyframes slide-in { from { translate: -100% 0; opacity: 0; } }\n@keyframes fade { from { opacity: 0; } }`}
+  js={`const b = document.getElementById('open'), p = document.querySelector('.panel');\nb.addEventListener('click', () => { p.hidden = !p.hidden; b.setAttribute('aria-expanded', String(!p.hidden)); });`}
+/>
+
+## Motion design principles
+
+### The 12 principles, for interfaces
+
+Disney's principles (Thomas & Johnston) translate: **squash and stretch** (subtle, for tactile presses), **anticipation** (a slight wind-up), **staging** (one thing at a time), **follow-through and overlapping action** (parts settle at different times), **slow in and slow out** (easing), **arcs** (natural paths curve), **secondary action**, **timing**, **exaggeration** (sparingly) and **appeal**.
+
+### Durations, choreography and systems
+
+**Durations**: micro-interactions 100–200 ms, small transitions 200–300 ms, larger panels 300–500 ms, full-screen transitions up to ~500 ms; **exits faster than entrances**; distance and size scale duration; nothing the user waits for runs over ~400 ms without purpose. **Choreography**: stagger (with `sibling-index()` **[Frontier]** or custom properties), a hierarchy (the primary element moves first), shared direction (things enter from where they come from), consistent physics. **Motion as a system**: duration and easing tokens (this site uses 150/250/400 ms with standard, out, in and spring easings), named patterns (enter, exit, expand, emphasise), and references like Material motion, Apple's HIG, IBM Carbon and Fluent.
+
+<Playground
+  id="p16-principles"
+  title="Staggered choreography with tokens"
+  task="Press Enter: cards arrive in sequence, the heading first. Change the stagger from 40ms to 120ms and judge which feels better. Then make exits faster than entrances."
+  html={`<button id="toggle">Enter / exit</button>\n<section class="grid" data-state="out">\n  <h3 style="--i:0">Your week</h3>\n  <article style="--i:1">Mon</article><article style="--i:2">Tue</article><article style="--i:3">Wed</article><article style="--i:4">Thu</article>\n</section>`}
+  css={`:root { --duration-base: 250ms; --ease-out: cubic-bezier(.05, .7, .1, 1); --ease-in: cubic-bezier(.3, 0, .8, .15); --stagger: 40ms; }\n.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; }\n.grid h3 { grid-column: 1 / -1; margin: .5rem 0; }\n.grid article { padding: 1rem .5rem; background: #fed7aa; border-radius: .5rem; text-align: center; }\n.grid > * { transition: opacity var(--duration-base) var(--ease-out), translate var(--duration-base) var(--ease-out); transition-delay: calc(var(--i) * var(--stagger)); }\n.grid[data-state="out"] > * { opacity: 0; translate: 0 .75rem; transition-timing-function: var(--ease-in); }\n@media (prefers-reduced-motion: reduce) { .grid > * { translate: none !important; } }`}
+  js={`const g = document.querySelector('.grid');\ndocument.getElementById('toggle').addEventListener('click', () => (g.dataset.state = g.dataset.state === 'out' ? 'in' : 'out'));`}
+/>
+
+## Springs and physics
+
+Springs feel natural because they're **velocity-aware** and **interruptible**: a spring that's re-targeted mid-flight keeps its momentum instead of restarting. Parameters: **stiffness**, **damping**, **mass** (or, designer-friendly, response and bounce). CSS approximates a spring with **`linear()`** (the stops below were generated at build time by this site's motion library); reach for libraries (Motion, React Spring, GSAP) for interruption, gestures and velocity hand-off.
+
+<Playground
+  id="p16-spring"
+  title="A lively spring, a calm spring and ease-out"
+  task="Toggle a few times, including mid-flight. The CSS springs restart their curve when interrupted; that's where JavaScript springs earn their bytes."
+  html={`<button id="t">Toggle</button>\n<div class="lane"><i class="ball lively">lively</i></div>\n<div class="lane"><i class="ball calm">calm</i></div>\n<div class="lane"><i class="ball ease">ease-out</i></div>`}
+  css={`.lane { height: 2.5rem; margin: .5rem 0; background: #f4f1ee; border-radius: 99px; padding: .25rem; }\n.ball { display: inline-grid; place-items: center; width: 5rem; height: 2rem; border-radius: 99px; font: 600 .8rem system-ui; font-style: normal; color: white; background: #c2410c; }\n.lively { transition: translate ${lively.duration}ms ${lively.easing}; }\n.calm { transition: translate ${calm.duration}ms ${calm.easing}; background: #1d4ed8; }\n.ease { transition: translate 400ms cubic-bezier(.2, 0, 0, 1); background: #1d1a19; }\nbody.on .ball { translate: 12rem 0; }`}
+  js={`document.getElementById('t').addEventListener('click', () => document.body.classList.toggle('on'));`}
+/>
+
+## Micro-interactions
+
+Small, fast and meaningful: a **button press** (scale 0.97 plus a shadow change), **toggle switches**, **checkbox ticks** (stroke-dashoffset), a **like** burst, input focus transitions, a **skeleton shimmer** (and when a skeleton lies about the layout to come), spinners that respect reduced motion, success confirmations, toast entrances and hover lifts.
+
+<Playground
+  id="p16-micro"
+  title="Press, toggle, tick and like"
+  task="Press and hold the button, flip the switch, tick the box and like the post. Then add a copy-to-clipboard confirmation of your own."
+  html={`<button class="press">Press me</button>\n<label class="switch"><input type="checkbox" role="switch"><span></span> Notifications</label>\n<label class="tick"><input type="checkbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" pathLength="1"/></svg> Done</label>\n<button class="like" aria-pressed="false" aria-label="Like">♥</button>`}
+  css={`body { display: grid; gap: 1rem; justify-items: start; }\n.press { font: 600 1rem system-ui; padding: .6rem 1.2rem; border: 0; border-radius: .6rem; background: #c2410c; color: white; box-shadow: 0 4px 0 #7c2d12; transition: scale .1s, box-shadow .1s, translate .1s; }\n.press:active { scale: .97; translate: 0 2px; box-shadow: 0 2px 0 #7c2d12; }\n.switch { display: flex; gap: .5rem; align-items: center; }\n.switch input { position: absolute; opacity: 0; }\n.switch span { width: 2.6rem; height: 1.5rem; border-radius: 99px; background: #a8a29e; position: relative; transition: background .2s; }\n.switch span::after { content: ""; position: absolute; top: .15rem; left: .15rem; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: white; transition: translate .25s cubic-bezier(.34, 1.56, .64, 1); }\n.switch input:checked + span { background: #15803d; }\n.switch input:checked + span::after { translate: 1.1rem 0; }\n.switch input:focus-visible + span { outline: 2px solid #c2410c; outline-offset: 2px; }\n.tick { display: flex; gap: .5rem; align-items: center; }\n.tick svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: #15803d; stroke-width: 3; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .3s ease-out; }\n.tick input:checked + svg { stroke-dashoffset: 0; }\n.like { font-size: 1.5rem; border: 0; background: none; color: #a8a29e; transition: color .2s, scale .2s cubic-bezier(.34, 1.56, .64, 1); }\n.like[aria-pressed="true"] { color: #e11d48; scale: 1.25; }\n@media (prefers-reduced-motion: reduce) { * { transition-duration: 1ms !important; } }`}
+  js={`const like = document.querySelector('.like');\nlike.addEventListener('click', () => like.setAttribute('aria-pressed', String(like.getAttribute('aria-pressed') !== 'true')));`}
+/>

@@ -1,0 +1,107 @@
+---
+/**
+ * Tonal scale generator (lib/color.ts): 11 OKLCH steps with even lightness and tapered chroma,
+ * each labelled with its WCAG contrast against white and black, next to an HSL scale whose
+ * "even" lightness steps turn out perceptually uneven.
+ */
+import Demo from '../Demo.astro';
+import Control from '../Control.astro';
+
+const names = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+---
+
+<Demo title="Palette lab: an OKLCH tonal scale vs an HSL one">
+  <div class="stack" data-palette-lab>
+    <div class="controls">
+      <Control id="pl-hue" label="Hue" min={0} max={360} value={35} unit="°" />
+      <Control id="pl-chroma" label="Peak chroma" min={0} max={0.3} step={0.005} value={0.16} />
+    </div>
+    <h5 class="kicker">OKLCH: even lightness steps</h5>
+    <ol class="pl-scale" role="list" data-pl-oklch>
+      {names.map((n) => (
+        <li data-name={n} />
+      ))}
+    </ol>
+    <h5 class="kicker">HSL at the same hue, 10% lightness steps (OKLCH L shown)</h5>
+    <ol class="pl-scale" role="list" data-pl-hsl>
+      {names.map((n) => (
+        <li data-name={n} />
+      ))}
+    </ol>
+    <p class="result-line" data-pl-css></p>
+  </div>
+  <p slot="note">
+    Each swatch shows which text colour passes WCAG AA (4.5:1) on it. In the HSL row, watch the
+    OKLCH lightness jump unevenly between steps, especially around yellows (hue 60–100).
+  </p>
+</Demo>
+
+<script>
+  import { bindControls, need, num } from '../../client/controls.ts';
+  import {
+    contrastRatio,
+    formatOklch,
+    hslToRgb,
+    oklchToSrgb,
+    rgbToHex,
+    srgbToOklch,
+    tonalScale,
+    type Rgb,
+  } from '../../lib/color.ts';
+
+  const WHITE: Rgb = [1, 1, 1];
+  const BLACK: Rgb = [0, 0, 0];
+
+  function paint(li: HTMLElement, rgb: Rgb, label: string): void {
+    const onWhite = contrastRatio(WHITE, rgb);
+    const onBlack = contrastRatio(BLACK, rgb);
+    const text = onWhite >= onBlack ? '#fff' : '#000';
+    li.style.background = rgbToHex(rgb);
+    li.style.color = text;
+    const best = Math.max(onWhite, onBlack);
+    li.textContent = `${li.dataset.name} · ${label} · ${text === '#fff' ? 'white' : 'black'} ${best.toFixed(1)}:1${best >= 4.5 ? ' AA' : ''}`;
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-palette-lab]').forEach((root) => {
+    const oklchRows = [...need<HTMLElement>(root, '[data-pl-oklch]').children] as HTMLElement[];
+    const hslRows = [...need<HTMLElement>(root, '[data-pl-hsl]').children] as HTMLElement[];
+    bindControls(root, () => {
+      const hue = num(root, '#pl-hue');
+      const scale = tonalScale(hue, num(root, '#pl-chroma'));
+      scale.forEach((color, i) => {
+        const li = oklchRows[i];
+        if (li) paint(li, oklchToSrgb(color), `L ${color.l.toFixed(2)}`);
+      });
+      hslRows.forEach((li, i) => {
+        const rgb = hslToRgb(hue, 0.85, 0.95 - i * 0.09);
+        paint(li, rgb, `L ${srgbToOklch(rgb).l.toFixed(2)}`);
+      });
+      need<HTMLElement>(root, '[data-pl-css]').textContent = scale
+        .map((c, i) => `--brand-${oklchRows[i]?.dataset.name}: ${formatOklch(c)};`)
+        .join(' ');
+    });
+  });
+</script>
+
+<style>
+  .pl-scale {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+    gap: 2px;
+    font-family: var(--font-mono);
+    font-size: var(--step-n2);
+  }
+  .pl-scale :global(li) {
+    padding: 0.6rem 0.5rem;
+    min-block-size: 3.2rem;
+    border-radius: var(--radius-sm);
+  }
+  [data-pl-css] {
+    font-size: var(--step-n2);
+  }
+  @media (forced-colors: active) {
+    .pl-scale :global(li) {
+      forced-color-adjust: none;
+    }
+  }
+</style>

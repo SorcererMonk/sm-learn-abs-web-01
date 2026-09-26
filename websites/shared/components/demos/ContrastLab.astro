@@ -1,0 +1,168 @@
+---
+/**
+ * Contrast checker (lib/color.ts): WCAG 2 ratio with AA/AAA verdicts, APCA Lc as a design aid,
+ * and a one-click fix that moves only the text's OKLCH lightness until it passes.
+ */
+import Demo from '../Demo.astro';
+---
+
+<Demo title="Contrast lab: WCAG 2 and APCA side by side">
+  <div class="stack" data-contrast-lab>
+    <div class="controls">
+      <label class="control" for="cl-fg">
+        <span>Text colour</span>
+        <input type="color" id="cl-fg" value="#f97316" />
+      </label>
+      <label class="control" for="cl-bg">
+        <span>Background colour</span>
+        <input type="color" id="cl-bg" value="#ffffff" />
+      </label>
+      <div class="control">
+        <span>Adjust</span>
+        <span class="cluster">
+          <button type="button" class="btn btn--small" data-cl-fix>
+            Fix text to AA (4.5:1)
+          </button>
+          <button type="button" class="btn btn--small btn--ghost" data-cl-swap>
+            Swap
+          </button>
+        </span>
+      </div>
+    </div>
+    <div class="cl-sample" data-cl-sample>
+      <p class="cl-large">Large text, 24px</p>
+      <p>Body text at 16px needs 4.5:1 under WCAG 2.</p>
+      <span class="cl-ui" aria-hidden="true">
+        UI edge
+      </span>
+    </div>
+    <dl class="cl-results" aria-live="polite">
+      <div>
+        <dt>WCAG 2 ratio</dt>
+        <dd data-cl-ratio></dd>
+      </div>
+      <div>
+        <dt>Body text (AA 4.5)</dt>
+        <dd data-cl-aa></dd>
+      </div>
+      <div>
+        <dt>Large text / UI (AA 3)</dt>
+        <dd data-cl-large></dd>
+      </div>
+      <div>
+        <dt>AAA (7)</dt>
+        <dd data-cl-aaa></dd>
+      </div>
+      <div>
+        <dt>APCA Lc</dt>
+        <dd data-cl-apca></dd>
+      </div>
+    </dl>
+  </div>
+  <p slot="note">
+    APCA is a design aid (not yet normative): roughly Lc 75+ for body text, 60 for large text, 45
+    for headlines and 30 for non-text UI. Meet WCAG 2 for compliance. Try orange text on white, then
+    white text on orange, and compare what each algorithm says.
+  </p>
+</Demo>
+
+<script>
+  import { need } from '../../client/controls.ts';
+  import {
+    apcaContrast,
+    contrastRatio,
+    fixContrast,
+    hexToRgb,
+    oklchToSrgb,
+    rgbToHex,
+    srgbToOklch,
+  } from '../../lib/color.ts';
+
+  document.querySelectorAll<HTMLElement>('[data-contrast-lab]').forEach((root) => {
+    const fg = need<HTMLInputElement>(root, '#cl-fg');
+    const bg = need<HTMLInputElement>(root, '#cl-bg');
+    const sample = need<HTMLElement>(root, '[data-cl-sample]');
+    const set = (sel: string, text: string): void => {
+      need<HTMLElement>(root, sel).textContent = text;
+    };
+    const verdict = (pass: boolean): string => (pass ? 'Pass' : 'Fail');
+    const render = (): void => {
+      const f = hexToRgb(fg.value);
+      const b = hexToRgb(bg.value);
+      const ratio = contrastRatio(f, b);
+      const lc = apcaContrast(f, b);
+      sample.style.color = fg.value;
+      sample.style.background = bg.value;
+      set('[data-cl-ratio]', `${ratio.toFixed(2)}:1`);
+      set('[data-cl-aa]', verdict(ratio >= 4.5));
+      set('[data-cl-large]', verdict(ratio >= 3));
+      set('[data-cl-aaa]', verdict(ratio >= 7));
+      const use =
+        Math.abs(lc) >= 75
+          ? 'body text'
+          : Math.abs(lc) >= 60
+            ? 'large text'
+            : Math.abs(lc) >= 45
+              ? 'headlines'
+              : Math.abs(lc) >= 30
+                ? 'UI only'
+                : 'decoration only';
+      set('[data-cl-apca]', `${lc.toFixed(1)} (${use})`);
+    };
+    root.addEventListener('input', render);
+    need<HTMLButtonElement>(root, '[data-cl-fix]').addEventListener('click', () => {
+      const fixed = fixContrast(srgbToOklch(hexToRgb(fg.value)), hexToRgb(bg.value), 4.5);
+      if (fixed) fg.value = rgbToHex(oklchToSrgb(fixed));
+      render();
+    });
+    need<HTMLButtonElement>(root, '[data-cl-swap]').addEventListener('click', () => {
+      [fg.value, bg.value] = [bg.value, fg.value];
+      render();
+    });
+    render();
+  });
+</script>
+
+<style>
+  .cl-sample {
+    padding: var(--space-s);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    font-family: var(--font-sans);
+  }
+  .cl-large {
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+  .cl-ui {
+    display: inline-block;
+    margin-block-start: var(--space-2xs);
+    padding: 0.3rem 0.8rem;
+    border: 2px solid currentColor;
+    border-radius: var(--radius-sm);
+  }
+  .cl-results {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+    gap: var(--space-2xs);
+  }
+  .cl-results div {
+    padding: var(--space-2xs) var(--space-xs);
+    background: var(--color-surface-2);
+    border-radius: var(--radius-sm);
+  }
+  .cl-results dt {
+    font-size: var(--step-n1);
+    color: var(--color-text-muted);
+  }
+  .cl-results dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+  @media (forced-colors: active) {
+    .cl-sample {
+      forced-color-adjust: none;
+    }
+  }
+</style>
